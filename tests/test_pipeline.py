@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from invest.config import AppConfig
-from invest.pipeline import PortfolioSnapshotRegression, run_pipeline
+from invest.pipeline import run_pipeline
 
 
 class PipelineTests(unittest.TestCase):
@@ -56,7 +56,7 @@ class PipelineTests(unittest.TestCase):
         brief.assert_not_called()
         site.assert_not_called()
 
-    def test_public_pipeline_refuses_to_publish_shrunken_portfolio_after_broker_failure(self):
+    def test_public_pipeline_defers_publish_for_shrunken_portfolio_after_broker_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             reports_dir = root / "reports"
@@ -92,9 +92,10 @@ class PipelineTests(unittest.TestCase):
                 patch("invest.pipeline.generate_brief", return_value=(reports_dir / "brief.md", report_json)),
                 patch("invest.pipeline.build_site") as site,
             ):
-                with self.assertRaises(PortfolioSnapshotRegression):
-                    run_pipeline(None, config, "premarket", out_dir=out_dir, force=True)
+                result = run_pipeline(None, config, "premarket", out_dir=out_dir, force=True)
 
+            self.assertEqual(result["status"], "deferred")
+            self.assertIn("Refusing to publish public snapshot", result["reason"])
             site.assert_not_called()
 
 

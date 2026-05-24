@@ -46,7 +46,19 @@ def run_pipeline(
     broker_result = sync_brokers(conn, config)
     md_path, json_path = generate_brief(conn, config, kind)
     report_payload = json.loads(json_path.read_text(encoding="utf-8")) if json_path.exists() else {}
-    assert_no_public_portfolio_regression(report_payload, broker_result, out_dir, privacy)
+    regression_reason = public_portfolio_regression_reason(report_payload, broker_result, out_dir, privacy)
+    if regression_reason:
+        deferred_result = {
+            **result,
+            "status": "deferred",
+            "reason": regression_reason,
+            "filings": filing_result,
+            "brokers": broker_result,
+            "report_markdown": str(md_path),
+            "report_json": str(json_path),
+        }
+        deferred_result["warehouse"] = sync_report_payload(None, deferred_result)
+        return deferred_result
     site_result = build_site(
         config.reports_dir,
         out_dir,
@@ -75,11 +87,22 @@ def assert_no_public_portfolio_regression(
     out_dir: Path,
     privacy: str,
 ) -> None:
+    reason = public_portfolio_regression_reason(report_payload, broker_result, out_dir, privacy)
+    if reason:
+        raise PortfolioSnapshotRegression(reason)
+
+
+def public_portfolio_regression_reason(
+    report_payload: dict[str, Any],
+    broker_result: dict[str, Any],
+    out_dir: Path,
+    privacy: str,
+) -> str:
     if privacy != "public" or not broker_sync_has_problem(broker_result):
-        return
+        return ""
     previous = load_existing_public_snapshot(out_dir)
     if not previous:
-        return
+        return ""
     previous_portfolio = previous.get("portfolio") or {}
     current_portfolio = report_payload.get("portfolio") or {}
     previous_symbols = int(previous_portfolio.get("symbol_count") or 0)
@@ -87,15 +110,16 @@ def assert_no_public_portfolio_regression(
     previous_rows = int(previous_portfolio.get("position_count") or 0)
     current_rows = int(current_portfolio.get("position_count") or 0)
     if previous_symbols and current_symbols < previous_symbols:
-        raise PortfolioSnapshotRegression(
+        return (
             "Refusing to publish public snapshot because broker sync failed/skipped "
             f"and portfolio symbol count would shrink from {previous_symbols} to {current_symbols}."
         )
     if previous_rows and current_rows < previous_rows:
-        raise PortfolioSnapshotRegression(
+        return (
             "Refusing to publish public snapshot because broker sync failed/skipped "
             f"and portfolio position rows would shrink from {previous_rows} to {current_rows}."
         )
+    return ""
 
 
 def broker_sync_has_problem(broker_result: dict[str, Any]) -> bool:

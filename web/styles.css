@@ -1021,6 +1021,51 @@ h3 {
   gap: 16px;
 }
 
+.private-weight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.private-weight-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-alt);
+}
+
+.private-weight-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.private-weight-head strong,
+.private-weight-head span {
+  display: block;
+}
+
+.private-weight-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.private-weight-head span {
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.private-weight-card small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
 .focus-group {
   min-width: 0;
 }

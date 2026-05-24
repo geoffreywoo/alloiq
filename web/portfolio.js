@@ -55,6 +55,7 @@ function render() {
   renderWeightTable();
   renderBucketThesis();
   renderConcentrationMap();
+  renderAntiFundGrowth();
   renderRebalanceList();
   renderAttribution();
 }
@@ -154,6 +155,35 @@ function renderConcentrationMap() {
       <h4>Thesis mix</h4>
       <div class="bar-list">${buckets.map((row) => weightBar(labelize(row.bucket), row.weight, row.bucket)).join("")}</div>
     </div>
+  `;
+}
+
+function renderAntiFundGrowth() {
+  const growth = payload.anti_fund_growth || {};
+  const positions = growth.positions || [];
+  const summary = document.getElementById("portfolioAntiFundSummary");
+  const target = document.getElementById("portfolioAntiFundWeights");
+  if (!target) return;
+  if (summary) {
+    summary.textContent = growth.as_of ? `${growth.as_of} | weights only` : "Weights only";
+  }
+  target.innerHTML = positions.length
+    ? positions.map((row, index) => privateWeightTemplate(row, index)).join("")
+    : empty("No Anti Fund Growth I weights in this snapshot.");
+}
+
+function privateWeightTemplate(row, index) {
+  const palette = ["#0e151b", "#08745f", "#2558d5", "#b5681e", "#0f7580", "#66518d", "#69752d", "#b04449", "#5a6673"];
+  const color = palette[index % palette.length];
+  return `
+    <article class="private-weight-card">
+      <div class="private-weight-head">
+        <strong>${escapeHtml(row.company || "Company")}</strong>
+        <span>${escapeHtml(formatWeight(row.weight))}</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" style="width:${barWidth(row.weight)}%;background:${color}"></div></div>
+      <small>Anti Fund Growth I active book weight</small>
+    </article>
   `;
 }
 

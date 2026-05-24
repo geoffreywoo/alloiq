@@ -17,6 +17,23 @@ BENCHMARK_NAME_MAP = {
     "Tier 1 median proxy": "AI Thesis Core median proxy",
     "Tier 2 median proxy": "Manager Context Bench median proxy",
 }
+ANTI_FUND_GROWTH_I = {
+    "name": "Anti Fund Growth I, LP",
+    "as_of": "May 24, 2026",
+    "basis": "active_growth_book_weight",
+    "description": "Private-growth company weights, normalized to the active Growth I book. Sizes, shares, PPS, account records, and raw LP model fields are excluded.",
+    "positions": [
+        {"company": "OpenAI", "weight": 0.393107},
+        {"company": "Cognition", "weight": 0.179038},
+        {"company": "Saronic", "weight": 0.131646},
+        {"company": "SpaceX", "weight": 0.118488},
+        {"company": "Helion", "weight": 0.065823},
+        {"company": "Anduril", "weight": 0.065823},
+        {"company": "Erebor", "weight": 0.026327},
+        {"company": "Modal", "weight": 0.013165},
+        {"company": "Etched", "weight": 0.006582},
+    ],
+}
 
 
 def build_site(
@@ -125,6 +142,7 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
     public_payload["methodology"] = sanitize_methodology(
         public_payload.get("methodology") or default_methodology(public_payload)
     )
+    public_payload["anti_fund_growth"] = deepcopy(ANTI_FUND_GROWTH_I)
     public_payload["audit"] = sanitize_public_section(
         public_payload.get("audit") or default_audit(public_payload)
     )

@@ -189,6 +189,7 @@ function renderContent() {
   renderResearch();
   renderEarnings();
   renderManagers();
+  renderAntiFundGrowth();
   renderMacro();
   renderNews();
   renderMethodology();
@@ -909,6 +910,37 @@ function renderManagers() {
     managers.length === 0 ? empty("No manager filing rows match this search.") : managers.map(managerTemplate).join("");
 }
 
+function renderAntiFundGrowth() {
+  const growth = state.payload.anti_fund_growth || {};
+  const summary = document.getElementById("antiFundGrowthSummary");
+  const target = document.getElementById("antiFundGrowthWeights");
+  if (!target) return;
+  const positions = filterItems(growth.positions || []);
+  if (summary) {
+    summary.textContent = growth.as_of
+      ? `${growth.as_of} | weights only`
+      : "Weights only";
+  }
+  target.innerHTML = positions.length
+    ? positions.map((row, index) => privateWeightTemplate(row, index)).join("")
+    : empty("No Anti Fund Growth I weights in this snapshot.");
+}
+
+function privateWeightTemplate(row, index) {
+  const palette = ["#0e151b", "#08745f", "#2558d5", "#b5681e", "#0f7580", "#66518d", "#69752d", "#b04449", "#5a6673"];
+  const color = palette[index % palette.length];
+  return `
+    <article class="private-weight-card searchable" data-search="${searchAttribute(row)}">
+      <div class="private-weight-head">
+        <strong>${escapeHtml(row.company || "Company")}</strong>
+        <span>${escapeHtml(formatWeight(row.weight))}</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" style="width:${barWidth(row.weight)}%;background:${color}"></div></div>
+      <small>Anti Fund Growth I active book weight</small>
+    </article>
+  `;
+}
+
 function buildVisibleFocusGroups(radar) {
   const groups = radar.focus_manager_groups || [
     { key: "focus", label: "Focus Managers", description: "", managers: radar.focus_managers || [] },
@@ -1567,6 +1599,10 @@ function formatAbsWeight(value) {
 function formatWeight(value) {
   if (value == null || Number.isNaN(Number(value))) return "0.00%";
   return `${number.format(Number(value) * 100)}%`;
+}
+
+function barWidth(weight) {
+  return Math.max(2, Math.min(100, Number(weight || 0) * 100));
 }
 
 function displayActionText(value = "") {

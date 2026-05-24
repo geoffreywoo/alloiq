@@ -103,7 +103,11 @@ jobs:
         run: node --check web/app.js
 
       - name: Build public site from committed snapshot
-        run: python3 -m invest site build --privacy public --out-dir /tmp/alloiq-web-check
+        shell: bash
+        run: |
+          mkdir -p /tmp/alloiq-web-check/data
+          cp web/data/latest.json web/data/reports.json /tmp/alloiq-web-check/data/
+          python3 -m invest site build --privacy public --out-dir /tmp/alloiq-web-check
 
       - name: Run scheduled pipeline
         env:

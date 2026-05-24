@@ -94,6 +94,7 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
     public_payload["private_data_redacted"] = True
     public_payload["positions"] = {}
     public_payload["transactions"] = []
+    public_payload["disclaimer"] = "Public weights, public filings, daily AI markets signals. Approval-only; no live order execution."
     if public_payload.get("latest_filing"):
         public_payload["latest_filing"] = strip_private_keys(public_payload["latest_filing"])
     public_payload["portfolio"] = sanitize_portfolio(public_payload.get("portfolio") or {})
@@ -111,8 +112,20 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
     public_payload["data_health"] = sanitize_data_health(
         public_payload.get("data_health") or default_data_health(public_payload)
     )
+    public_payload["calendars"] = sanitize_public_section(
+        public_payload.get("calendars") or default_calendars(public_payload)
+    )
+    public_payload["engine"] = sanitize_public_section(
+        public_payload.get("engine") or default_engine(public_payload)
+    )
+    public_payload["paper_portfolio"] = sanitize_public_section(
+        public_payload.get("paper_portfolio") or default_paper_portfolio(public_payload)
+    )
     public_payload["methodology"] = sanitize_methodology(
         public_payload.get("methodology") or default_methodology(public_payload)
+    )
+    public_payload["audit"] = sanitize_public_section(
+        public_payload.get("audit") or default_audit(public_payload)
     )
     if "weekly_research" in public_payload:
         public_payload["weekly_research"] = sanitize_weekly_research(public_payload["weekly_research"])
@@ -154,6 +167,9 @@ def sanitize_portfolio_benchmark(benchmark: dict[str, Any]) -> dict[str, Any]:
     clean = dict(benchmark)
     clean["benchmarks"] = [sanitize_benchmark(row) for row in clean.get("benchmarks", [])]
     clean["peer_proxies"] = [sanitize_peer_proxy(row) for row in clean.get("peer_proxies", [])]
+    clean["action_queue"] = [
+        sanitize_public_trading_row(row) for row in clean.get("action_queue", [])
+    ]
     return clean
 
 
@@ -189,6 +205,8 @@ def normalize_manager_radar_labels(radar: dict[str, Any]) -> dict[str, Any]:
 
 def normalize_focus_manager_label(row: dict[str, Any]) -> dict[str, Any]:
     clean = dict(row)
+    if clean.get("manager_key") == "d1-capital":
+        clean["manager_tier"] = "tier_1"
     clean["manager_group"] = manager_group_label(str(clean.get("manager_tier") or "tier_2"))
     return clean
 
@@ -226,7 +244,7 @@ def build_public_focus_manager_groups(focus_managers: list[dict[str, Any]]) -> l
         {
             "key": "tier_1",
             "label": manager_group_label("tier_1"),
-            "description": "Leopold/Situational Awareness, Altimeter, and Dragoneer.",
+            "description": "Situational Awareness / Leopold, Altimeter, Dragoneer, and D1.",
             "managers": [row for row in focus_managers if row.get("manager_tier") == "tier_1"],
         },
         {
@@ -268,14 +286,16 @@ def sanitize_idea(idea: dict[str, Any]) -> dict[str, Any]:
     clean = dict(idea)
     idea_type = str(clean.get("type", "research"))
     if "owned" in idea_type:
-        clean["type"] = "portfolio-context research"
+        clean["type"] = "portfolio-context study"
         clean["setup"] = "Portfolio context is redacted in the public build; evaluate this symbol against your own exposure."
+    else:
+        clean["type"] = public_trading_copy(str(clean.get("type", idea_type)))
     return clean
 
 
 def sanitize_weekly_research(research: dict[str, Any]) -> dict[str, Any]:
-    clean = strip_private_keys(research)
-    clean["ideas"] = [strip_private_keys(idea) for idea in clean.get("ideas", [])]
+    clean = public_trading_copy(strip_private_keys(research))
+    clean["ideas"] = [public_trading_copy(strip_private_keys(idea)) for idea in clean.get("ideas", [])]
     return clean
 
 
@@ -285,7 +305,8 @@ def sanitize_approval_tickets(tickets: list[dict[str, Any]]) -> list[dict[str, A
         clean = strip_private_keys(ticket)
         clean.pop("order_execution", None)
         clean["approval_required"] = True
-        clean["sizing_basis"] = "portfolio-weight research proposal; not an execution order"
+        clean["sizing_basis"] = "approval-only portfolio-weight target delta for the trade feed"
+        clean = public_trading_copy(clean)
         public_tickets.append(clean)
     return public_tickets
 
@@ -300,7 +321,9 @@ def sanitize_earnings_events(events: list[dict[str, Any]]) -> list[dict[str, Any
 
 
 def sanitize_data_health(health: dict[str, Any]) -> dict[str, Any]:
-    clean = strip_private_keys(health)
+    clean = public_trading_copy(strip_private_keys(health))
+    if clean.get("recommendation_posture") == "research_only_until_positions_refresh":
+        clean["recommendation_posture"] = "positions_refresh_needed"
     sources = []
     for source in clean.get("sources", []):
         row = dict(source)
@@ -313,6 +336,10 @@ def sanitize_data_health(health: dict[str, Any]) -> dict[str, Any]:
         sources.append(row)
     clean["sources"] = sources
     return clean
+
+
+def sanitize_public_section(section: dict[str, Any]) -> dict[str, Any]:
+    return public_trading_copy(strip_private_keys(section))
 
 
 def sanitize_methodology(methodology: dict[str, Any]) -> dict[str, Any]:
@@ -340,7 +367,56 @@ def sanitize_methodology_terms(value: Any) -> Any:
     if isinstance(value, list):
         return [sanitize_methodology_terms(item) for item in value]
     if isinstance(value, str):
-        return replacements.get(value, value)
+        return public_trading_copy(replacements.get(value, value))
+    return value
+
+
+def sanitize_public_trading_row(row: dict[str, Any]) -> dict[str, Any]:
+    clean = public_trading_copy(strip_private_keys(row))
+    if clean.get("trade_action") == "hold_hedge":
+        clean["trade_action"] = "hold"
+    if "sizing_basis" in clean:
+        clean["sizing_basis"] = "approval-only portfolio-weight target delta for the trade feed"
+    if "action" in clean:
+        clean["action"] = public_trading_copy(clean["action"])
+    if "sizing_summary" in clean:
+        clean["sizing_summary"] = public_trading_copy(clean["sizing_summary"])
+    return clean
+
+
+def public_trading_copy(value: Any) -> Any:
+    replacements = (
+        ("Research only. No order execution and no personalized financial advice.", "Public weights, public filings, daily AI markets signals. Approval-only; no live order execution."),
+        ("AlloIQ ranks watchlist names by independent public-market signal families, constrains sizing with portfolio risk limits, and publishes approval-only portfolio-weight research proposals.", "AlloIQ ranks watchlist names by independent public-market signal families, constrains sizing with portfolio risk limits, and publishes approval-only portfolio-weight trade targets."),
+        ("portfolio-weight research proposal; approval required; no order execution", "approval-only portfolio-weight target delta for the trade feed; no live order execution"),
+        ("portfolio-weight research proposal; not an execution order", "approval-only portfolio-weight target delta for the trade feed; no live order execution"),
+        ("research proposals", "trades"),
+        ("Research proposals", "Trades"),
+        ("research proposal", "trade"),
+        ("Research proposal", "Trade"),
+        ("proposal set", "trade set"),
+        ("starter-weight proposal", "starter target"),
+        ("size any hedge at", "keep risk budget at"),
+        ("Hedge existing exposure", "Hold with risk budget"),
+        ("Hedge watch", "Risk watch"),
+        ("Add-on-dip research", "Add on pullback"),
+        ("Catalyst-confirmed research", "Catalyst-confirmed starter"),
+        ("White-space long research", "White-space long"),
+        ("Weekly Idea Research", "Weekly Study Queue"),
+        ("weekly idea research", "weekly study queue"),
+        ("research queue", "study queue"),
+        ("Research", "Study"),
+        ("research", "study"),
+    )
+    if isinstance(value, dict):
+        return {key: public_trading_copy(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [public_trading_copy(item) for item in value]
+    if isinstance(value, str):
+        text = value
+        for old, new in replacements:
+            text = text.replace(old, new)
+        return text
     return value
 
 
@@ -368,10 +444,10 @@ def default_methodology(payload: dict[str, Any]) -> dict[str, Any]:
         "version": "derived-from-public-snapshot",
         "updated_by_backend": False,
         "session": payload.get("session", ""),
-        "summary": "AlloIQ ranks watchlist names by independent public-market signal families, constrains sizing with portfolio risk limits, and publishes approval-only portfolio-weight research proposals.",
+        "summary": "AlloIQ ranks watchlist names by independent public-market signal families, constrains sizing with portfolio risk limits, and publishes portfolio-weight trade targets.",
         "pipeline": {
             "cadence": [
-                {"kind": "premarket", "when": "8:00 AM ET on NYSE trading days", "purpose": "Refresh holdings, filings, overnight catalysts, macro tape, and approval tickets before the open."},
+                {"kind": "premarket", "when": "8:00 AM ET on NYSE trading days", "purpose": "Refresh holdings, filings, overnight catalysts, macro tape, and trade tickets before the open."},
                 {"kind": "postmarket", "when": "4:30 PM ET on NYSE trading days", "purpose": "Refresh end-of-day price action, attribution, catalysts, and follow-up ticket state."},
                 {"kind": "weekly", "when": "Sunday morning ET", "purpose": "Run full idea research, thesis/falsifier review, and weekly opportunity/risk queue."},
             ],
@@ -399,14 +475,14 @@ def default_methodology(payload: dict[str, Any]) -> dict[str, Any]:
             "components": [
                 {"key": "manager", "max_points": 25, "rule": "Tracked-manager overlap, consensus holder count, primary-manager exposure, and option tilt from public 13F data."},
                 {"key": "catalyst", "max_points": 20, "rule": "Classified news events such as capex signals, contract wins, financing risk, regulatory risk, supply constraints, and earnings revisions."},
-                {"key": "portfolio_fit", "max_points": 12, "rule": "Current portfolio ownership or strong manager consensus gives context for add, trim, hedge, or white-space review."},
+                {"key": "portfolio_fit", "max_points": 12, "rule": "Current portfolio ownership or strong manager consensus gives context for add, trim, hold, or white-space review."},
                 {"key": "price_action", "max_points": 10, "rule": "Recent price movement gates entry discipline; moderate strength and large drawdowns are treated differently."},
                 {"key": "option_tilt", "max_points": 5, "rule": "Call-heavy public filings can add support; put-heavy filings can subtract or force risk review."},
             ],
             "promotion_rules": [
-                "Names with at least two independent signal families are eligible for higher-priority research.",
-                "Owned names with financing, regulatory, crowding, or put-heavy risk can override add logic into trim, hedge, or review.",
-                "Every recommendation carries a trigger, risk, and falsifier; none are execution instructions.",
+                "Names with at least two independent signal families are eligible for higher-priority study.",
+                "Owned names with financing, regulatory, crowding, or put-heavy risk can override add logic into trim, hold, or review.",
+                "Every recommendation carries a trigger, risk, and falsifier.",
             ],
         },
         "risk_and_sizing": {
@@ -434,13 +510,105 @@ def default_methodology(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def default_calendars(payload: dict[str, Any]) -> dict[str, Any]:
+    events = payload.get("earnings_events") or []
+    return {
+        "version": "derived-from-public-snapshot",
+        "as_of": payload.get("as_of", ""),
+        "earnings": {
+            "events": events,
+            "event_count": len(events),
+            "source_quality": "ok" if events else "limited",
+            "policy": "Manual dates are canonical; SEC/result markers and news-derived events enrich risk windows.",
+        },
+        "filings_13f": {
+            "rule": "Form 13F is due within 45 days after each calendar quarter end; weekend/holiday deadlines move to the next NYSE business day.",
+            "rule_source": "https://www.sec.gov/divisions/investment/13ffaq.htm",
+            "current_cycle": {},
+            "managers": [],
+            "manager_count": 0,
+            "filed_count": 0,
+            "pending_count": 0,
+            "late_count": 0,
+        },
+    }
+
+
+def default_engine(payload: dict[str, Any]) -> dict[str, Any]:
+    cards = payload.get("decision_cards") or []
+    return {
+        "version": "derived-from-public-snapshot",
+        "mode": "approval_plus_paper",
+        "universe": "equities_only",
+        "objective": "maximize_expected_3_12m_forward_return",
+        "live_order_execution": "disabled",
+        "learning": {
+            "status": "baseline_fallback",
+            "outcome_count": 0,
+            "minimum_required": 20,
+            "weight_adjustments": {},
+        },
+        "feature_count": len(cards),
+        "ranked_candidates": [
+            {
+                "rank": index,
+                "symbol": card.get("symbol", ""),
+                "bucket": card.get("bucket", "unmapped"),
+                "expected_return_rank_score": card.get("score", 0),
+                "signal_families": card.get("signal_families", []),
+            }
+            for index, card in enumerate(cards[:20], start=1)
+        ],
+        "recommendation_provenance": [],
+        "optimizer": {"type": "long_only_weight_optimizer", "allocations": []},
+    }
+
+
+def default_paper_portfolio(payload: dict[str, Any]) -> dict[str, Any]:
+    tickets = payload.get("approval_tickets") or []
+    return {
+        "version": "derived-from-public-snapshot",
+        "mode": "paper_only",
+        "live_order_execution": "disabled",
+        "fill_policy": "next_available_daily_close_proxy",
+        "paper_trades": [],
+        "snapshots": [],
+        "metrics": {"paper_trade_count": len(tickets), "status": "derived"},
+    }
+
+
+def default_audit(payload: dict[str, Any]) -> dict[str, Any]:
+    health = payload.get("data_health") or default_data_health(payload)
+    engine = payload.get("engine") or default_engine(payload)
+    calendars = payload.get("calendars") or default_calendars(payload)
+    return {
+        "version": "derived-from-public-snapshot",
+        "as_of": payload.get("as_of", ""),
+        "session": payload.get("session", ""),
+        "overall_status": "ok",
+        "engine_version": engine.get("version", ""),
+        "privacy_scan": {"status": "required_after_build", "scope": "public web assets"},
+        "source_freshness": health.get("sources", []),
+        "calendar_health": {
+            "earnings_event_count": (calendars.get("earnings") or {}).get("event_count", 0),
+            "filing_deadline": ((calendars.get("filings_13f") or {}).get("current_cycle") or {}).get("deadline", ""),
+        },
+        "engine_health": {
+            "learning_status": (engine.get("learning") or {}).get("status", "baseline_fallback"),
+            "feature_count": engine.get("feature_count", 0),
+            "live_order_execution": "disabled",
+        },
+        "data_gaps": [],
+    }
+
+
 def default_data_health(payload: dict[str, Any]) -> dict[str, Any]:
     portfolio = payload.get("portfolio") or {}
     manager_radar = payload.get("manager_radar") or {}
     news = payload.get("news") or []
     prices = [card for card in payload.get("decision_cards", []) if card.get("last_price") is not None]
     return {
-        "recommendation_posture": "normal" if portfolio.get("position_count") else "research_only_until_positions_refresh",
+        "recommendation_posture": "normal" if portfolio.get("position_count") else "positions_refresh_needed",
         "summary": "Public snapshot includes sanitized source-health estimates.",
         "sources": [
             {
@@ -506,7 +674,7 @@ def strip_private_keys(value: Any) -> Any:
 def sanitize_candidate(candidate: str) -> str:
     lowered = candidate.lower()
     if "hold" in lowered or "add-on" in lowered:
-        return "research candidate"
+        return "study candidate"
     return candidate
 
 
@@ -546,11 +714,11 @@ def move_from_card(card: dict[str, Any], regime: str, bucket_weights: dict[str, 
         posture = "Risk-managed"
         rationale = "The Geoffrey Woo Portfolio owns this name, and recent catalyst classification points to financing, regulatory, or crowding risk."
     elif put_value > max(call_value * 1.25, 50_000_000) and portfolio_weight > 0:
-        action = "Hedge existing exposure"
+        action = "Hold with risk budget"
         posture = "Cautious"
         rationale = "The Geoffrey Woo Portfolio owns this name, and tracked filings show meaningful put exposure against it."
     elif put_value > max(call_value * 1.25, 50_000_000):
-        action = "Hedge watch"
+        action = "Risk watch"
         posture = "Cautious"
         rationale = "Tracked filings show meaningful put exposure against the name despite manager ownership."
     elif portfolio_weight >= 0.12 and manager_count >= 3 and score >= 38:
@@ -558,15 +726,15 @@ def move_from_card(card: dict[str, Any], regime: str, bucket_weights: dict[str, 
         posture = "Size discipline"
         rationale = "The Geoffrey Woo Portfolio already has a large weight here; compare incremental upside against concentration risk."
     elif portfolio_weight > 0 and manager_count >= 3 and score >= 38 and move_pct < 8:
-        action = "Add-on-dip research"
+        action = "Add on pullback"
         posture = "Constructive"
         rationale = "The Geoffrey Woo Portfolio owns this name, manager consensus is strong, and recent price action is not yet extreme."
     elif portfolio_weight == 0 and manager_count >= 2 and constructive_event and len(signal_families) >= 2 and move_pct < 8:
-        action = "Catalyst-confirmed research"
+        action = "Catalyst-confirmed starter"
         posture = "Constructive"
-        rationale = "The Geoffrey Woo Portfolio has no current weight, while manager signal and classified catalysts both confirm the research setup."
+        rationale = "The Geoffrey Woo Portfolio has no current weight, while manager signal and classified catalysts both confirm the setup."
     elif portfolio_weight == 0 and manager_count >= 3 and score >= 38 and move_pct < 8:
-        action = "White-space long research"
+        action = "White-space long"
         posture = "Constructive"
         rationale = "The Geoffrey Woo Portfolio has no current weight, while multiple tracked managers own the name and the signal score is high."
     elif manager_count >= 3 and move_pct >= 8:
@@ -579,13 +747,13 @@ def move_from_card(card: dict[str, Any], regime: str, bucket_weights: dict[str, 
         rationale = "News velocity is elevated enough to re-underwrite the thesis or timing."
     elif manager_count >= 2:
         action = "Deep-dive queue"
-        posture = "Research"
+        posture = "Study"
         rationale = "Manager overlap is enough to justify work, but evidence is not strong enough for an urgent move."
     else:
         action = "Monitor"
         posture = "Low urgency"
         rationale = "The signal is present but not yet differentiated."
-    if bucket_weight >= 0.30 and portfolio_weight == 0 and action in {"White-space long research", "Deep-dive queue"}:
+    if bucket_weight >= 0.30 and portfolio_weight == 0 and action in {"White-space long", "Deep-dive queue"}:
         posture = "Diversification check"
         rationale += " Bucket exposure is already high, so any new name needs to improve quality or asymmetry."
     if "rates/dollar headwind" in regime or "volatility shock" in regime:
@@ -626,7 +794,7 @@ def public_trigger(card: dict[str, Any], action: str) -> str:
         return "Check whether capex guidance flows into backlog, utilization, pricing, or supply constraints for this name."
     if "financing_risk" in event_types:
         return "Review debt, dilution, covenant, and liquidity terms before upgrading the setup."
-    if action == "Hedge watch":
+    if action == "Risk watch":
         return "Check whether the put exposure is hedging a long book, expressing downside, or stale filing noise."
     if bucket == "power_grid_gas_nuclear":
         return "Look for signed power contracts, grid/interconnection progress, financing, or commodity-price confirmation."
@@ -658,9 +826,11 @@ def ensure_static_assets(out_dir: Path) -> None:
         return
     for name in (
         "index.html",
+        "dashboard.html",
         "portfolio.html",
         "ai-thesis-core.html",
         "styles.css",
+        "home.js",
         "app.js",
         "portfolio.js",
         "ai-thesis-core.js",

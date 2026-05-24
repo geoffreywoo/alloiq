@@ -13,3 +13,4 @@ reports/*.md
 reports/*.json
 .vercel
 .env*.local
+.gstack/

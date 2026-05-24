@@ -79,17 +79,36 @@ async function loadLatestData({ silent = false } = {}) {
 function wireNavigation() {
   document.querySelectorAll(".rail-button[data-view]").forEach((button) => {
     button.addEventListener("click", () => {
-      document.querySelectorAll(".rail-button").forEach((item) => {
-        item.classList.remove("active");
-        item.removeAttribute("aria-current");
-      });
-      document.querySelectorAll(".view").forEach((item) => item.classList.remove("active"));
-      button.classList.add("active");
-      button.setAttribute("aria-current", "page");
-      document.getElementById(button.dataset.view).classList.add("active");
-      drawSignalCanvas(filteredCards());
+      activateView(button.dataset.view, { updateHash: true });
     });
   });
+  window.addEventListener("hashchange", () => {
+    activateView(viewFromHash() || "dashboard");
+  });
+  activateView(viewFromHash() || "dashboard");
+}
+
+function viewFromHash() {
+  const view = window.location.hash.replace(/^#/, "");
+  return document.getElementById(view)?.classList.contains("view") ? view : "";
+}
+
+function activateView(viewId, { updateHash = false } = {}) {
+  const target = document.getElementById(viewId);
+  if (!target?.classList.contains("view")) return;
+  document.querySelectorAll(".rail-button").forEach((item) => {
+    item.classList.remove("active");
+    item.removeAttribute("aria-current");
+  });
+  document.querySelectorAll(".view").forEach((item) => item.classList.remove("active"));
+  const button = document.querySelector(`.rail-button[data-view="${CSS.escape(viewId)}"]`);
+  button?.classList.add("active");
+  button?.setAttribute("aria-current", "page");
+  target.classList.add("active");
+  if (updateHash) {
+    window.history.replaceState(null, "", `#${viewId}`);
+  }
+  drawSignalCanvas(filteredCards());
 }
 
 function wireSearch() {
@@ -150,7 +169,7 @@ function nearestSignalPoint(x, y) {
 
 function render() {
   const payload = state.payload;
-  document.title = "AlloIQ - " + (payload.as_of || "Markets");
+  document.title = "AlloIQ Trade OS - " + (payload.as_of || "Markets");
   const runKind = payload.site?.last_run_kind || payload.session || "report";
   document.getElementById("reportDate").textContent = `${labelize(runKind)} report ${payload.as_of || ""}`;
   const privacy = payload.site?.privacy || "public";
@@ -173,6 +192,9 @@ function renderContent() {
   renderMacro();
   renderNews();
   renderMethodology();
+  renderAudit();
+  renderCalendar();
+  renderEngine();
   drawSignalCanvas(filteredCards());
 }
 
@@ -200,7 +222,7 @@ function renderStaleBanner() {
     return;
   }
   banner.hidden = false;
-  banner.textContent = `Data may be stale: ${freshness.reason}. Check the scheduled run before relying on today's research proposals.`;
+    banner.textContent = `Data may be stale: ${freshness.reason}. Check the scheduled run before using today's trade feed.`;
 }
 
 function payloadFreshness(payload) {
@@ -225,7 +247,7 @@ function renderKpis() {
   const benchmark = payload.portfolio_benchmark || {};
   const dataHealth = payload.data_health || {};
   const dataPosture = dataHealth.recommendation_posture === "research_only_until_positions_refresh"
-    ? "Research Only"
+    ? "Position Refresh Needed"
     : labelize(dataHealth.recommendation_posture || "normal");
   const portfolioName = portfolio.display_name || "Geoffrey Woo Portfolio";
   const primaryLabel = benchmark.primary_label || "3M";
@@ -251,9 +273,9 @@ function renderKpis() {
       detail: medianPeer ? `Peer median 13F proxy ${formatPct(medianPeer.return_5d)}` : "13F proxy unavailable",
     },
     {
-      label: "Recommended changes",
+      label: "Today's trades",
       value: String(actions.length || 0),
-      detail: actions[0] ? `Top proposal: ${actions[0].symbol} ${actions[0].action}` : "No urgent portfolio-weight changes",
+      detail: actions[0] ? `Top trade: ${actions[0].symbol} ${displayActionText(actions[0].action)}` : "No urgent portfolio-weight changes",
     },
     {
       label: "Macro risk gate",
@@ -295,7 +317,7 @@ function renderDashboard() {
   const macro = state.payload.macro || {};
   const actionCount = document.getElementById("actionCount");
   const benchmarkHorizon = document.getElementById("benchmarkHorizon");
-  if (actionCount) actionCount.textContent = `${actions.length} proposals`;
+  if (actionCount) actionCount.textContent = `${actions.length} trades`;
   if (benchmarkHorizon) benchmarkHorizon.textContent = `${benchmark.primary_label || "3M"} current-weight horizon`;
   const decisionStack = document.getElementById("decisionStack");
   if (decisionStack) {
@@ -310,7 +332,7 @@ function renderDashboard() {
   document.getElementById("benchmarkList").innerHTML =
     benchmarkRows.length === 0 ? empty("No benchmark comparison in this public snapshot.") : benchmarkRows.slice(0, 7).map(benchmarkTemplate).join("");
   document.getElementById("portfolioActionList").innerHTML =
-    actions.length === 0 ? empty("No recommended weight changes match this search.") : actions.slice(0, 7).map(actionTemplate).join("");
+    actions.length === 0 ? empty("No add/trim trades match this search.") : actions.slice(0, 7).map(actionTemplate).join("");
   const actionVisual = document.getElementById("actionSizingVisual");
   if (actionVisual) {
     actionVisual.innerHTML =
@@ -336,16 +358,15 @@ function decisionStackTemplate(benchmark, actions, macro) {
   const primary = actions[0] || {};
   const peer = preferredBenchmark(benchmark.benchmarks || []);
   const delta = Number(primary.recommended_delta_weight || 0);
-  const hedge = Number(primary.hedge_weight || 0);
   const confidence = primary.symbol
     ? Math.min(99, Math.round((Number(primary.signal_family_count || 0) * 17) + Math.min(Number(primary.priority || 0), 80) / 2))
     : 0;
-  const actionText = primary.symbol ? decisionActionLabel(primary, delta, hedge) : "No weight change";
+  const actionText = primary.symbol ? decisionActionLabel(primary, delta) : "No weight change";
   return `
     <article class="decision-card decision-primary">
-      <span>Primary weight proposal</span>
+      <span>Primary trade</span>
       <strong class="${delta > 0 ? "positive" : delta < 0 ? "negative" : ""}">${escapeHtml(actionText)}</strong>
-      <small>${escapeHtml(primary.action || "No portfolio-weight changes triggered in this report.")}</small>
+      <small>${escapeHtml(displayActionText(primary.action) || "No portfolio-weight changes triggered in this report.")}</small>
     </article>
     <article class="decision-card">
       <span>Peer spread</span>
@@ -360,21 +381,20 @@ function decisionStackTemplate(benchmark, actions, macro) {
     <article class="decision-card">
       <span>Evidence confidence</span>
       <strong>${escapeHtml(confidence ? `${confidence}/100` : "n/a")}</strong>
-      <small>${escapeHtml(primary.symbol ? `${primary.signal_family_count || 0} signal families, priority ${number.format(primary.priority || 0)}` : "No ranked proposal")}</small>
+      <small>${escapeHtml(primary.symbol ? `${primary.signal_family_count || 0} signal families, priority ${number.format(primary.priority || 0)}` : "No ranked trade")}</small>
     </article>
   `;
 }
 
-function decisionActionLabel(primary, delta, hedge) {
-  if (delta > 0) return `${primary.symbol} ${formatSignedWeight(delta)}`;
-  if (delta < 0) return `${primary.symbol} ${formatSignedWeight(delta)}`;
-  if (hedge > 0) return `${primary.symbol} hedge ${formatWeight(hedge)}`;
-  return `${primary.symbol} hold`;
+function decisionActionLabel(primary, delta) {
+  if (delta > 0) return `${primary.symbol} Add ${formatAbsWeight(delta)}`;
+  if (delta < 0) return `${primary.symbol} Trim ${formatAbsWeight(delta)}`;
+  return `${primary.symbol} Hold`;
 }
 
-function actionSizeLabel(delta, hedge = 0) {
-  if (delta > 0 || delta < 0) return formatSignedWeight(delta);
-  if (hedge > 0) return `Hedge ${formatWeight(hedge)}`;
+function actionSizeLabel(delta) {
+  if (delta > 0) return `Add ${formatAbsWeight(delta)}`;
+  if (delta < 0) return `Trim ${formatAbsWeight(delta)}`;
   return "Hold";
 }
 
@@ -453,33 +473,34 @@ function benchmarkTemplate(row) {
 
 function actionTemplate(item) {
   const delta = Number(item.recommended_delta_weight || 0);
-  const hedge = Number(item.hedge_weight || 0);
   const deltaClass = delta > 0 ? "positive" : delta < 0 ? "negative" : "";
   const targetText = item.target_weight == null || item.target_weight === item.post_action_weight
     ? ""
-    : ` | Target weight ${formatWeight(item.target_weight)}`;
-  const hedgeText = hedge > 0
-    ? ` | Hedge budget ${formatWeight(item.hedge_weight)}`
-    : "";
+    : ` | Target ${formatWeight(item.target_weight)}`;
+  const timestamp = state.payload.as_of || state.payload.site?.built_at || "";
+  const tradeLabel = item.trade_action ? labelize(item.trade_action).replace("Hold Hedge", "Hold") : "Trade";
+  const sourceText = `${item.signal_family_count || 0} signals${item.manager_count ? `, ${item.manager_count} managers` : ""}`;
   return `
     <article class="row searchable" data-search="${searchAttribute(item)}">
       <div class="row-main">
         <div class="symbol">${escapeHtml(item.symbol)}</div>
         <div class="action-size">
-          <strong class="${deltaClass}">${escapeHtml(actionSizeLabel(delta, hedge))}</strong>
-          <span>After move ${escapeHtml(formatWeight(item.post_action_weight ?? item.portfolio_weight))}${escapeHtml(targetText)}${escapeHtml(hedgeText)}</span>
+          <strong class="${deltaClass}">${escapeHtml(actionSizeLabel(delta))}</strong>
+          <span>After move ${escapeHtml(formatWeight(item.post_action_weight ?? item.portfolio_weight))}${escapeHtml(targetText)}</span>
         </div>
       </div>
-      <p><strong>${escapeHtml(item.trade_action ? labelize(item.trade_action) : "Research proposal")}:</strong> ${escapeHtml(item.action || "")}</p>
+      <p><strong>${escapeHtml(tradeLabel)}:</strong> ${escapeHtml(displayActionText(item.action) || "")}</p>
       <p>${escapeHtml(item.why || "")}</p>
       <div class="tags">
         <span class="tag">Current weight ${escapeHtml(formatWeight(item.portfolio_weight))}</span>
+        <span class="tag">Target ${escapeHtml(formatWeight(item.target_weight ?? item.post_action_weight ?? item.portfolio_weight))}</span>
         <span class="tag">Peer avg ${escapeHtml(formatWeight(item.peer_avg_weight))}</span>
         <span class="tag">5D price ${escapeHtml(formatPct(item.five_day_pct))}</span>
         <span class="tag">Return contribution ${escapeHtml(formatPp(item.contribution_pct))}</span>
         <span class="tag">Priority score ${escapeHtml(number.format(item.priority || 0))}</span>
         ${item.confidence ? `<span class="tag">Confidence ${escapeHtml(item.confidence)}/100</span>` : ""}
-        <span class="tag">${escapeHtml(item.signal_family_count || 0)} signals</span>
+        <span class="tag">${escapeHtml(sourceText)}</span>
+        ${timestamp ? `<span class="tag">As of ${escapeHtml(dateOnly(timestamp))}</span>` : ""}
         ${(item.risk_flags || []).slice(0, 3).map((flag) => `<span class="tag">${escapeHtml(labelize(flag))}</span>`).join("")}
       </div>
     </article>
@@ -490,10 +511,9 @@ function actionSizingVisualTemplate(actions) {
   const maxAbs = Math.max(...actions.map((item) => Math.abs(Number(item.recommended_delta_weight || 0))), 0.01);
   return actions.map((item) => {
     const delta = Number(item.recommended_delta_weight || 0);
-    const hedge = Number(item.hedge_weight || 0);
     const width = Math.max(2, Math.min(100, (Math.abs(delta) / maxAbs) * 100));
     const direction = delta > 0 ? "add" : delta < 0 ? "trim" : "hold";
-    const size = actionSizeLabel(delta, hedge);
+    const size = actionSizeLabel(delta);
     return `
       <article class="delta-row searchable" data-search="${searchAttribute(item)}">
         <div class="delta-head">
@@ -512,7 +532,6 @@ function actionSizingVisualTemplate(actions) {
         <div class="delta-meta">
           <span>Current weight ${escapeHtml(formatWeight(item.portfolio_weight))}</span>
           <span>After move ${escapeHtml(formatWeight(item.post_action_weight ?? item.portfolio_weight))}</span>
-          ${hedge > 0 ? `<span>Hedge budget ${escapeHtml(formatWeight(item.hedge_weight))}</span>` : ""}
         </div>
       </article>
     `;
@@ -648,7 +667,7 @@ function decisionTemplate(card) {
       <div class="tags">
         <span class="tag">${escapeHtml(labelize(card.bucket))}</span>
         <span class="tag">${escapeHtml(consensus)}</span>
-        <span class="tag">${escapeHtml(card.candidate || "research")}</span>
+        <span class="tag">${escapeHtml(displayStudyLabel(card.candidate || "study"))}</span>
       </div>
     </article>
   `;
@@ -698,7 +717,7 @@ function weightBarTemplate(label, weight, bucket) {
 function renderMoves() {
   const moves = filterItems(state.payload.recommended_moves || []);
   document.getElementById("moveList").innerHTML =
-    moves.length === 0 ? empty("No move proposals match this search.") : moves.slice(0, 12).map(moveTemplate).join("");
+    moves.length === 0 ? empty("No trade ideas match this search.") : moves.slice(0, 12).map(moveTemplate).join("");
 }
 
 function renderResearch() {
@@ -707,13 +726,13 @@ function renderResearch() {
   const summary = document.getElementById("researchSummary");
   if (summary) {
     summary.textContent = weekly.as_of
-      ? `Weekly thesis research as of ${weekly.as_of}`
+      ? `Weekly study queue as of ${weekly.as_of}`
       : "Thesis, trigger, and risk";
   }
   const container = document.getElementById("weeklyResearchList");
   if (!container) return;
   container.innerHTML =
-    ideas.length === 0 ? empty("No weekly thesis research in this snapshot.") : ideas.slice(0, 15).map(researchTemplate).join("");
+    ideas.length === 0 ? empty("No weekly thesis studies in this snapshot.") : ideas.slice(0, 15).map(researchTemplate).join("");
 }
 
 function researchTemplate(idea) {
@@ -722,10 +741,10 @@ function researchTemplate(idea) {
     <article class="idea research-card searchable" data-search="${searchAttribute(idea)}">
       <h3>
         <span>${escapeHtml(idea.symbol || "Idea")}</span>
-        <span class="tag">${escapeHtml(idea.trade_action ? labelize(idea.trade_action) : idea.type || "Research")}</span>
+        <span class="tag">${escapeHtml(idea.trade_action ? labelize(idea.trade_action) : displayStudyLabel(idea.type || "Study"))}</span>
       </h3>
       <p>${escapeHtml(idea.setup || "")}</p>
-      <p><strong>Proposed action:</strong> ${escapeHtml(idea.recommended_action || "Refresh thesis and catalyst path.")}</p>
+      <p><strong>Target action:</strong> ${escapeHtml(idea.recommended_action || "Refresh thesis and catalyst path.")}</p>
       <p><strong>Evidence base:</strong> ${escapeHtml(idea.evidence || "")}</p>
       <p><strong>Trigger to watch:</strong> ${escapeHtml(idea.trigger || "")}</p>
       <p><strong>Main risk:</strong> ${escapeHtml(idea.risk || "")}</p>
@@ -746,14 +765,14 @@ function moveTemplate(move) {
     <article class="idea searchable" data-search="${searchAttribute(move)}">
       <h3>
         <span>${escapeHtml(move.symbol || "Move")}</span>
-        <span class="tag">${escapeHtml(move.action || "Research")}</span>
+        <span class="tag">${escapeHtml(displayActionText(move.action || "Study"))}</span>
       </h3>
       <p><strong>Why this move:</strong> ${escapeHtml(move.rationale || "")}</p>
       <p><strong>Evidence base:</strong> ${escapeHtml(move.manager_count || 0)} tracked funds, ${escapeHtml(move.signal_family_count || 0)} signal families, ${escapeHtml(move.news_count || 0)} news hits, catalyst score ${escapeHtml(move.event_score || 0)}, signal score ${escapeHtml(move.signal_score || 0)}, 5D price ${escapeHtml(formatPct(move.five_day_pct))}, current weight ${escapeHtml(formatWeight(move.portfolio_weight))}.</p>
       <p><strong>Trigger to watch:</strong> ${escapeHtml(move.trigger || "")}</p>
       <p><strong>Main risk:</strong> ${escapeHtml(move.risk || "")}</p>
       <div class="tags">
-        <span class="tag">${escapeHtml(move.posture || "Research")}</span>
+        <span class="tag">${escapeHtml(displayStudyLabel(move.posture || "Study"))}</span>
         <span class="tag">Bucket weight ${escapeHtml(formatWeight(move.bucket_weight))}</span>
         ${(move.signal_families || []).slice(0, 3).map((family) => `<span class="tag">${escapeHtml(labelize(family))}</span>`).join("")}
         ${(move.event_types || []).slice(0, 2).map((event) => `<span class="tag">${escapeHtml(labelize(event))}</span>`).join("")}
@@ -793,7 +812,7 @@ function renderRiskControls(actions = []) {
   if (!container) return;
   const controlled = filterItems(actions.filter((item) => (item.risk_flags || []).length || (item.constraint_notes || []).length));
   container.innerHTML = controlled.length === 0
-    ? empty("No risk-control caps were applied to the current proposal set.")
+    ? empty("No risk-control caps were applied to the current trade set.")
     : controlled.slice(0, 8).map(riskControlTemplate).join("");
 }
 
@@ -803,10 +822,10 @@ function riskControlTemplate(item) {
   return `
     <article class="row searchable" data-search="${searchAttribute(item)}">
       <div class="row-main">
-        <div class="symbol">${escapeHtml(item.symbol || "Proposal")}</div>
+        <div class="symbol">${escapeHtml(item.symbol || "Trade")}</div>
         <div class="metric">Confidence ${escapeHtml(item.confidence || 0)}/100</div>
       </div>
-      <p>${escapeHtml(notes[0] || item.sizing_basis || "Approval required before any position change.")}</p>
+      <p>${escapeHtml(displayActionText(notes[0] || item.sizing_basis || "Use the target weight before changing size."))}</p>
       <div class="tags">
         ${flags.slice(0, 5).map((flag) => `<span class="tag">${escapeHtml(labelize(flag))}</span>`).join("")}
         <span class="tag">Delta ${escapeHtml(formatSignedWeight(item.recommended_delta_weight))}</span>
@@ -1039,14 +1058,14 @@ function renderMethodology() {
         detail: "Cards with at least two confirming signal families",
       },
       {
-        label: "Approval tickets",
+        label: "Trade tickets",
         value: String(current.open_approval_ticket_count || 0),
-        detail: "Research proposals requiring manual approval",
+        detail: "Portfolio-weight decisions tracked for the run",
       },
       {
         label: "Sizing unit",
         value: labelize(risk.sizing_unit || "portfolio_weight"),
-        detail: risk.order_execution === "none" ? "No broker order execution" : "Execution disabled in public mode",
+        detail: "Portfolio-weight target deltas",
       },
     ].map(kpiTemplate).join("");
   }
@@ -1145,12 +1164,220 @@ function methodRiskTemplate(risk, privacy) {
         </div>
       </article>
     `),
-    methodRuleTemplate("Approval boundary", risk.approval_required ? "Every add, trim, hold-hedge, or watch proposal remains an approval-only research ticket." : "Approval status unavailable."),
-    methodRuleTemplate("Execution boundary", risk.order_execution === "none" ? "AlloIQ publishes research proposals only and does not send broker orders." : "Broker execution is not published on the public site."),
-    methodRuleTemplate("Observed risk flags", flags.length ? flags.map(labelize).join(", ") : "No risk-control flags were applied to the current proposal set."),
+    methodRuleTemplate("Decision boundary", risk.approval_required ? "Every add, trim, hold, or watch item carries a current weight, target weight, and timestamp." : "Decision status unavailable."),
+    methodRuleTemplate("Live execution", "AlloIQ shows target weights; execution stays manual."),
+    methodRuleTemplate("Observed risk flags", flags.length ? flags.map(labelize).join(", ") : "No risk-control flags were applied to the current trade set."),
     methodRuleTemplate("Public sanitizer", `Public mode is ${privacy.mode || "weights_only"} and strips ${fields.join(", ")}.`),
   ];
   return rows.join("");
+}
+
+function renderAudit() {
+  const audit = state.payload.audit || {};
+  const engineHealth = audit.engine_health || {};
+  const calendarHealth = audit.calendar_health || {};
+  const summary = document.getElementById("auditSummary");
+  if (summary) {
+    summary.textContent = `Audit ${audit.version || "snapshot"} | ${labelize(audit.overall_status || "unknown")}`;
+  }
+  const kpis = document.getElementById("auditKpis");
+  if (kpis) {
+    kpis.innerHTML = [
+      {
+        label: "Audit status",
+        value: labelize(audit.overall_status || "unknown"),
+        detail: "Publication safety and source health",
+      },
+      {
+        label: "Learning",
+        value: labelize(engineHealth.learning_status || "unknown"),
+        detail: `${engineHealth.feature_count || 0} engine features`,
+      },
+      {
+        label: "Calendar",
+        value: labelize(calendarHealth.status || "unknown"),
+        detail: `${calendarHealth.earnings_event_count || 0} earnings events`,
+      },
+      {
+        label: "Paper trades",
+        value: String(engineHealth.paper_trade_count || 0),
+        detail: "Tracked with next-close proxy",
+      },
+    ].map(kpiTemplate).join("");
+  }
+  const sources = document.getElementById("auditSourceList");
+  if (sources) {
+    const rows = filterItems(audit.source_freshness || []);
+    sources.innerHTML = rows.length ? rows.map(dataHealthTemplate).join("") : empty("No audit source details in this snapshot.");
+  }
+  const gaps = document.getElementById("auditGapList");
+  if (gaps) {
+    const rows = filterItems(audit.data_gaps || []);
+    gaps.innerHTML = rows.length ? rows.map(auditGapTemplate).join("") : empty("No current data gaps.");
+  }
+}
+
+function auditGapTemplate(row) {
+  return `
+    <article class="row searchable" data-search="${searchAttribute(row)}">
+      <div class="row-main">
+        <div class="symbol">${escapeHtml(row.label || row.area || "Gap")}</div>
+        <div class="metric">${escapeHtml(labelize(row.status || "unknown"))}</div>
+      </div>
+      <p>${escapeHtml(row.detail || "")}</p>
+    </article>
+  `;
+}
+
+function renderCalendar() {
+  const calendars = state.payload.calendars || {};
+  const earnings = calendars.earnings || {};
+  const filings = calendars.filings_13f || {};
+  const cycle = filings.current_cycle || {};
+  const summary = document.getElementById("calendarSummary");
+  if (summary) {
+    summary.textContent = cycle.deadline ? `Next 13F deadline ${dateOnly(cycle.deadline)}` : "Forward event windows";
+  }
+  const kpis = document.getElementById("calendarKpis");
+  if (kpis) {
+    kpis.innerHTML = [
+      {
+        label: "Earnings events",
+        value: String(earnings.event_count || 0),
+        detail: `${earnings.confirmed_count || 0} confirmed, ${earnings.estimated_count || 0} estimated`,
+      },
+      {
+        label: "13F cycle",
+        value: cycle.label || "Unknown",
+        detail: cycle.quarter_end ? `Quarter end ${dateOnly(cycle.quarter_end)}` : "No cycle metadata",
+      },
+      {
+        label: "13F deadline",
+        value: cycle.deadline ? dateOnly(cycle.deadline) : "Unknown",
+        detail: "45-day SEC rule, next business day if needed",
+      },
+      {
+        label: "Manager filings",
+        value: `${filings.filed_count || 0}/${filings.manager_count || 0}`,
+        detail: `${filings.late_count || 0} late, ${filings.pending_count || 0} pending`,
+      },
+    ].map(kpiTemplate).join("");
+  }
+  const earningsList = document.getElementById("calendarEarningsList");
+  if (earningsList) {
+    const rows = filterItems(earnings.events || []);
+    earningsList.innerHTML = rows.length ? rows.slice(0, 24).map(calendarEarningsTemplate).join("") : empty("No earnings events available.");
+  }
+  const filingList = document.getElementById("calendarFilingList");
+  if (filingList) {
+    const rows = filterItems(filings.managers || []);
+    filingList.innerHTML = rows.length ? rows.slice(0, 24).map(calendarFilingTemplate).join("") : empty("No 13F calendar rows available.");
+  }
+}
+
+function calendarEarningsTemplate(event) {
+  return `
+    <article class="row searchable" data-search="${searchAttribute(event)}">
+      <div class="row-main">
+        <div class="symbol">${escapeHtml(event.symbol || "Event")}</div>
+        <div class="metric">${escapeHtml(dateOnly(event.event_date))}</div>
+      </div>
+      <p>${escapeHtml(event.title || event.event_type || "")}</p>
+      <div class="tag-row">
+        <span class="tag">${escapeHtml(labelize(event.risk_window || "unknown"))}</span>
+        <span class="tag">${escapeHtml(labelize(event.confirmed_or_estimated || "estimated"))}</span>
+        <span class="tag">${escapeHtml(`${number.format((event.confidence || 0) * 100)}% confidence`)}</span>
+      </div>
+    </article>
+  `;
+}
+
+function calendarFilingTemplate(row) {
+  return `
+    <article class="row searchable" data-search="${searchAttribute(row)}">
+      <div class="row-main">
+        <div class="symbol">${escapeHtml(row.manager_name || row.manager_key || "Manager")}</div>
+        <div class="metric">${escapeHtml(labelize(row.status || "pending"))}</div>
+      </div>
+      <p>${escapeHtml(row.quarter_end || "")} quarter deadline ${escapeHtml(dateOnly(row.deadline))}${row.latest_filing_date ? ` | latest filed ${escapeHtml(dateOnly(row.latest_filing_date))}` : ""}</p>
+    </article>
+  `;
+}
+
+function renderEngine() {
+  const engine = state.payload.engine || {};
+  const paper = state.payload.paper_portfolio || {};
+  const optimizer = engine.optimizer || {};
+  const learning = engine.learning || {};
+  const metrics = paper.metrics || {};
+  const summary = document.getElementById("engineSummary");
+  if (summary) {
+    summary.textContent = `${engine.version || "engine"} | ${labelize(engine.objective || "objective")}`;
+  }
+  const kpis = document.getElementById("engineKpis");
+  if (kpis) {
+    kpis.innerHTML = [
+      {
+        label: "Mode",
+        value: labelize(engine.mode || "approval_plus_paper"),
+        detail: "Portfolio-weight target engine",
+      },
+      {
+        label: "Learning",
+        value: labelize(learning.status || "unknown"),
+        detail: `${learning.outcome_count || 0}/${learning.minimum_required || 20} outcomes`,
+      },
+      {
+        label: "Optimizer",
+        value: labelize(optimizer.type || "long_only_weight_optimizer"),
+        detail: `${optimizer.allocation_count || 0} constrained allocations`,
+      },
+      {
+        label: "Paper",
+        value: String(metrics.paper_trade_count || 0),
+        detail: `${metrics.filled_proxy_count || 0} proxy fills`,
+      },
+    ].map(kpiTemplate).join("");
+  }
+  const ranks = document.getElementById("engineRankList");
+  if (ranks) {
+    const rows = filterItems(engine.ranked_candidates || []);
+    ranks.innerHTML = rows.length ? rows.slice(0, 24).map(engineRankTemplate).join("") : empty("No engine ranks available.");
+  }
+  const paperList = document.getElementById("paperTradeList");
+  if (paperList) {
+    const rows = filterItems(paper.paper_trades || []);
+    paperList.innerHTML = rows.length ? rows.slice(0, 24).map(paperTradeTemplate).join("") : empty("No paper trades in this snapshot.");
+  }
+}
+
+function engineRankTemplate(row) {
+  return `
+    <article class="row searchable" data-search="${searchAttribute(row)}">
+      <div class="row-main">
+        <div class="symbol">${escapeHtml(row.symbol || "Symbol")}</div>
+        <div class="metric">#${escapeHtml(row.rank || "")} | ${escapeHtml(number.format(row.expected_return_rank_score || 0))}</div>
+      </div>
+      <p>${escapeHtml(labelize(row.bucket || "unmapped"))} | ${escapeHtml((row.signal_families || []).map(labelize).join(", "))}</p>
+      <div class="tag-row">
+        <span class="tag">Current ${escapeHtml(formatWeight(row.current_weight || 0))}</span>
+        <span class="tag">${escapeHtml(row.manager_count || 0)} managers</span>
+        <span class="tag">Event ${escapeHtml(number.format(row.event_score || 0))}</span>
+      </div>
+    </article>
+  `;
+}
+
+function paperTradeTemplate(row) {
+  return `
+    <article class="row searchable" data-search="${searchAttribute(row)}">
+      <div class="row-main">
+        <div class="symbol">${escapeHtml(row.symbol || "Paper")}</div>
+        <div class="metric">${escapeHtml(labelize(row.trade_action || "study"))} ${escapeHtml(formatWeight(row.recommended_delta_weight || 0))}</div>
+      </div>
+      <p>${escapeHtml(labelize(row.status || "planned"))} via ${escapeHtml(row.fill_policy || "next close proxy")}; target ${escapeHtml(formatWeight(row.target_weight || 0))}</p>
+    </article>
+  `;
 }
 
 function drawSignalCanvas(cards) {
@@ -1285,7 +1512,7 @@ function labelize(value = "") {
 }
 
 function managerGroupLabel(row = {}) {
-  if (row.manager_tier === "tier_1") return "AI Thesis Core";
+  if (row.manager_tier === "tier_1") return "Tier 1 Watch";
   if (row.manager_tier === "tier_2") return "Manager Context Bench";
   return row.manager_group || "Manager Context Bench";
 }
@@ -1314,9 +1541,33 @@ function formatSignedWeight(value) {
   return `${prefix}${number.format(scaled)}%`;
 }
 
+function formatAbsWeight(value) {
+  if (value == null || Number.isNaN(Number(value))) return "0.00%";
+  return `${number.format(Math.abs(Number(value)) * 100)}%`;
+}
+
 function formatWeight(value) {
   if (value == null || Number.isNaN(Number(value))) return "0.00%";
   return `${number.format(Number(value) * 100)}%`;
+}
+
+function displayActionText(value = "") {
+  return String(value || "")
+    .replace(/research proposals?/gi, "trades")
+    .replace(/proposal set/gi, "trade set")
+    .replace(/proposal/gi, "trade")
+    .replace(/size any hedge at/gi, "keep risk budget at")
+    .replace(/hedge budget/gi, "risk budget")
+    .replace(/hold hedge/gi, "hold")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function displayStudyLabel(value = "") {
+  return displayActionText(value)
+    .replace(/research/gi, "study")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function dateOnly(value) {

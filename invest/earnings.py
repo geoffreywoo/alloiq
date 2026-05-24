@@ -143,6 +143,8 @@ def event_payload(
     raw: dict[str, Any],
 ) -> dict[str, Any]:
     days_until = (event_date - as_of).days
+    confidence = 1.0 if source == "manual" else 0.75 if source == "sec_company_submissions" else 0.45 if source == "news" else 0.35
+    confirmed_or_estimated = "confirmed" if source in {"manual", "sec_company_submissions"} or status in {"confirmed", "filed", "scheduled"} else "estimated"
     return {
         "event_id": stable_id([symbol, event_date.isoformat(), event_type, source]),
         "symbol": symbol,
@@ -153,6 +155,10 @@ def event_payload(
         "status": status,
         "days_until": days_until,
         "catalyst_types": catalyst_types,
+        "confidence": confidence,
+        "confirmed_or_estimated": confirmed_or_estimated,
+        "last_checked_at": f"{as_of.isoformat()}T00:00:00Z",
+        "risk_window": "blackout" if abs(days_until) <= 2 else "risk_window" if abs(days_until) <= 7 else "clear",
         "raw": raw,
     }
 

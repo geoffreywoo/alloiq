@@ -184,6 +184,7 @@ lens = "global internet/software growth"
 key = "d1-capital"
 name = "D1 Capital Partners L.P."
 cik = "0001747057"
+tier = "tier_1"
 lens = "crossover growth and opportunistic public equities"
 
 [[managers]]
@@ -205,12 +206,12 @@ cik = "0001061165"
 lens = "Tiger-cub growth and quality compounders"
 
 [focus_managers]
-tier1_keys = ["situational-awareness", "altimeter", "dragoneer"]
+tier1_keys = ["situational-awareness", "altimeter", "dragoneer", "d1-capital"]
 tier2_keys = [
   "duquesne", "pershing-square", "tci", "durable", "atreides", "berkshire",
   "appaloosa", "baupost", "light-street", "valley-forge", "dorsey", "akre",
   "coatue", "greenoaks", "tiger-global", "whale-rock",
-  "viking-global", "lone-pine", "d1-capital"
+  "viking-global", "lone-pine"
 ]
 keys = [
   "situational-awareness", "duquesne", "pershing-square", "tci", "durable", "atreides",

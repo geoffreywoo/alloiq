@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0e151b">
+    <meta
+      name="description"
+      content="AlloIQ turns public 13F filings, AI-market news, price moves, and macro signals into direct portfolio-weight trades."
+    >
+    <title>Trade OS | AlloIQ</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    >
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="AlloIQ home">
+          <span class="brand-mark">
+            <span>A</span>
+            <span>IQ</span>
+          </span>
+          <span>
+            <strong class="brand-wordmark"><span>Allo</span><span class="brand-iq">IQ</span></strong>
+            <small class="brand-system">AI markets intelligence</small>
+          </span>
+        </a>
+        <div class="topbar-meta">
+          <a class="topbar-link" href="/">Home</a>
+          <span id="reportDate">Loading</span>
+          <span id="refreshStatus">Waiting for data</span>
+          <span id="privacyBadge" class="badge">Public</span>
+        </div>
+      </header>
+
+      <main class="layout">
+        <nav class="rail" aria-label="Primary views">
+          <a class="rail-button rail-link" href="/">Home</a>
+          <button class="rail-button active" data-view="dashboard" type="button" aria-current="page">Today</button>
+          <a class="rail-button rail-link" href="/portfolio">GW Portfolio</a>
+          <button class="rail-button" data-view="moves" type="button">Trade Feed</button>
+          <button class="rail-button" data-view="research" type="button">Study Queue</button>
+          <button class="rail-button" data-view="earnings" type="button">Catalysts</button>
+          <button class="rail-button" data-view="managers" type="button">Managers</button>
+          <a class="rail-button rail-link" href="/ai-thesis-core">AI Core</a>
+          <button class="rail-button" data-view="macro" type="button">Macro</button>
+          <button class="rail-button" data-view="news" type="button">News</button>
+          <button class="rail-button" data-view="method" type="button">Method</button>
+          <button class="rail-button" data-view="audit" type="button">Audit</button>
+          <button class="rail-button" data-view="calendar" type="button">Calendar</button>
+          <button class="rail-button" data-view="engine" type="button">Engine</button>
+        </nav>
+
+        <section class="content">
+          <div class="command-bar">
+            <div>
+              <p class="eyebrow">alloiq.com</p>
+              <h1>AlloIQ Trade OS</h1>
+            </div>
+            <label class="search">
+              <span>Search</span>
+              <input id="searchInput" type="search" placeholder="Ticker, manager, catalyst">
+            </label>
+          </div>
+          <p class="notice">Public weights, public filings, daily AI markets signals. Approval-only; no live order execution. Portfolio data is shown as percentages, not share counts or account values.</p>
+          <p id="staleBanner" class="stale-banner" hidden></p>
+
+          <section class="view active" id="dashboard" aria-labelledby="dashboardTitle">
+            <div class="section-head">
+              <h2 id="dashboardTitle">Today's Decision Stack</h2>
+              <span id="regimeBadge" class="regime-badge">Macro regime loading</span>
+            </div>
+            <div id="kpiGrid" class="kpi-grid"></div>
+            <div id="decisionStack" class="decision-stack"></div>
+            <div class="dashboard-grid">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Portfolio Return Proxies</h3>
+                  <span id="benchmarkHorizon">Current weights vs benchmarks</span>
+                </div>
+                <div id="returnCurve" class="return-curve"></div>
+                <div id="horizonList" class="horizon-list"></div>
+                <div id="benchmarkList" class="benchmark-list"></div>
+              </section>
+              <section class="panel priority-panel">
+                <div class="panel-head">
+                  <h3>Today's Trades</h3>
+                  <span id="actionCount">0 items</span>
+                </div>
+                <div id="portfolioActionList" class="list"></div>
+              </section>
+            </div>
+            <div class="visual-grid">
+              <section class="panel chart-panel">
+                <div class="panel-head">
+                  <h3>Signal Strength Map</h3>
+                  <span>Score vs number of managers</span>
+                </div>
+                <div class="canvas-wrap">
+                  <canvas id="signalCanvas" role="img" aria-label="Signal score by consensus manager count"></canvas>
+                  <div id="signalTooltip" class="signal-tooltip" hidden></div>
+                </div>
+              </section>
+              <section class="panel chart-panel">
+                <div class="panel-head">
+                  <h3>Add / Trim Sizing</h3>
+                  <span>Recommended change as portfolio weight</span>
+                </div>
+                <div id="actionSizingVisual" class="action-visual-list"></div>
+              </section>
+            </div>
+            <div class="visual-grid">
+              <section class="panel chart-panel">
+                <div class="panel-head">
+                  <h3>Top Return Drivers</h3>
+                  <span>5-day lift and drag</span>
+                </div>
+                <div id="attributionWaterfall" class="waterfall-list"></div>
+              </section>
+              <section class="panel chart-panel">
+                <div class="panel-head">
+                  <h3>Portfolio Evolution</h3>
+                  <span>Current, peer average, and target</span>
+                </div>
+                <div id="peerGapChart" class="peer-gap-list"></div>
+              </section>
+            </div>
+            <div class="split">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Under/Overweight Gaps</h3>
+                  <span>Your weight vs focus funds</span>
+                </div>
+                <div id="exposureGapList" class="list"></div>
+              </section>
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Study Queue</h3>
+                  <span>Positions that need more work</span>
+                </div>
+                <div id="studyList" class="list"></div>
+              </section>
+            </div>
+            <div class="split">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Data Freshness</h3>
+                  <span>Source health for this run</span>
+                </div>
+                <div id="dataHealthList" class="list"></div>
+              </section>
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Risk Controls</h3>
+                  <span>Caps applied before trades publish</span>
+                </div>
+                <div id="riskControlList" class="list"></div>
+              </section>
+            </div>
+            <section class="panel context-panel">
+              <div class="panel-head">
+                <h3>Geoffrey Woo Portfolio</h3>
+                <span>Weights only, no account values</span>
+              </div>
+              <div id="portfolioContext" class="portfolio-context"></div>
+            </section>
+          </section>
+
+          <section class="view" id="moves" aria-labelledby="movesTitle">
+            <div class="section-head">
+              <h2 id="movesTitle">Trade Feed</h2>
+              <span>Add/trim instructions sized by portfolio weight</span>
+            </div>
+            <div id="moveList" class="idea-grid"></div>
+          </section>
+
+          <section class="view" id="research" aria-labelledby="researchTitle">
+            <div class="section-head">
+              <h2 id="researchTitle">Study Queue</h2>
+              <span id="researchSummary">Thesis, trigger, and risk</span>
+            </div>
+            <div id="weeklyResearchList" class="idea-grid"></div>
+          </section>
+
+          <section class="view" id="earnings" aria-labelledby="earningsTitle">
+            <div class="section-head">
+              <h2 id="earningsTitle">Earnings & Catalysts</h2>
+              <span>Upcoming dates, result markers, and guidance signals</span>
+            </div>
+            <div id="earningsList" class="idea-grid"></div>
+          </section>
+
+          <section class="view" id="managers" aria-labelledby="managersTitle">
+            <div class="section-head">
+              <h2 id="managersTitle">Manager 13F Radar</h2>
+              <span id="managerSummary">Loading public filings</span>
+            </div>
+            <section class="panel focus-panel">
+              <div class="panel-head">
+                <h3>Focus Fund Tracking %</h3>
+                <a class="panel-link" href="/ai-thesis-core">Full AI Thesis Core positions</a>
+              </div>
+              <div id="focusManagerGrid" class="focus-grid"></div>
+            </section>
+            <div class="split">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Crowded Focus Positions</h3>
+                  <span>Most shared public 13F holdings</span>
+                </div>
+                <div id="consensusList" class="bar-list"></div>
+              </section>
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Filing Status</h3>
+                  <span>Latest public filing date</span>
+                </div>
+                <div id="managerList" class="list"></div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" id="macro" aria-labelledby="macroTitle">
+            <div class="section-head">
+              <h2 id="macroTitle">Macro Regime</h2>
+              <span>Cross-asset signals that gate risk</span>
+            </div>
+            <div id="macroScores" class="kpi-grid"></div>
+            <section class="panel">
+              <div class="panel-head">
+                <h3>Cross-Asset Market Map</h3>
+                <span>5-day move by macro proxy</span>
+              </div>
+              <div id="macroTape" class="market-map"></div>
+            </section>
+          </section>
+
+          <section class="view" id="news" aria-labelledby="newsTitle">
+            <div class="section-head">
+              <h2 id="newsTitle">News & Catalysts</h2>
+              <span>Linked sources by symbol and theme</span>
+            </div>
+            <div id="newsList" class="news-list"></div>
+          </section>
+
+          <section class="view" id="method" aria-labelledby="methodTitle">
+            <div class="section-head">
+              <h2 id="methodTitle">Method & Data Health</h2>
+              <span id="methodSummary">Live backend method</span>
+            </div>
+            <div id="methodKpis" class="kpi-grid"></div>
+            <div class="split">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Backend Pipeline</h3>
+                  <span>What runs before this JSON publishes</span>
+                </div>
+                <div id="methodPipelineList" class="list"></div>
+              </section>
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Current Source Status</h3>
+                  <span>Live inputs used for this run</span>
+                </div>
+                <div id="methodSourceList" class="list"></div>
+              </section>
+            </div>
+            <div class="split">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Scoring Model</h3>
+                  <span>Signal components and promotion rules</span>
+                </div>
+                <div id="methodScoringList" class="list"></div>
+              </section>
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Risk & Privacy Boundary</h3>
+                  <span>Trade sizing and public sanitizer</span>
+                </div>
+                <div id="methodRiskList" class="list"></div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" id="audit" aria-labelledby="auditTitle">
+            <div class="section-head">
+              <h2 id="auditTitle">Audit & Engine Health</h2>
+              <span id="auditSummary">Source freshness and publication safety</span>
+            </div>
+            <div id="auditKpis" class="kpi-grid"></div>
+            <div class="split">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Source Freshness</h3>
+                  <span>Inputs checked for this run</span>
+                </div>
+                <div id="auditSourceList" class="list"></div>
+              </section>
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Data Gaps</h3>
+                  <span>Items that reduce confidence</span>
+                </div>
+                <div id="auditGapList" class="list"></div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" id="calendar" aria-labelledby="calendarTitle">
+            <div class="section-head">
+              <h2 id="calendarTitle">Earnings & 13F Calendars</h2>
+              <span id="calendarSummary">Forward event windows</span>
+            </div>
+            <div id="calendarKpis" class="kpi-grid"></div>
+            <div class="split">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Earnings Calendar</h3>
+                  <span>Manual, SEC, and news-derived markers</span>
+                </div>
+                <div id="calendarEarningsList" class="list"></div>
+              </section>
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>13F Filing Calendar</h3>
+                  <span>Quarter deadlines and manager status</span>
+                </div>
+                <div id="calendarFilingList" class="list"></div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" id="engine" aria-labelledby="engineTitle">
+            <div class="section-head">
+              <h2 id="engineTitle">Trading Engine</h2>
+              <span id="engineSummary">Expected-return ranking with paper tracking</span>
+            </div>
+            <div id="engineKpis" class="kpi-grid"></div>
+            <div class="split">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Expected-Return Ranks</h3>
+                  <span>3-12 month equity candidates</span>
+                </div>
+                <div id="engineRankList" class="list"></div>
+              </section>
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Paper Portfolio</h3>
+                  <span>Target changes tracked with proxy fills</span>
+                </div>
+                <div id="paperTradeList" class="list"></div>
+              </section>
+            </div>
+          </section>
+        </section>
+      </main>
+      <footer class="site-footer">
+        <span>Public weights, public filings, daily AI markets signals. Approval-only; no live order execution.</span>
+        <a href="https://x.com/geoffreywoo" target="_blank" rel="noreferrer">Created by @geoffreywoo</a>
+      </footer>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

@@ -248,7 +248,7 @@ def manager_tier(manager_key: str, manager: dict[str, Any], tier_map: dict[str, 
 
 def manager_group_label(tier: str) -> str:
     if tier == "tier_1":
-        return "AI Thesis Core"
+        return "Tier 1 Watch"
     return "Manager Context Bench"
 
 
@@ -257,7 +257,7 @@ def build_focus_manager_groups(focus_managers: list[dict[str, Any]]) -> list[dic
         {
             "key": "tier_1",
             "label": manager_group_label("tier_1"),
-            "description": "Leopold/Situational Awareness, Altimeter, and Dragoneer.",
+            "description": "Situational Awareness / Leopold, Altimeter, Dragoneer, and D1.",
             "managers": [row for row in focus_managers if row.get("manager_tier") == "tier_1"],
         },
         {

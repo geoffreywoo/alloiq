@@ -10,13 +10,17 @@ from pathlib import Path
 from statistics import mean, median
 from typing import Any
 
+from .audit import build_audit_snapshot
+from .calendars import build_calendar_snapshot
 from .config import AppConfig
 from .earnings import build_earnings_events
+from .engine import build_engine_snapshot
 from .ideas import build_idea_book
 from .macro import DEFAULT_MACRO_SYMBOLS, build_macro_dashboard
 from .managers import build_manager_radar
 from .market import fetch_daily_prices, fetch_return_windows
 from .news import enrich_news_item, fetch_many
+from .paper import build_paper_portfolio
 from .portfolio import build_portfolio_exposure
 from .risk import apply_risk_controls, normalize_limits
 from .thesis import build_decision_cards
@@ -131,6 +135,17 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         filing_result_count=bool(latest_filing),
         broker_result_count=portfolio.get("position_count", 0),
     )
+    calendars = build_calendar_snapshot(config, as_of, manager_radar, earnings_events)
+    engine = build_engine_snapshot(
+        as_of,
+        session,
+        cards,
+        portfolio,
+        portfolio_benchmark,
+        approval_tickets,
+        config.risk_limits,
+    )
+    paper_portfolio = build_paper_portfolio(as_of, session, portfolio, approval_tickets, cards)
     methodology = build_methodology(
         config,
         session,
@@ -141,6 +156,7 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         approval_tickets,
         earnings_events,
     )
+    audit = build_audit_snapshot(as_of, session, data_health, calendars, engine, paper_portfolio, methodology)
     payload = {
         "as_of": as_of.isoformat(),
         "session": session,
@@ -158,11 +174,15 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         "portfolio_benchmark": portfolio_benchmark,
         "approval_tickets": approval_tickets,
         "data_health": data_health,
+        "audit": audit,
+        "calendars": calendars,
+        "engine": engine,
+        "paper_portfolio": paper_portfolio,
         "methodology": methodology,
         "decision_cards": cards[:20],
         "ideas": ideas,
         "stale_vanguard": stale_vanguard,
-        "disclaimer": "Research only. No order execution and no personalized financial advice.",
+        "disclaimer": "Public weights, public filings, daily AI markets signals. Approval-only; no live order execution.",
         "product": {"name": config.product_name, "domain": config.product_domain},
     }
     if weekly_research:
@@ -184,12 +204,15 @@ def render_markdown(payload: dict[str, Any], config: AppConfig) -> str:
     lines.append("")
     lines.append(f"`{product['domain']}`")
     lines.append("")
-    lines.append("_Research only. No order execution and no personalized financial advice._")
+    lines.append("_Public weights, public filings, daily AI markets signals. Approval-only; no live order execution._")
     lines.append("")
     if payload.get("stale_vanguard") and payload["stale_vanguard"]["is_stale"]:
         lines.append(f"> Vanguard import status: stale or missing. Last import: {payload['stale_vanguard']['last_import'] or 'never'}.")
         lines.append("")
     render_data_health(lines, payload)
+    render_audit_snapshot(lines, payload)
+    render_calendars(lines, payload)
+    render_engine_snapshot(lines, payload)
     render_portfolio_snapshot(lines, payload)
     render_portfolio_benchmark(lines, payload)
     render_macro_tape(lines, payload)
@@ -322,6 +345,76 @@ def render_data_health(lines: list[str], payload: dict[str, Any]) -> None:
             f"- {source.get('label', source.get('source', 'Source'))}: "
             f"{source.get('status', 'unknown')} - {source.get('detail', '')}"
         )
+    lines.append("")
+
+
+def render_audit_snapshot(lines: list[str], payload: dict[str, Any]) -> None:
+    audit = payload.get("audit") or {}
+    if not audit:
+        return
+    lines.append("## Audit And Engine Health")
+    lines.append(
+        f"- Overall status: **{audit.get('overall_status', 'unknown')}**; "
+        f"engine {audit.get('engine_version', 'unknown')}; methodology {audit.get('methodology_version', 'unknown')}."
+    )
+    engine_health = audit.get("engine_health") or {}
+    lines.append(
+        f"- Learning status: {engine_health.get('learning_status', 'unknown')}; "
+        f"{engine_health.get('feature_count', 0)} features; "
+        f"{engine_health.get('paper_trade_count', 0)} paper trades tracked with proxy fills."
+    )
+    gaps = audit.get("data_gaps") or []
+    if gaps:
+        lines.append("- Gaps: " + "; ".join(f"{row.get('label')}: {row.get('status')}" for row in gaps[:6]) + ".")
+    else:
+        lines.append("- No audit gaps detected in the current public-safe run.")
+    lines.append("")
+
+
+def render_calendars(lines: list[str], payload: dict[str, Any]) -> None:
+    calendars = payload.get("calendars") or {}
+    if not calendars:
+        return
+    filings = calendars.get("filings_13f") or {}
+    earnings = calendars.get("earnings") or {}
+    cycle = filings.get("current_cycle") or {}
+    lines.append("## Calendars")
+    if cycle:
+        lines.append(
+            f"- 13F cycle: {cycle.get('label', '')} quarter-end {cycle.get('quarter_end', '')}; "
+            f"deadline {cycle.get('deadline', '')}; filed {filings.get('filed_count', 0)}/"
+            f"{filings.get('manager_count', 0)} managers."
+        )
+    if earnings.get("events"):
+        lines.append("- Earnings/events: " + ", ".join(
+            f"{row.get('symbol')} {row.get('event_date')} ({row.get('risk_window', 'unknown')})"
+            for row in earnings.get("events", [])[:8]
+        ) + ".")
+    else:
+        lines.append("- No earnings events in the current calendar snapshot.")
+    lines.append("")
+
+
+def render_engine_snapshot(lines: list[str], payload: dict[str, Any]) -> None:
+    engine = payload.get("engine") or {}
+    paper = payload.get("paper_portfolio") or {}
+    if not engine:
+        return
+    lines.append("## Recommendation Engine")
+    lines.append(
+        f"- Policy: {engine.get('version', 'unknown')}; objective {engine.get('objective', '')}; "
+        f"mode {engine.get('mode', '')}; target-weight engine."
+    )
+    learning = engine.get("learning") or {}
+    lines.append(f"- Learning: {learning.get('status', 'unknown')} with {learning.get('outcome_count', 0)} completed outcomes.")
+    ranked = engine.get("ranked_candidates") or []
+    if ranked:
+        lines.append("- Top expected-return ranks: " + ", ".join(
+            f"{row.get('symbol')} {row.get('expected_return_rank_score', 0):.1f}"
+            for row in ranked[:8]
+        ) + ".")
+    metrics = paper.get("metrics") or {}
+    lines.append(f"- Paper trading: {metrics.get('paper_trade_count', 0)} trades tracked under next-close proxy fill policy.")
     lines.append("")
 
 
@@ -485,7 +578,7 @@ def render_approval_tickets(lines: list[str], payload: dict[str, Any]) -> None:
     if not tickets:
         return
     lines.append("## Approval Tickets")
-    lines.append("- Approval-only research tickets. No broker order is placed by AlloIQ.")
+    lines.append("- Approval-only portfolio-weight tickets with current weight, target weight, and sizing basis. No broker order is placed by AlloIQ.")
     for ticket in tickets[:10]:
         lines.append(
             f"- **{ticket.get('symbol', '')}** `{ticket.get('ticket_id', '')}`: "
@@ -647,7 +740,7 @@ def build_approval_tickets(
             },
             "estimated_notional": round(estimated_notional, 2) if estimated_notional is not None else None,
             "estimated_shares": round(estimated_shares, 4) if estimated_shares is not None else None,
-            "sizing_basis": action.get("sizing_basis", "portfolio-weight research proposal; approval required; no order execution"),
+            "sizing_basis": action.get("sizing_basis", "portfolio-weight target delta for the approval-only trade feed"),
         }
         tickets.append(ticket)
     return tickets
@@ -760,14 +853,14 @@ def build_methodology(
         "version": "2026-05-live-assistant-v1",
         "updated_by_backend": True,
         "session": session,
-        "summary": "AlloIQ ranks watchlist names by independent public-market signal families, constrains sizing with portfolio risk limits, and publishes approval-only portfolio-weight research proposals.",
+        "summary": "AlloIQ ranks watchlist names by independent public-market signal families, constrains sizing with portfolio risk limits, and publishes approval-only portfolio-weight trade targets.",
         "pipeline": {
             "commands": [
                 f"python3 -m invest pipeline --kind {kind} --privacy public"
                 for kind in ["premarket", "postmarket", "weekly"]
             ],
             "cadence": [
-                {"kind": "premarket", "when": "8:00 AM ET on NYSE trading days", "purpose": "Refresh holdings, filings, overnight catalysts, macro tape, and approval tickets before the open."},
+                {"kind": "premarket", "when": "8:00 AM ET on NYSE trading days", "purpose": "Refresh holdings, filings, overnight catalysts, macro tape, and trade tickets before the open."},
                 {"kind": "postmarket", "when": "4:30 PM ET on NYSE trading days", "purpose": "Refresh end-of-day price action, attribution, catalysts, and follow-up ticket state."},
                 {"kind": "weekly", "when": "Sunday morning ET", "purpose": "Run full idea research, thesis/falsifier review, and weekly opportunity/risk queue."},
             ],
@@ -804,15 +897,15 @@ def build_methodology(
             "components": [
                 {"key": "manager", "max_points": 25, "rule": "Tracked-manager overlap, consensus holder count, primary-manager exposure, and option tilt from public 13F data."},
                 {"key": "catalyst", "max_points": 20, "rule": "Classified news events such as capex signals, contract wins, financing risk, regulatory risk, supply constraints, and earnings revisions."},
-                {"key": "portfolio_fit", "max_points": 12, "rule": "Current portfolio ownership or strong manager consensus gives context for add, trim, hedge, or white-space review."},
+                {"key": "portfolio_fit", "max_points": 12, "rule": "Current portfolio ownership or strong manager consensus gives context for add, trim, hold, or white-space review."},
                 {"key": "price_action", "max_points": 10, "rule": "Recent price movement gates entry discipline; moderate strength and large drawdowns are treated differently."},
                 {"key": "option_tilt", "max_points": 5, "rule": "Call-heavy public filings can add support; put-heavy filings can subtract or force risk review."},
             ],
             "promotion_rules": [
-                "Names with at least two independent signal families are eligible for higher-priority research.",
-                "Owned names with financing, regulatory, crowding, or put-heavy risk can override add logic into trim, hedge, or review.",
-                "White-space long ideas require manager support, signal density, and entry discipline before a starter-weight proposal.",
-                "Every recommendation carries a trigger, risk, and falsifier; none are execution instructions.",
+                "Names with at least two independent signal families are eligible for higher-priority study.",
+                "Owned names with financing, regulatory, crowding, or put-heavy risk can override add logic into trim, hold, or review.",
+                "White-space long ideas require manager support, signal density, and entry discipline before a starter target.",
+                "Every recommendation carries a trigger, risk, and falsifier; none are live execution instructions.",
             ],
         },
         "risk_and_sizing": {
@@ -1584,7 +1677,7 @@ def size_gap_action(gap: dict[str, Any], card: dict[str, Any], component: dict[s
             summary = f"Trim {weight_label(trim)} to {weight_label(post_action)} until risk flags clear."
             return sized_payload("trim", current, -trim, post_action, post_action, summary)
         hedge = min(0.01, max(0.005, current * 0.15)) if current > 0 else 0.0
-        summary = f"Hold at {weight_label(current)}; do not add, and size any hedge at {weight_label(hedge)}."
+        summary = f"Hold at {weight_label(current)}; do not add, and keep risk budget at {weight_label(hedge)}."
         return sized_payload("hold_hedge", current, 0.0, current, current, summary, hedge)
 
     if gap_type == "concentration_check":
@@ -1642,7 +1735,7 @@ def sized_payload(
         "post_action_weight": round_weight(post_action),
         "target_weight": round_weight(target),
         "hedge_weight": round_weight(hedge_weight),
-        "sizing_basis": "portfolio-weight research proposal; not an execution order",
+        "sizing_basis": "portfolio-weight target delta for the trade feed",
     }
 
 

@@ -50,6 +50,18 @@ class SiteTests(unittest.TestCase):
                 },
                 "public_privacy": {"stripped_fields": ["quantity", "market_value"]},
             },
+            "audit": {"source_freshness": [{"source": "broker_positions", "raw": {"account": "U123"}}]},
+            "calendars": {
+                "earnings": {"events": [{"symbol": "NVDA", "raw": {"account": "U123"}, "confidence": 1.0}]},
+                "filings_13f": {"managers": [{"manager_key": "m1", "status": "pending"}]},
+            },
+            "engine": {
+                "ranked_candidates": [{"symbol": "NVDA", "raw_json": {"account": "U123"}, "expected_return_rank_score": 55}],
+                "optimizer": {"allocations": [{"symbol": "NVDA", "estimated_notional": 1000}]},
+            },
+            "paper_portfolio": {
+                "paper_trades": [{"symbol": "NVDA", "estimated_shares": 2, "target_weight": 0.11}],
+            },
             "approval_tickets": [
                 {
                     "ticket_id": "abc",
@@ -133,6 +145,10 @@ class SiteTests(unittest.TestCase):
         self.assertNotIn('"quantity"', json.dumps(public["methodology"]))
         self.assertNotIn('"market_value"', json.dumps(public["methodology"]))
         self.assertEqual(public["data_health"]["sources"][0]["source"], "position_snapshot")
+        self.assertNotIn("raw", json.dumps(public["audit"]))
+        self.assertNotIn("account", json.dumps(public["calendars"]))
+        self.assertNotIn("raw_json", json.dumps(public["engine"]))
+        self.assertNotIn("estimated_shares", json.dumps(public["paper_portfolio"]))
 
     def test_public_moves_call_out_put_heavy_names(self):
         moves = build_public_moves(
@@ -153,10 +169,10 @@ class SiteTests(unittest.TestCase):
             {"regime": "risk-on AI acceleration"},
         )
 
-        self.assertEqual(moves[0]["action"], "Hedge watch")
+        self.assertEqual(moves[0]["action"], "Risk watch")
         self.assertEqual(moves[0]["posture"], "Cautious")
 
-    def test_public_moves_use_portfolio_weights_for_owned_hedge(self):
+    def test_public_moves_use_portfolio_weights_for_owned_risk_budget(self):
         moves = build_public_moves(
             [
                 {
@@ -176,7 +192,7 @@ class SiteTests(unittest.TestCase):
             {"by_bucket": [{"bucket": "semis_networking_hbm", "weight": 0.3}]},
         )
 
-        self.assertEqual(moves[0]["action"], "Hedge existing exposure")
+        self.assertEqual(moves[0]["action"], "Hold with risk budget")
         self.assertEqual(moves[0]["portfolio_weight"], 0.05)
 
     def test_public_payload_sanitizes_weekly_research(self):
@@ -227,6 +243,10 @@ class SiteTests(unittest.TestCase):
         self.assertEqual(public["methodology"]["current_run"]["confirmed_card_count"], 2)
         self.assertEqual(public["methodology"]["risk_and_sizing"]["order_execution"], "none")
         self.assertEqual(public["methodology"]["public_privacy"]["mode"], "weights_only")
+        self.assertEqual(public["engine"]["objective"], "maximize_expected_3_12m_forward_return")
+        self.assertEqual(public["paper_portfolio"]["live_order_execution"], "disabled")
+        self.assertEqual(public["calendars"]["earnings"]["source_quality"], "limited")
+        self.assertIn("engine_health", public["audit"])
 
 
 if __name__ == "__main__":

@@ -140,6 +140,116 @@ CREATE TABLE IF NOT EXISTS earnings_events (
     raw JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS calendar_events (
+    calendar_event_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    as_of DATE NOT NULL,
+    calendar_kind TEXT NOT NULL DEFAULT '',
+    symbol TEXT NOT NULL DEFAULT '',
+    event_date DATE,
+    event_type TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT '',
+    confidence NUMERIC,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS manager_filing_calendar (
+    calendar_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    manager_key TEXT NOT NULL,
+    manager_name TEXT NOT NULL DEFAULT '',
+    quarter_end DATE NOT NULL,
+    deadline DATE NOT NULL,
+    status TEXT NOT NULL DEFAULT '',
+    latest_report_date DATE,
+    latest_filing_date DATE,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS engine_features (
+    feature_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    as_of DATE NOT NULL,
+    symbol TEXT NOT NULL,
+    bucket TEXT NOT NULL DEFAULT 'unmapped',
+    expected_return_score NUMERIC,
+    expected_return_rank_score NUMERIC,
+    signal_family_count INTEGER NOT NULL DEFAULT 0,
+    current_weight NUMERIC,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS engine_predictions (
+    prediction_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    as_of DATE NOT NULL,
+    symbol TEXT NOT NULL,
+    model_policy_version TEXT NOT NULL DEFAULT '',
+    expected_return_rank_score NUMERIC,
+    current_weight NUMERIC,
+    recommended_delta_weight NUMERIC,
+    target_weight NUMERIC,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS paper_trades (
+    paper_trade_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    ticket_id TEXT NOT NULL DEFAULT '',
+    as_of DATE NOT NULL,
+    symbol TEXT NOT NULL,
+    trade_action TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT '',
+    current_weight NUMERIC,
+    recommended_delta_weight NUMERIC,
+    target_weight NUMERIC,
+    proxy_fill_price NUMERIC,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS paper_portfolio_snapshots (
+    snapshot_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    as_of DATE NOT NULL,
+    symbol TEXT NOT NULL,
+    current_weight NUMERIC,
+    paper_target_weight NUMERIC,
+    paper_delta_weight NUMERIC,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS recommendation_outcomes (
+    outcome_id TEXT PRIMARY KEY,
+    ticket_id TEXT NOT NULL DEFAULT '',
+    paper_trade_id TEXT NOT NULL DEFAULT '',
+    symbol TEXT NOT NULL,
+    horizon TEXT NOT NULL,
+    as_of DATE NOT NULL,
+    forward_return_pct NUMERIC,
+    expected_return_score NUMERIC,
+    signal_families JSONB NOT NULL DEFAULT '[]'::jsonb,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS model_policy_versions (
+    policy_version TEXT PRIMARY KEY,
+    objective TEXT NOT NULL DEFAULT '',
+    mode TEXT NOT NULL DEFAULT '',
+    universe TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active',
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 
@@ -249,7 +359,22 @@ def upsert_report_payload(conn, payload: dict[str, Any], pipeline_result: dict[s
             ),
         )
     if not payload:
-        return {"pipeline_runs": 1, "portfolio_snapshots": 0, "position_snapshots": 0, "signal_snapshots": 0, "trade_recommendations": 0, "performance_attribution": 0, "earnings_events": 0}
+        return {
+            "pipeline_runs": 1,
+            "portfolio_snapshots": 0,
+            "position_snapshots": 0,
+            "signal_snapshots": 0,
+            "trade_recommendations": 0,
+            "performance_attribution": 0,
+            "earnings_events": 0,
+            "calendar_events": 0,
+            "manager_filing_calendar": 0,
+            "engine_features": 0,
+            "engine_predictions": 0,
+            "paper_trades": 0,
+            "paper_portfolio_snapshots": 0,
+            "model_policy_versions": 0,
+        }
 
     counts = {
         "pipeline_runs": 1,
@@ -259,6 +384,13 @@ def upsert_report_payload(conn, payload: dict[str, Any], pipeline_result: dict[s
         "trade_recommendations": replace_trade_recommendations(conn, run_id, payload),
         "performance_attribution": replace_performance_attribution(conn, run_id, payload),
         "earnings_events": replace_earnings_events(conn, run_id, payload),
+        "calendar_events": replace_calendar_events(conn, run_id, payload),
+        "manager_filing_calendar": replace_manager_filing_calendar(conn, run_id, payload),
+        "engine_features": replace_engine_features(conn, run_id, payload),
+        "engine_predictions": replace_engine_predictions(conn, run_id, payload),
+        "paper_trades": replace_paper_trades(conn, run_id, payload),
+        "paper_portfolio_snapshots": replace_paper_portfolio_snapshots(conn, run_id, payload),
+        "model_policy_versions": upsert_model_policy_version(conn, payload),
     }
     return counts
 
@@ -483,7 +615,7 @@ def replace_earnings_events(conn, run_id: str, payload: dict[str, Any]) -> int:
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
                 """,
                 (
-                    row.get("event_id") or stable_id([run_id, "earnings", symbol, row.get("event_date"), row.get("event_type")]),
+                    stable_id([run_id, row.get("event_id") or "earnings", symbol, row.get("event_date"), row.get("event_type")]),
                     run_id,
                     payload.get("as_of"),
                     symbol,
@@ -498,6 +630,221 @@ def replace_earnings_events(conn, run_id: str, payload: dict[str, Any]) -> int:
                 ),
             )
     return len(rows)
+
+
+def replace_calendar_events(conn, run_id: str, payload: dict[str, Any]) -> int:
+    calendars = payload.get("calendars") or {}
+    rows = calendars.get("earnings", {}).get("events", [])
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM calendar_events WHERE run_id = %s", (run_id,))
+        for row in rows:
+            symbol = str(row.get("symbol") or "").upper()
+            cur.execute(
+                """
+                INSERT INTO calendar_events
+                (calendar_event_id, run_id, as_of, calendar_kind, symbol, event_date, event_type, source, status, confidence, raw)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                """,
+                (
+                    stable_id([run_id, row.get("event_id") or "calendar", symbol, row.get("event_date"), row.get("event_type")]),
+                    run_id,
+                    payload.get("as_of"),
+                    "earnings",
+                    symbol,
+                    row.get("event_date"),
+                    row.get("event_type") or "",
+                    row.get("source") or "",
+                    row.get("status") or "",
+                    numeric(row.get("confidence")),
+                    json_param(row),
+                ),
+            )
+    return len(rows)
+
+
+def replace_manager_filing_calendar(conn, run_id: str, payload: dict[str, Any]) -> int:
+    rows = ((payload.get("calendars") or {}).get("filings_13f") or {}).get("managers", [])
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM manager_filing_calendar WHERE run_id = %s", (run_id,))
+        for row in rows:
+            key = str(row.get("manager_key") or "")
+            if not key:
+                continue
+            cur.execute(
+                """
+                INSERT INTO manager_filing_calendar
+                (calendar_id, run_id, manager_key, manager_name, quarter_end, deadline, status, latest_report_date, latest_filing_date, raw)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                """,
+                (
+                    stable_id([run_id, "13f", key, row.get("quarter_end")]),
+                    run_id,
+                    key,
+                    row.get("manager_name") or "",
+                    row.get("quarter_end"),
+                    row.get("deadline"),
+                    row.get("status") or "",
+                    row.get("latest_report_date") or None,
+                    row.get("latest_filing_date") or None,
+                    json_param(row),
+                ),
+            )
+    return len(rows)
+
+
+def replace_engine_features(conn, run_id: str, payload: dict[str, Any]) -> int:
+    rows = (payload.get("engine") or {}).get("ranked_candidates", [])
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM engine_features WHERE run_id = %s", (run_id,))
+        for row in rows:
+            symbol = str(row.get("symbol") or "").upper()
+            if not symbol:
+                continue
+            cur.execute(
+                """
+                INSERT INTO engine_features
+                (feature_id, run_id, as_of, symbol, bucket, expected_return_score,
+                 expected_return_rank_score, signal_family_count, current_weight, raw)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                """,
+                (
+                    stable_id([run_id, row.get("feature_id") or "feature", symbol]),
+                    run_id,
+                    payload.get("as_of"),
+                    symbol,
+                    row.get("bucket", "unmapped"),
+                    numeric(row.get("expected_return_score")),
+                    numeric(row.get("expected_return_rank_score")),
+                    int(row.get("signal_family_count") or 0),
+                    numeric(row.get("current_weight")),
+                    json_param(row),
+                ),
+            )
+    return len(rows)
+
+
+def replace_engine_predictions(conn, run_id: str, payload: dict[str, Any]) -> int:
+    engine = payload.get("engine") or {}
+    rows = engine.get("recommendation_provenance", [])
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM engine_predictions WHERE run_id = %s", (run_id,))
+        for row in rows:
+            symbol = str(row.get("symbol") or "").upper()
+            if not symbol:
+                continue
+            cur.execute(
+                """
+                INSERT INTO engine_predictions
+                (prediction_id, run_id, as_of, symbol, model_policy_version, expected_return_rank_score,
+                 current_weight, recommended_delta_weight, target_weight, raw)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                """,
+                (
+                    stable_id([run_id, "prediction", symbol]),
+                    run_id,
+                    payload.get("as_of"),
+                    symbol,
+                    row.get("model_policy_version") or engine.get("version") or "",
+                    numeric(row.get("expected_return_rank_score")),
+                    numeric(row.get("current_weight")),
+                    numeric(row.get("recommended_delta_weight")),
+                    numeric(row.get("target_weight")),
+                    json_param(row),
+                ),
+            )
+    return len(rows)
+
+
+def replace_paper_trades(conn, run_id: str, payload: dict[str, Any]) -> int:
+    rows = (payload.get("paper_portfolio") or {}).get("paper_trades", [])
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM paper_trades WHERE run_id = %s", (run_id,))
+        for row in rows:
+            symbol = str(row.get("symbol") or "").upper()
+            if not symbol:
+                continue
+            cur.execute(
+                """
+                INSERT INTO paper_trades
+                (paper_trade_id, run_id, ticket_id, as_of, symbol, trade_action, status,
+                 current_weight, recommended_delta_weight, target_weight, proxy_fill_price, raw)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                """,
+                (
+                    stable_id([run_id, row.get("paper_trade_id") or "paper", symbol, row.get("ticket_id")]),
+                    run_id,
+                    row.get("ticket_id") or "",
+                    payload.get("as_of"),
+                    symbol,
+                    row.get("trade_action") or "",
+                    row.get("status") or "",
+                    numeric(row.get("current_weight")),
+                    numeric(row.get("recommended_delta_weight")),
+                    numeric(row.get("target_weight")),
+                    numeric(row.get("proxy_fill_price")),
+                    json_param(row),
+                ),
+            )
+    return len(rows)
+
+
+def replace_paper_portfolio_snapshots(conn, run_id: str, payload: dict[str, Any]) -> int:
+    rows = (payload.get("paper_portfolio") or {}).get("snapshots", [])
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM paper_portfolio_snapshots WHERE run_id = %s", (run_id,))
+        for row in rows:
+            symbol = str(row.get("symbol") or "").upper()
+            if not symbol:
+                continue
+            cur.execute(
+                """
+                INSERT INTO paper_portfolio_snapshots
+                (snapshot_id, run_id, as_of, symbol, current_weight, paper_target_weight, paper_delta_weight, raw)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                """,
+                (
+                    stable_id([run_id, "paper_snapshot", symbol]),
+                    run_id,
+                    payload.get("as_of"),
+                    symbol,
+                    numeric(row.get("current_weight")),
+                    numeric(row.get("paper_target_weight")),
+                    numeric(row.get("paper_delta_weight")),
+                    json_param(row),
+                ),
+            )
+    return len(rows)
+
+
+def upsert_model_policy_version(conn, payload: dict[str, Any]) -> int:
+    engine = payload.get("engine") or {}
+    version = engine.get("version")
+    if not version:
+        return 0
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO model_policy_versions
+            (policy_version, objective, mode, universe, status, raw, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s::jsonb, now())
+            ON CONFLICT (policy_version) DO UPDATE SET
+              objective = EXCLUDED.objective,
+              mode = EXCLUDED.mode,
+              universe = EXCLUDED.universe,
+              status = EXCLUDED.status,
+              raw = EXCLUDED.raw,
+              updated_at = now()
+            """,
+            (
+                version,
+                engine.get("objective") or "",
+                engine.get("mode") or "",
+                engine.get("universe") or "",
+                "active",
+                json_param(engine),
+            ),
+        )
+    return 1
 
 
 def action_queue_to_tickets(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -629,6 +976,14 @@ def warehouse_tables() -> list[str]:
         "decision_ledger",
         "performance_attribution",
         "earnings_events",
+        "calendar_events",
+        "manager_filing_calendar",
+        "engine_features",
+        "engine_predictions",
+        "paper_trades",
+        "paper_portfolio_snapshots",
+        "recommendation_outcomes",
+        "model_policy_versions",
     ]
 
 

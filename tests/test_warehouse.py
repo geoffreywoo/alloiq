@@ -75,6 +75,22 @@ class WarehouseTests(unittest.TestCase):
                 }
             ],
             "earnings_events": [{"symbol": "NVDA", "event_date": "2026-05-27", "days_until": 3}],
+            "calendars": {
+                "earnings": {"events": [{"event_id": "event-1", "symbol": "NVDA", "event_date": "2026-05-27", "source": "manual", "confidence": 1.0}]},
+                "filings_13f": {"managers": [{"manager_key": "m1", "manager_name": "Manager One", "quarter_end": "2026-06-30", "deadline": "2026-08-14", "status": "pending"}]},
+            },
+            "engine": {
+                "version": "2026-05-equity-max-return-v1",
+                "mode": "approval_plus_paper",
+                "universe": "equities_only",
+                "objective": "maximize_expected_3_12m_forward_return",
+                "ranked_candidates": [{"feature_id": "feature-1", "symbol": "NVDA", "bucket": "semis_networking_hbm", "expected_return_score": 55, "expected_return_rank_score": 60, "signal_family_count": 3, "current_weight": 0.1}],
+                "recommendation_provenance": [{"symbol": "NVDA", "model_policy_version": "2026-05-equity-max-return-v1", "expected_return_rank_score": 60, "current_weight": 0.1, "recommended_delta_weight": 0.01, "target_weight": 0.11}],
+            },
+            "paper_portfolio": {
+                "paper_trades": [{"paper_trade_id": "paper-1", "ticket_id": "ticket-1", "symbol": "NVDA", "trade_action": "add", "status": "planned", "current_weight": 0.1, "recommended_delta_weight": 0.01, "target_weight": 0.11, "proxy_fill_price": 120}],
+                "snapshots": [{"symbol": "NVDA", "current_weight": 0.1, "paper_target_weight": 0.11, "paper_delta_weight": 0.01}],
+            },
         }
 
         counts = warehouse.upsert_report_payload(
@@ -87,6 +103,13 @@ class WarehouseTests(unittest.TestCase):
         self.assertEqual(counts["portfolio_snapshots"], 1)
         self.assertEqual(counts["position_snapshots"], 1)
         self.assertEqual(counts["trade_recommendations"], 1)
+        self.assertEqual(counts["calendar_events"], 1)
+        self.assertEqual(counts["manager_filing_calendar"], 1)
+        self.assertEqual(counts["engine_features"], 1)
+        self.assertEqual(counts["engine_predictions"], 1)
+        self.assertEqual(counts["paper_trades"], 1)
+        self.assertEqual(counts["paper_portfolio_snapshots"], 1)
+        self.assertEqual(counts["model_policy_versions"], 1)
         self.assertTrue(any("INSERT INTO trade_recommendations" in sql for sql, _ in conn.executed))
 
 

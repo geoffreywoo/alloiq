@@ -122,7 +122,7 @@ function renderWeightTable() {
             </div>
             <div class="portfolio-copy-note">
               <span class="${delta > 0 ? "positive" : delta < 0 ? "negative" : ""}">${escapeHtml(delta ? formatSignedWeight(delta) : actionLabel)}</span>
-              <small>${escapeHtml(action.post_action_weight == null ? "No active resize proposal" : `After proposal ${formatWeight(action.post_action_weight)}`)}</small>
+              <small>${escapeHtml(action.post_action_weight == null ? "No active resize" : `After move ${formatWeight(action.post_action_weight)}`)}</small>
             </div>
           </article>
         `;
@@ -175,12 +175,12 @@ function renderRebalanceList() {
             <div class="rebalance-metrics">
               <span>Current ${escapeHtml(formatWeight(action.portfolio_weight))}</span>
               <span>After ${escapeHtml(formatWeight(action.post_action_weight ?? action.portfolio_weight))}</span>
-              <strong class="${delta > 0 ? "positive" : delta < 0 ? "negative" : ""}">${escapeHtml(delta ? formatSignedWeight(delta) : action.hedge_weight ? `Hedge ${formatWeight(action.hedge_weight)}` : "Hold")}</strong>
+              <strong class="${delta > 0 ? "positive" : delta < 0 ? "negative" : ""}">${escapeHtml(delta ? tradeWeightLabel(delta) : "Hold")}</strong>
             </div>
           </article>
         `;
       }).join("")
-    : empty("No active add/trim proposals in this snapshot.");
+    : empty("No active add/trim trades in this snapshot.");
 }
 
 function renderAttribution() {
@@ -209,7 +209,7 @@ async function copyWeightsCsv() {
   const rows = sortedSymbols();
   const actionsBySymbol = Object.fromEntries((payload.portfolio_benchmark?.action_queue || []).map((row) => [row.symbol, row]));
   const csv = [
-    ["symbol", "weight_pct", "bucket", "research_delta_pct", "after_proposal_weight_pct"],
+    ["symbol", "weight_pct", "bucket", "target_delta_pct", "after_move_weight_pct"],
     ...rows.map((row) => {
       const action = actionsBySymbol[row.symbol] || {};
       return [
@@ -300,6 +300,13 @@ function formatWeight(value) {
 function formatSignedWeight(value) {
   const numeric = Number(value || 0);
   return `${numeric >= 0 ? "+" : ""}${formatWeight(numeric)}`;
+}
+
+function tradeWeightLabel(value) {
+  const numeric = Number(value || 0);
+  if (numeric > 0) return `Add ${formatWeight(Math.abs(numeric))}`;
+  if (numeric < 0) return `Trim ${formatWeight(Math.abs(numeric))}`;
+  return "Hold";
 }
 
 function formatPct(value) {

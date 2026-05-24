@@ -6,9 +6,9 @@
     <meta name="theme-color" content="#0e151b">
     <meta
       name="description"
-      content="AlloIQ turns public 13F filings, AI-market news, price moves, and macro signals into portfolio-weight research proposals."
+      content="Geoffrey Woo's AI-max public markets portfolio, shown as public percentage weights with daily AI markets trade signals."
     >
-    <title>AlloIQ</title>
+    <title>AlloIQ | Geoffrey Woo AI-Max Portfolio</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -33,265 +33,123 @@
           </span>
         </a>
         <div class="topbar-meta">
-          <span id="reportDate">Loading</span>
-          <span id="refreshStatus">Waiting for data</span>
-          <span id="privacyBadge" class="badge">Public</span>
+          <span id="homeDate">Loading</span>
+          <a class="topbar-link" href="/dashboard">Trade OS</a>
         </div>
       </header>
 
-      <main class="layout">
-        <nav class="rail" aria-label="Primary views">
-          <button class="rail-button active" data-view="dashboard" type="button" aria-current="page">Dashboard</button>
-          <a class="rail-button rail-link" href="/portfolio">GW Portfolio</a>
-          <button class="rail-button" data-view="moves" type="button">Moves</button>
-          <button class="rail-button" data-view="research" type="button">Research</button>
-          <button class="rail-button" data-view="earnings" type="button">Earnings</button>
-          <button class="rail-button" data-view="managers" type="button">Managers</button>
-          <a class="rail-button rail-link" href="/ai-thesis-core">AI Core</a>
-          <button class="rail-button" data-view="macro" type="button">Macro</button>
-          <button class="rail-button" data-view="news" type="button">News</button>
-          <button class="rail-button" data-view="method" type="button">Method</button>
-        </nav>
-
-        <section class="content">
-          <div class="command-bar">
-            <div>
-              <p class="eyebrow">alloiq.com</p>
-              <h1>Today's AI Markets Portfolio Brief</h1>
-            </div>
-            <label class="search">
-              <span>Search</span>
-              <input id="searchInput" type="search" placeholder="Ticker, manager, catalyst">
-            </label>
+      <main class="home-page">
+        <section class="home-hero">
+          <p class="eyebrow">alloiq.com / geoffrey woo portfolio</p>
+          <h1>Geoffrey Woo's AI-max public markets portfolio</h1>
+          <p>
+            AlloIQ tracks Geoffrey's public-equity allocation through an AI-max lens:
+            accelerated AI infrastructure, frontier platforms, semis, energy constraints,
+            and second-order winners. The portfolio is published as percentage weights so
+            friends can understand the book and mirror the shape without seeing private values.
+          </p>
+          <div class="home-actions">
+            <a class="primary-button" href="/portfolio">View GW Portfolio</a>
+            <a class="secondary-button" href="/dashboard">Open Trade OS</a>
           </div>
-          <p class="notice">Research proposals only. Portfolio data is shown as weights, not share counts, account values, or executed orders.</p>
-          <p id="staleBanner" class="stale-banner" hidden></p>
+        </section>
 
-          <section class="view active" id="dashboard" aria-labelledby="dashboardTitle">
-            <div class="section-head">
-              <h2 id="dashboardTitle">Today's Decision Stack</h2>
-              <span id="regimeBadge" class="regime-badge">Macro regime loading</span>
+        <section class="home-decision-band" aria-label="Live AlloIQ snapshot">
+          <article>
+            <span>Portfolio</span>
+            <strong id="homeSnapshot">Loading</strong>
+            <small>Public weights only</small>
+          </article>
+          <article>
+            <span>Latest trade</span>
+            <strong id="homeTopTrade">Loading</strong>
+            <small id="homeTopTradeDetail">Waiting for trade feed</small>
+          </article>
+          <article>
+            <span>Freshness</span>
+            <strong id="homeFreshness">Loading</strong>
+            <small id="homeFreshnessDetail">Checking build status</small>
+          </article>
+        </section>
+
+        <section class="home-section home-thesis-section">
+          <div>
+            <p class="eyebrow">AI-max bias</p>
+            <h2>The book is built around one core assumption: AI acceleration matters more than consensus expects.</h2>
+          </div>
+          <div class="home-thesis-grid">
+            <article>
+              <strong>Compute stack</strong>
+              <p>Own the bottlenecks: accelerators, HBM, networking, foundry capacity, data-center scale, and power.</p>
+            </article>
+            <article>
+              <strong>Platform capture</strong>
+              <p>Track where AI usage converts into revenue, retention, pricing power, and operating leverage.</p>
+            </article>
+            <article>
+              <strong>Elite signal overlay</strong>
+              <p>Benchmark GW weights against Situational Awareness / Leopold, Altimeter, Dragoneer, D1, and the broader manager bench.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="home-live-grid" aria-label="Live portfolio visualizations">
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Top Weights</h3>
+              <a class="panel-link" href="/portfolio">Full portfolio</a>
             </div>
-            <div id="kpiGrid" class="kpi-grid"></div>
-            <div id="decisionStack" class="decision-stack"></div>
-            <div class="dashboard-grid">
-              <section class="panel">
-                <div class="panel-head">
-                  <h3>Portfolio Return Proxies</h3>
-                  <span id="benchmarkHorizon">Current weights vs benchmarks</span>
-                </div>
-                <div id="returnCurve" class="return-curve"></div>
-                <div id="horizonList" class="horizon-list"></div>
-                <div id="benchmarkList" class="benchmark-list"></div>
-              </section>
-              <section class="panel priority-panel">
-                <div class="panel-head">
-                  <h3>Recommended Weight Changes</h3>
-                  <span id="actionCount">0 items</span>
-                </div>
-                <div id="portfolioActionList" class="list"></div>
-              </section>
-            </div>
-            <div class="visual-grid">
-              <section class="panel chart-panel">
-                <div class="panel-head">
-                  <h3>Signal Strength Map</h3>
-                  <span>Score vs number of managers</span>
-                </div>
-                <div class="canvas-wrap">
-                  <canvas id="signalCanvas" role="img" aria-label="Signal score by consensus manager count"></canvas>
-                  <div id="signalTooltip" class="signal-tooltip" hidden></div>
-                </div>
-              </section>
-              <section class="panel chart-panel">
-                <div class="panel-head">
-                  <h3>Add / Trim Sizing</h3>
-                  <span>Recommended change as portfolio weight</span>
-                </div>
-                <div id="actionSizingVisual" class="action-visual-list"></div>
-              </section>
-            </div>
-            <div class="visual-grid">
-              <section class="panel chart-panel">
-                <div class="panel-head">
-                  <h3>Top Return Drivers</h3>
-                  <span>5-day lift and drag</span>
-                </div>
-                <div id="attributionWaterfall" class="waterfall-list"></div>
-              </section>
-              <section class="panel chart-panel">
-                <div class="panel-head">
-                  <h3>Portfolio vs Peer Weights</h3>
-                  <span>Current, peer average, and target</span>
-                </div>
-                <div id="peerGapChart" class="peer-gap-list"></div>
-              </section>
-            </div>
-            <div class="split">
-              <section class="panel">
-                <div class="panel-head">
-                  <h3>Under/Overweight Gaps</h3>
-                  <span>Your weight vs focus funds</span>
-                </div>
-                <div id="exposureGapList" class="list"></div>
-              </section>
-              <section class="panel">
-                <div class="panel-head">
-                  <h3>Questions To Underwrite</h3>
-                  <span>Positions that need more evidence</span>
-                </div>
-                <div id="studyList" class="list"></div>
-              </section>
-            </div>
-            <div class="split">
-              <section class="panel">
-                <div class="panel-head">
-                  <h3>Data Freshness</h3>
-                  <span>Source health for this run</span>
-                </div>
-                <div id="dataHealthList" class="list"></div>
-              </section>
-              <section class="panel">
-                <div class="panel-head">
-                  <h3>Risk Controls</h3>
-                  <span>Caps applied before proposals publish</span>
-                </div>
-                <div id="riskControlList" class="list"></div>
-              </section>
-            </div>
-            <section class="panel context-panel">
-              <div class="panel-head">
-                <h3>Geoffrey Woo Portfolio</h3>
-                <span>Weights only, no account values</span>
-              </div>
-              <div id="portfolioContext" class="portfolio-context"></div>
-            </section>
+            <div id="homeTopWeights" class="bar-list"></div>
           </section>
-
-          <section class="view" id="moves" aria-labelledby="movesTitle">
-            <div class="section-head">
-              <h2 id="movesTitle">Move Proposals</h2>
-              <span>Research actions sized as portfolio weights</span>
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Thesis Mix</h3>
+              <span>Current allocation by AI bucket</span>
             </div>
-            <div id="moveList" class="idea-grid"></div>
-          </section>
-
-          <section class="view" id="research" aria-labelledby="researchTitle">
-            <div class="section-head">
-              <h2 id="researchTitle">Weekly Research</h2>
-              <span id="researchSummary">Thesis, trigger, and risk</span>
-            </div>
-            <div id="weeklyResearchList" class="idea-grid"></div>
-          </section>
-
-          <section class="view" id="earnings" aria-labelledby="earningsTitle">
-            <div class="section-head">
-              <h2 id="earningsTitle">Earnings & Catalysts</h2>
-              <span>Upcoming dates, result markers, and guidance signals</span>
-            </div>
-            <div id="earningsList" class="idea-grid"></div>
-          </section>
-
-          <section class="view" id="managers" aria-labelledby="managersTitle">
-            <div class="section-head">
-              <h2 id="managersTitle">Manager 13F Radar</h2>
-              <span id="managerSummary">Loading public filings</span>
-            </div>
-            <section class="panel focus-panel">
-              <div class="panel-head">
-                <h3>Focus Fund Tracking %</h3>
-                <a class="panel-link" href="/ai-thesis-core">Full AI Thesis Core positions</a>
-              </div>
-              <div id="focusManagerGrid" class="focus-grid"></div>
-            </section>
-            <div class="split">
-              <section class="panel">
-                <div class="panel-head">
-                  <h3>Crowded Focus Positions</h3>
-                  <span>Most shared public 13F holdings</span>
-                </div>
-                <div id="consensusList" class="bar-list"></div>
-              </section>
-              <section class="panel">
-                <div class="panel-head">
-                  <h3>Filing Status</h3>
-                  <span>Latest public filing date</span>
-                </div>
-                <div id="managerList" class="list"></div>
-              </section>
-            </div>
-          </section>
-
-          <section class="view" id="macro" aria-labelledby="macroTitle">
-            <div class="section-head">
-              <h2 id="macroTitle">Macro Regime</h2>
-              <span>Cross-asset signals that gate risk</span>
-            </div>
-            <div id="macroScores" class="kpi-grid"></div>
-            <section class="panel">
-              <div class="panel-head">
-                <h3>Cross-Asset Market Map</h3>
-                <span>5-day move by macro proxy</span>
-              </div>
-              <div id="macroTape" class="market-map"></div>
-            </section>
-          </section>
-
-          <section class="view" id="news" aria-labelledby="newsTitle">
-            <div class="section-head">
-              <h2 id="newsTitle">News & Catalysts</h2>
-              <span>Linked sources by symbol and theme</span>
-            </div>
-            <div id="newsList" class="news-list"></div>
-          </section>
-
-          <section class="view" id="method" aria-labelledby="methodTitle">
-            <div class="section-head">
-              <h2 id="methodTitle">Reporting & Recommendation Algorithm</h2>
-              <span id="methodSummary">Live backend method</span>
-            </div>
-            <div id="methodKpis" class="kpi-grid"></div>
-            <div class="split">
-              <section class="panel">
-                <div class="panel-head">
-                  <h3>Backend Pipeline</h3>
-                  <span>What runs before this JSON publishes</span>
-                </div>
-                <div id="methodPipelineList" class="list"></div>
-              </section>
-              <section class="panel">
-                <div class="panel-head">
-                  <h3>Current Source Status</h3>
-                  <span>Live inputs used for this run</span>
-                </div>
-                <div id="methodSourceList" class="list"></div>
-              </section>
-            </div>
-            <div class="split">
-              <section class="panel">
-                <div class="panel-head">
-                  <h3>Scoring Model</h3>
-                  <span>Signal components and promotion rules</span>
-                </div>
-                <div id="methodScoringList" class="list"></div>
-              </section>
-              <section class="panel">
-                <div class="panel-head">
-                  <h3>Risk & Privacy Boundary</h3>
-                  <span>Approval-only sizing and public sanitizer</span>
-                </div>
-                <div id="methodRiskList" class="list"></div>
-              </section>
-            </div>
+            <div id="homeBucketMix" class="bar-list"></div>
           </section>
         </section>
+
+        <section class="home-section">
+          <div>
+            <p class="eyebrow">how alloiq thinks</p>
+            <h2>Daily trades come from comparing the GW Portfolio against managers, catalysts, macro, price action, and current concentration.</h2>
+          </div>
+          <div class="home-flow">
+            <span>GW weights</span>
+            <span>Tier 1 managers</span>
+            <span>News + catalysts</span>
+            <span>Macro regime</span>
+            <span>Trade targets</span>
+          </div>
+        </section>
+
+        <section class="home-link-grid" aria-label="AlloIQ sections">
+          <a href="/portfolio">
+            <strong>GW Portfolio</strong>
+            <span>Copy the current public-equity weights by percentage.</span>
+          </a>
+          <a href="/dashboard">
+            <strong>Trade OS</strong>
+            <span>Read today's add, trim, hold, target, and study queue.</span>
+          </a>
+          <a href="/ai-thesis-core">
+            <strong>AI Thesis Core</strong>
+            <span>Study full public 13F positions for Leopold, Altimeter, and Dragoneer.</span>
+          </a>
+          <a href="/dashboard">
+            <strong>Manager + Macro Signals</strong>
+            <span>Track peer gaps, AI momentum, catalysts, and regime shifts.</span>
+          </a>
+        </section>
       </main>
+
       <footer class="site-footer">
-        <span>Public research. Portfolio data is weights only, not share counts, account values, or orders.</span>
+        <span>Public weights, public filings, daily AI markets signals. Approval-only; no live order execution.</span>
         <a href="https://x.com/geoffreywoo" target="_blank" rel="noreferrer">Created by @geoffreywoo</a>
       </footer>
     </div>
 
-    <script src="/app.js" type="module"></script>
+    <script src="/home.js" type="module"></script>
   </body>
 </html>

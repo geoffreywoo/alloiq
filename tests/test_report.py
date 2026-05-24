@@ -6,7 +6,7 @@ from invest.reports import alias_matches, build_methodology, build_weekly_resear
 
 
 class ReportTests(unittest.TestCase):
-    def test_report_renders_cited_news_and_research_disclaimer(self):
+    def test_report_renders_cited_news_and_public_weights_disclaimer(self):
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -56,7 +56,7 @@ class ReportTests(unittest.TestCase):
 
             md = render_markdown(payload, config)
 
-            self.assertIn("Research only", md)
+            self.assertIn("Public weights, public filings, daily AI markets signals", md)
             self.assertIn("[AI power demand headline](https://example.com/news)", md)
             self.assertIn("Vanguard import status: stale or missing", md)
 

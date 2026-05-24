@@ -82,7 +82,7 @@ class ManagerRadarTests(unittest.TestCase):
         focus = radar["focus_managers"][0]
         self.assertEqual(focus["manager_key"], "altimeter")
         self.assertEqual(focus["manager_tier"], "tier_1")
-        self.assertEqual(focus["manager_group"], "AI Thesis Core")
+        self.assertEqual(focus["manager_group"], "Tier 1 Watch")
         self.assertEqual(focus["symbol_coverage_pct"], 60.0)
         self.assertEqual(focus["alloiq_watchlist_pct"], 60.0)
         self.assertEqual(focus["bucket_classified_pct"], 60.0)

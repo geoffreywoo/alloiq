@@ -49,6 +49,26 @@ def main(argv: list[str] | None = None) -> int:
     pipeline.add_argument("--force", action="store_true", help="Bypass schedule/trading-day gating")
     pipeline.add_argument("--scheduled-at", default=None, help="UTC timestamp for schedule gating, defaults to now")
 
+    audit = sub.add_parser("audit", help="Inspect public-safe audit and engine health")
+    audit_sub = audit.add_subparsers(dest="audit_command", required=True)
+    audit_run = audit_sub.add_parser("run", help="Print the latest audit payload")
+    audit_run.add_argument("--privacy", choices=["public"], default="public")
+
+    calendar = sub.add_parser("calendar", help="Inspect earnings and 13F calendars")
+    calendar_sub = calendar.add_subparsers(dest="calendar_command", required=True)
+    calendar_refresh = calendar_sub.add_parser("refresh", help="Print the latest calendar payload")
+    calendar_refresh.add_argument("--kind", choices=["all", "earnings", "13f"], default="all")
+
+    engine = sub.add_parser("engine", help="Inspect recommendation-engine scores")
+    engine_sub = engine.add_subparsers(dest="engine_command", required=True)
+    engine_score = engine_sub.add_parser("score", help="Print the latest engine score payload")
+    engine_score.add_argument("--mode", choices=["paper"], default="paper")
+    engine_score.add_argument("--horizon", default="3m,6m,12m")
+
+    paper = sub.add_parser("paper", help="Inspect approval-linked paper-trading state")
+    paper_sub = paper.add_subparsers(dest="paper_command", required=True)
+    paper_sub.add_parser("update", help="Print the latest paper portfolio payload")
+
     warehouse = sub.add_parser("warehouse", help="Manage the private Neon/Postgres warehouse")
     warehouse_sub = warehouse.add_subparsers(dest="warehouse_command", required=True)
     warehouse_sub.add_parser("migrate", help="Create or update private warehouse tables")
@@ -137,6 +157,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+    if args.command == "audit":
+        return command_audit(args, config)
+    if args.command == "calendar":
+        return command_calendar(args, config)
+    if args.command == "engine":
+        return command_engine(args, config)
+    if args.command == "paper":
+        return command_paper(args, config)
     if args.command == "decisions":
         return command_decisions(args)
     if args.command == "tickets":
@@ -165,6 +193,48 @@ def command_warehouse(args) -> int:
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
         return 0
     return 2
+
+
+def latest_payload(config) -> dict:
+    report_paths = sorted(config.reports_dir.glob("*.json"), key=lambda path: (path.stat().st_mtime, path.name))
+    if report_paths:
+        return json.loads(report_paths[-1].read_text(encoding="utf-8"))
+    public_snapshot = Path("web/data/latest.json")
+    if public_snapshot.exists():
+        return json.loads(public_snapshot.read_text(encoding="utf-8"))
+    return {}
+
+
+def command_audit(args, config) -> int:
+    payload = latest_payload(config)
+    print(json.dumps(payload.get("audit") or {}, indent=2, sort_keys=True, default=str))
+    return 0
+
+
+def command_calendar(args, config) -> int:
+    calendars = latest_payload(config).get("calendars") or {}
+    if args.kind == "earnings":
+        output = calendars.get("earnings") or {}
+    elif args.kind == "13f":
+        output = calendars.get("filings_13f") or {}
+    else:
+        output = calendars
+    print(json.dumps(output, indent=2, sort_keys=True, default=str))
+    return 0
+
+
+def command_engine(args, config) -> int:
+    payload = latest_payload(config)
+    engine = dict(payload.get("engine") or {})
+    engine["requested_mode"] = args.mode
+    engine["requested_horizon"] = args.horizon
+    print(json.dumps(engine, indent=2, sort_keys=True, default=str))
+    return 0
+
+
+def command_paper(args, config) -> int:
+    print(json.dumps(latest_payload(config).get("paper_portfolio") or {}, indent=2, sort_keys=True, default=str))
+    return 0
 
 
 def command_decisions(args) -> int:

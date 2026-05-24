@@ -26,7 +26,7 @@
         "put_heavy_13f"
       ],
       "session": "premarket",
-      "sizing_basis": "portfolio-weight research proposal; not an execution order",
+      "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
       "status": "open",
       "symbol": "NVDA",
       "target_weight": 0.079041,
@@ -60,7 +60,7 @@
         "put_heavy_13f"
       ],
       "session": "premarket",
-      "sizing_basis": "portfolio-weight research proposal; not an execution order",
+      "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
       "status": "open",
       "symbol": "MU",
       "target_weight": 0.091691,
@@ -92,7 +92,7 @@
         "put_heavy_13f"
       ],
       "session": "premarket",
-      "sizing_basis": "portfolio-weight research proposal; not an execution order",
+      "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
       "status": "open",
       "symbol": "AVGO",
       "target_weight": 0.008961,
@@ -122,7 +122,7 @@
         "put_heavy_13f"
       ],
       "session": "premarket",
-      "sizing_basis": "portfolio-weight research proposal; not an execution order",
+      "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
       "status": "open",
       "symbol": "TSM",
       "target_weight": 0.042886,
@@ -152,7 +152,7 @@
         "put_heavy_13f"
       ],
       "session": "premarket",
-      "sizing_basis": "portfolio-weight research proposal; not an execution order",
+      "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
       "status": "open",
       "symbol": "ASML",
       "target_weight": 0.031534,
@@ -182,7 +182,7 @@
       "risk": "AI power demand may be real while permitting, interconnection, commodity prices, or project execution cap equity upside.",
       "risk_flags": [],
       "session": "premarket",
-      "sizing_basis": "portfolio-weight research proposal; not an execution order",
+      "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
       "status": "open",
       "symbol": "BE",
       "target_weight": 0.02,
@@ -217,7 +217,7 @@
         "daily_turnover_cap"
       ],
       "session": "premarket",
-      "sizing_basis": "portfolio-weight research proposal; not an execution order",
+      "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
       "status": "open",
       "symbol": "CRWV",
       "target_weight": 0.035139,
@@ -251,7 +251,7 @@
         "daily_turnover_cap"
       ],
       "session": "premarket",
-      "sizing_basis": "portfolio-weight research proposal; not an execution order",
+      "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
       "status": "open",
       "symbol": "META",
       "target_weight": 0.040359,
@@ -285,7 +285,7 @@
         "daily_turnover_cap"
       ],
       "session": "premarket",
-      "sizing_basis": "portfolio-weight research proposal; not an execution order",
+      "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
       "status": "open",
       "symbol": "MSFT",
       "target_weight": 0.013841,
@@ -317,7 +317,7 @@
         "daily_turnover_cap"
       ],
       "session": "premarket",
-      "sizing_basis": "portfolio-weight research proposal; not an execution order",
+      "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
       "status": "open",
       "symbol": "GOOG",
       "target_weight": 0.192998,
@@ -327,6 +327,451 @@
     }
   ],
   "as_of": "2026-05-24",
+  "audit": {
+    "as_of": "2026-05-24",
+    "calendar_health": {
+      "earnings_event_count": 2,
+      "earnings_source_quality": "ok",
+      "filing_cycle": "Q2 2026",
+      "filing_deadline": "2026-08-14",
+      "filing_late_count": 0,
+      "status": "ok"
+    },
+    "data_gaps": [
+      {
+        "area": "engine",
+        "detail": "Insufficient completed 3-12 month outcomes; deterministic baseline remains primary.",
+        "label": "Learning reranker",
+        "status": "baseline_fallback"
+      }
+    ],
+    "engine_health": {
+      "feature_count": 45,
+      "learning_status": "baseline_fallback",
+      "live_order_execution": "disabled",
+      "mode": "approval_plus_paper",
+      "objective": "maximize_expected_3_12m_forward_return",
+      "paper_trade_count": 10,
+      "ranked_candidate_count": 20,
+      "status": "ok"
+    },
+    "engine_version": "2026-05-equity-max-return-v1",
+    "methodology_version": "2026-05-live-assistant-v1",
+    "overall_status": "attention",
+    "privacy_scan": {
+      "scope": "public web assets",
+      "status": "required_after_build"
+    },
+    "schedule_health": {
+      "current_run_kind": "premarket",
+      "deferred_publication_policy": "Do not publish if failed broker sync would shrink the public portfolio snapshot.",
+      "expected_runs": [
+        {
+          "cadence": "8:00 AM ET on NYSE trading days",
+          "kind": "premarket"
+        },
+        {
+          "cadence": "4:30 PM ET on NYSE trading days",
+          "kind": "postmarket"
+        },
+        {
+          "cadence": "Sunday morning ET",
+          "kind": "weekly"
+        }
+      ],
+      "status": "configured"
+    },
+    "session": "premarket",
+    "source_freshness": [
+      {
+        "detail": "22 current broker/account rows available",
+        "label": "Broker positions",
+        "source": "broker_positions",
+        "status": "ok"
+      },
+      {
+        "detail": "22/22 managers have stored filings.",
+        "label": "Manager 13F radar",
+        "source": "manager_13f",
+        "status": "ok"
+      },
+      {
+        "detail": "60 recent items classified.",
+        "label": "News catalysts",
+        "source": "news",
+        "status": "ok"
+      },
+      {
+        "detail": "45 symbols priced.",
+        "label": "Market prices",
+        "source": "prices",
+        "status": "ok"
+      },
+      {
+        "detail": "2 events or filing markers.",
+        "label": "Earnings calendar",
+        "source": "earnings",
+        "status": "ok"
+      }
+    ],
+    "version": "2026-05-site-engine-audit-v1"
+  },
+  "calendars": {
+    "as_of": "2026-05-24",
+    "earnings": {
+      "confirmed_count": 0,
+      "estimated_count": 2,
+      "event_count": 2,
+      "events": [
+        {
+          "catalyst_types": [
+            "capex_signal",
+            "earnings_revision",
+            "supply_constraint"
+          ],
+          "confidence": 0.45,
+          "confirmed_or_estimated": "estimated",
+          "days_until": 0,
+          "event_date": "2026-05-24",
+          "event_id": "3979f0f74644ac5c043f721eaebbbc6f",
+          "event_type": "earnings_catalyst",
+          "last_checked_at": "2026-05-24T00:00:00Z",
+          "risk_window": "blackout",
+          "source": "news",
+          "status": "detected",
+          "symbol": "MU",
+          "title": "MU earnings or guidance catalyst in news tape"
+        },
+        {
+          "catalyst_types": [
+            "capex_signal",
+            "contract_win",
+            "earnings_revision"
+          ],
+          "confidence": 0.45,
+          "confirmed_or_estimated": "estimated",
+          "days_until": 0,
+          "event_date": "2026-05-24",
+          "event_id": "0e234156498591b5f96b75b26fa8e30a",
+          "event_type": "earnings_catalyst",
+          "last_checked_at": "2026-05-24T00:00:00Z",
+          "risk_window": "blackout",
+          "source": "news",
+          "status": "detected",
+          "symbol": "NVDA",
+          "title": "NVDA earnings or guidance catalyst in news tape"
+        }
+      ],
+      "missing_confidence_count": 0,
+      "policy": "Manual dates are canonical; SEC/result markers and news-derived events enrich risk windows.",
+      "source_quality": "ok"
+    },
+    "filings_13f": {
+      "current_cycle": {
+        "deadline": "2026-08-14",
+        "filing_season_start": "2026-08-04",
+        "followup_end": "2026-08-21",
+        "label": "Q2 2026",
+        "quarter_end": "2026-06-30"
+      },
+      "filed_count": 0,
+      "late_count": 0,
+      "manager_count": 22,
+      "managers": [
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-18",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "situational-awareness",
+          "manager_name": "Situational Awareness LP / Leopold Aschenbrenner",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "duquesne",
+          "manager_name": "Duquesne Family Office / Stanley Druckenmiller",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "pershing-square",
+          "manager_name": "Pershing Square / Bill Ackman",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "tci",
+          "manager_name": "TCI / Chris Hohn",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "durable",
+          "manager_name": "Durable Capital / Henry Ellenbogen",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-18",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "atreides",
+          "manager_name": "Atreides / Gavin Baker",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "berkshire",
+          "manager_name": "Berkshire Hathaway / Buffett, Combs, Weschler",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "appaloosa",
+          "manager_name": "Appaloosa / David Tepper",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-14",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "baupost",
+          "manager_name": "Baupost / Seth Klarman",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "light-street",
+          "manager_name": "Light Street / Glen Kacher",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "valley-forge",
+          "manager_name": "Valley Forge / Dev Kantesaria",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "dorsey",
+          "manager_name": "Dorsey Asset Management / Pat Dorsey",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-14",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "akre",
+          "manager_name": "Akre Capital / Chuck Akre",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "altimeter",
+          "manager_name": "Altimeter Capital Management, LP",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "dragoneer",
+          "manager_name": "Dragoneer Investment Group, LLC",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "coatue",
+          "manager_name": "Coatue Management LLC",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "greenoaks",
+          "manager_name": "Greenoaks Capital Partners LLC",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "tiger-global",
+          "manager_name": "Tiger Global Management LLC",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "d1-capital",
+          "manager_name": "D1 Capital Partners L.P.",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "whale-rock",
+          "manager_name": "Whale Rock Capital Management LLC",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "viking-global",
+          "manager_name": "Viking Global Investors LP",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        },
+        {
+          "days_until_deadline": 82,
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "latest_filing_date": "2026-05-15",
+          "latest_report_date": "2026-03-31",
+          "manager_key": "lone-pine",
+          "manager_name": "Lone Pine Capital LLC",
+          "quarter_end": "2026-06-30",
+          "status": "pending"
+        }
+      ],
+      "pending_count": 22,
+      "quarters": [
+        {
+          "deadline": "2026-05-15",
+          "filing_season_start": "2026-05-05",
+          "followup_end": "2026-05-22",
+          "label": "Q1 2026",
+          "quarter_end": "2026-03-31"
+        },
+        {
+          "deadline": "2026-08-14",
+          "filing_season_start": "2026-08-04",
+          "followup_end": "2026-08-21",
+          "label": "Q2 2026",
+          "quarter_end": "2026-06-30"
+        },
+        {
+          "deadline": "2026-11-16",
+          "filing_season_start": "2026-11-04",
+          "followup_end": "2026-11-23",
+          "label": "Q3 2026",
+          "quarter_end": "2026-09-30"
+        }
+      ],
+      "rule": "Form 13F is due within 45 days after each calendar quarter end; weekend/holiday deadlines move to the next NYSE business day.",
+      "rule_source": "https://www.sec.gov/divisions/investment/13ffaq.htm"
+    },
+    "version": "2026-05-calendar-v1"
+  },
   "catalyst_signals": [
     {
       "event_count": 14,
@@ -855,7 +1300,7 @@
     {
       "bucket": "neocloud_datacenters",
       "call_value": 140569315.0,
-      "candidate": "research candidate",
+      "candidate": "study candidate",
       "consensus_manager_count": 4,
       "consensus_managers": [
         "Altimeter Capital Management, LP",
@@ -901,7 +1346,7 @@
     {
       "bucket": "semis_networking_hbm",
       "call_value": 0.0,
-      "candidate": "research candidate",
+      "candidate": "study candidate",
       "consensus_manager_count": 10,
       "consensus_managers": [
         "Altimeter Capital Management, LP",
@@ -954,7 +1399,7 @@
     {
       "bucket": "frontier_ai_platforms",
       "call_value": 0.0,
-      "candidate": "research candidate",
+      "candidate": "study candidate",
       "consensus_manager_count": 9,
       "consensus_managers": [
         "Altimeter Capital Management, LP",
@@ -1003,7 +1448,7 @@
     {
       "bucket": "frontier_ai_platforms",
       "call_value": 41654.0,
-      "candidate": "research candidate",
+      "candidate": "study candidate",
       "consensus_manager_count": 13,
       "consensus_managers": [
         "Altimeter Capital Management, LP",
@@ -1051,7 +1496,7 @@
     {
       "bucket": "semis_networking_hbm",
       "call_value": 422300000.0,
-      "candidate": "research candidate",
+      "candidate": "study candidate",
       "consensus_manager_count": 5,
       "consensus_managers": [
         "Appaloosa / David Tepper",
@@ -1144,7 +1589,7 @@
     {
       "bucket": "frontier_ai_platforms",
       "call_value": 0.0,
-      "candidate": "research candidate",
+      "candidate": "study candidate",
       "consensus_manager_count": 8,
       "consensus_managers": [
         "Altimeter Capital Management, LP",
@@ -1191,7 +1636,7 @@
     {
       "bucket": "semis_networking_hbm",
       "call_value": 0.0,
-      "candidate": "research candidate",
+      "candidate": "study candidate",
       "consensus_manager_count": 7,
       "consensus_managers": [
         "Altimeter Capital Management, LP",
@@ -1735,7 +2180,7 @@
       "top_event_types": []
     }
   ],
-  "disclaimer": "Research only. No order execution and no personalized financial advice.",
+  "disclaimer": "Public weights, public filings, daily AI markets signals. Approval-only; no live order execution.",
   "earnings_events": [
     {
       "catalyst_types": [
@@ -1743,10 +2188,14 @@
         "earnings_revision",
         "supply_constraint"
       ],
+      "confidence": 0.45,
+      "confirmed_or_estimated": "estimated",
       "days_until": 0,
       "event_date": "2026-05-24",
       "event_id": "3979f0f74644ac5c043f721eaebbbc6f",
       "event_type": "earnings_catalyst",
+      "last_checked_at": "2026-05-24T00:00:00Z",
+      "risk_window": "blackout",
       "source": "news",
       "status": "detected",
       "symbol": "MU",
@@ -1758,16 +2207,1174 @@
         "contract_win",
         "earnings_revision"
       ],
+      "confidence": 0.45,
+      "confirmed_or_estimated": "estimated",
       "days_until": 0,
       "event_date": "2026-05-24",
       "event_id": "0e234156498591b5f96b75b26fa8e30a",
       "event_type": "earnings_catalyst",
+      "last_checked_at": "2026-05-24T00:00:00Z",
+      "risk_window": "blackout",
       "source": "news",
       "status": "detected",
       "symbol": "NVDA",
       "title": "NVDA earnings or guidance catalyst in news tape"
     }
   ],
+  "engine": {
+    "as_of": "2026-05-24",
+    "feature_count": 45,
+    "horizons": [
+      "3m",
+      "6m",
+      "12m"
+    ],
+    "learning": {
+      "message": "Insufficient completed 3-12 month outcomes; deterministic baseline remains primary.",
+      "minimum_required": 20,
+      "outcome_count": 0,
+      "status": "baseline_fallback",
+      "weight_adjustments": {}
+    },
+    "live_order_execution": "disabled",
+    "mode": "approval_plus_paper",
+    "objective": "maximize_expected_3_12m_forward_return",
+    "optimizer": {
+      "allocation_count": 20,
+      "allocations": [
+        {
+          "current_weight": 0.079041,
+          "expected_return_rank_score": 89.48,
+          "rank": 1,
+          "recommended_delta_weight": 0.0,
+          "risk_flags": [
+            "put_heavy_13f"
+          ],
+          "symbol": "NVDA",
+          "target_weight": 0.079041,
+          "trade_action": "hold_hedge"
+        },
+        {
+          "current_weight": 0.018783,
+          "expected_return_rank_score": 89.45,
+          "rank": 2,
+          "recommended_delta_weight": 0.016356,
+          "risk_flags": [
+            "daily_turnover_cap"
+          ],
+          "symbol": "CRWV",
+          "target_weight": 0.035139,
+          "trade_action": "add"
+        },
+        {
+          "current_weight": 0.040359,
+          "expected_return_rank_score": 67.05,
+          "rank": 3,
+          "recommended_delta_weight": 0.0,
+          "risk_flags": [
+            "daily_turnover_cap"
+          ],
+          "symbol": "META",
+          "target_weight": 0.040359,
+          "trade_action": "watch"
+        },
+        {
+          "current_weight": 0.114614,
+          "expected_return_rank_score": 64.12,
+          "rank": 4,
+          "recommended_delta_weight": -0.022923,
+          "risk_flags": [
+            "put_heavy_13f"
+          ],
+          "symbol": "MU",
+          "target_weight": 0.091691,
+          "trade_action": "trim"
+        },
+        {
+          "current_weight": 0.0,
+          "expected_return_rank_score": 57.51,
+          "rank": 5,
+          "recommended_delta_weight": 0.01,
+          "risk_flags": [],
+          "symbol": "BE",
+          "target_weight": 0.02,
+          "trade_action": "add"
+        },
+        {
+          "current_weight": 0.077834,
+          "expected_return_rank_score": 54.8,
+          "rank": 6,
+          "recommended_delta_weight": 0.0,
+          "risk_flags": [],
+          "symbol": "AMZN",
+          "target_weight": 0.077834,
+          "trade_action": "study"
+        },
+        {
+          "current_weight": 0.018961,
+          "expected_return_rank_score": 50.29,
+          "rank": 7,
+          "recommended_delta_weight": -0.01,
+          "risk_flags": [
+            "put_heavy_13f"
+          ],
+          "symbol": "AVGO",
+          "target_weight": 0.008961,
+          "trade_action": "trim"
+        },
+        {
+          "current_weight": 0.013841,
+          "expected_return_rank_score": 48.95,
+          "rank": 8,
+          "recommended_delta_weight": 0.0,
+          "risk_flags": [
+            "daily_turnover_cap"
+          ],
+          "symbol": "MSFT",
+          "target_weight": 0.013841,
+          "trade_action": "watch"
+        },
+        {
+          "current_weight": 0.0,
+          "expected_return_rank_score": 47.7,
+          "rank": 9,
+          "recommended_delta_weight": 0.0,
+          "risk_flags": [],
+          "symbol": "GOOGL",
+          "target_weight": 0.0,
+          "trade_action": "study"
+        },
+        {
+          "current_weight": 0.053607,
+          "expected_return_rank_score": 46.72,
+          "rank": 10,
+          "recommended_delta_weight": -0.010721,
+          "risk_flags": [
+            "put_heavy_13f"
+          ],
+          "symbol": "TSM",
+          "target_weight": 0.042886,
+          "trade_action": "trim"
+        },
+        {
+          "current_weight": 0.041534,
+          "expected_return_rank_score": 41.86,
+          "rank": 11,
+          "recommended_delta_weight": -0.01,
+          "risk_flags": [
+            "put_heavy_13f"
+          ],
+          "symbol": "ASML",
+          "target_weight": 0.031534,
+          "trade_action": "trim"
+        },
+        {
+          "current_weight": 0.192998,
+          "expected_return_rank_score": 41.56,
+          "rank": 12,
+          "recommended_delta_weight": 0.0,
+          "risk_flags": [
+            "daily_turnover_cap"
+          ],
+          "symbol": "GOOG",
+          "target_weight": 0.192998,
+          "trade_action": "trim"
+        }
+      ],
+      "estimated_turnover": 0.08,
+      "hard_constraints": {
+        "earnings_blackout_days": 2,
+        "live_order_execution": false,
+        "max_bucket_weight": 0.45,
+        "max_daily_turnover": 0.08,
+        "max_one_ticket_delta": 0.03,
+        "max_single_name_weight": 0.15,
+        "no_shorting": true
+      },
+      "objective": "maximize_expected_3_12m_forward_return",
+      "type": "long_only_weight_optimizer"
+    },
+    "ranked_candidates": [
+      {
+        "bucket": "semis_networking_hbm",
+        "component_scores": {
+          "catalyst": 20.0,
+          "manager": 25.0,
+          "option_tilt": -7.0,
+          "portfolio_fit": 12.0,
+          "price_action": 0.0
+        },
+        "current_weight": 0.079041,
+        "event_score": 24.15,
+        "event_types": [
+          "contract_win",
+          "earnings_revision",
+          "capex_signal"
+        ],
+        "expected_return_rank_score": 89.48,
+        "expected_return_score": 89.48,
+        "feature_id": "ec53d246f073064c9b1be2e32a5834d2",
+        "learning_adjustment": 0.0,
+        "manager_count": 10,
+        "peer_avg_weight": 0.087168,
+        "price_action_5d": -3.14,
+        "rank": 1,
+        "risk_penalty": 5.0,
+        "score": 50.0,
+        "signal_families": [
+          "manager",
+          "catalyst",
+          "portfolio_fit"
+        ],
+        "signal_family_count": 3,
+        "symbol": "NVDA"
+      },
+      {
+        "bucket": "neocloud_datacenters",
+        "component_scores": {
+          "catalyst": 20.0,
+          "manager": 15.3,
+          "option_tilt": 5.0,
+          "portfolio_fit": 12.0,
+          "price_action": 1.66
+        },
+        "current_weight": 0.018783,
+        "event_score": 29.15,
+        "event_types": [
+          "contract_win",
+          "valuation_reset"
+        ],
+        "expected_return_rank_score": 89.45,
+        "expected_return_score": 89.45,
+        "feature_id": "e5259c577e9df311324937158c0ff398",
+        "learning_adjustment": 0.0,
+        "manager_count": 4,
+        "peer_avg_weight": 0.055925,
+        "price_action_5d": 1.66,
+        "rank": 2,
+        "risk_penalty": 0.0,
+        "score": 53.96,
+        "signal_families": [
+          "manager",
+          "catalyst",
+          "portfolio_fit"
+        ],
+        "signal_family_count": 3,
+        "symbol": "CRWV"
+      },
+      {
+        "bucket": "frontier_ai_platforms",
+        "component_scores": {
+          "catalyst": 6.0,
+          "manager": 25.0,
+          "option_tilt": 0.0,
+          "portfolio_fit": 12.0,
+          "price_action": 0.0
+        },
+        "current_weight": 0.040359,
+        "event_score": 6.0,
+        "event_types": [
+          "capex_signal"
+        ],
+        "expected_return_rank_score": 67.05,
+        "expected_return_score": 67.05,
+        "feature_id": "f7e15b1067878c72805b50337715e0c2",
+        "learning_adjustment": 0.0,
+        "manager_count": 9,
+        "peer_avg_weight": 0.082917,
+        "price_action_5d": -0.16,
+        "rank": 3,
+        "risk_penalty": 0.0,
+        "score": 43.0,
+        "signal_families": [
+          "manager",
+          "catalyst",
+          "portfolio_fit"
+        ],
+        "signal_family_count": 3,
+        "symbol": "META"
+      },
+      {
+        "bucket": "semis_networking_hbm",
+        "component_scores": {
+          "catalyst": 17.0,
+          "manager": 15.9,
+          "option_tilt": -7.0,
+          "portfolio_fit": 12.0,
+          "price_action": 2.0
+        },
+        "current_weight": 0.114614,
+        "event_score": 17.0,
+        "event_types": [
+          "supply_constraint",
+          "earnings_revision",
+          "capex_signal"
+        ],
+        "expected_return_rank_score": 64.12,
+        "expected_return_score": 64.12,
+        "feature_id": "98b258ff463025f6b4fec93977c02a7a",
+        "learning_adjustment": 0.0,
+        "manager_count": 5,
+        "peer_avg_weight": 0.032706,
+        "price_action_5d": 10.19,
+        "rank": 4,
+        "risk_penalty": 5.0,
+        "score": 39.9,
+        "signal_families": [
+          "manager",
+          "catalyst",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "signal_family_count": 4,
+        "symbol": "MU"
+      },
+      {
+        "bucket": "power_grid_gas_nuclear",
+        "component_scores": {
+          "catalyst": 8.0,
+          "manager": 16.62,
+          "option_tilt": 5.0,
+          "portfolio_fit": 8.0,
+          "price_action": 2.0
+        },
+        "current_weight": 0.0,
+        "event_score": 8.0,
+        "event_types": [
+          "contract_win"
+        ],
+        "expected_return_rank_score": 57.51,
+        "expected_return_score": 57.51,
+        "feature_id": "0aaf278f49e636558e81f877f63111f9",
+        "learning_adjustment": 0.0,
+        "manager_count": 4,
+        "peer_avg_weight": 0.069229,
+        "price_action_5d": 16.92,
+        "rank": 5,
+        "risk_penalty": 0.0,
+        "score": 39.62,
+        "signal_families": [
+          "manager",
+          "catalyst",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "signal_family_count": 4,
+        "symbol": "BE"
+      },
+      {
+        "bucket": "frontier_ai_platforms",
+        "component_scores": {
+          "catalyst": 0.0,
+          "manager": 25.0,
+          "option_tilt": 5.0,
+          "portfolio_fit": 12.0,
+          "price_action": 0.55
+        },
+        "current_weight": 0.077834,
+        "event_score": 0.0,
+        "event_types": [],
+        "expected_return_rank_score": 54.8,
+        "expected_return_score": 54.8,
+        "feature_id": "c9ce6ebdafc81e5d1d28f92c5df60efe",
+        "learning_adjustment": 0.0,
+        "manager_count": 13,
+        "peer_avg_weight": 0.0,
+        "price_action_5d": 0.55,
+        "rank": 6,
+        "risk_penalty": 0.0,
+        "score": 42.55,
+        "signal_families": [
+          "manager",
+          "portfolio_fit"
+        ],
+        "signal_family_count": 2,
+        "symbol": "AMZN"
+      },
+      {
+        "bucket": "semis_networking_hbm",
+        "component_scores": {
+          "catalyst": 6.0,
+          "manager": 24.41,
+          "option_tilt": -7.0,
+          "portfolio_fit": 12.0,
+          "price_action": 0.0
+        },
+        "current_weight": 0.018961,
+        "event_score": 6.0,
+        "event_types": [
+          "capex_signal"
+        ],
+        "expected_return_rank_score": 50.29,
+        "expected_return_score": 50.29,
+        "feature_id": "6720b6b9f1465551eea486dfefa49e27",
+        "learning_adjustment": 0.0,
+        "manager_count": 7,
+        "peer_avg_weight": 0.040176,
+        "price_action_5d": -1.56,
+        "rank": 7,
+        "risk_penalty": 5.0,
+        "score": 35.41,
+        "signal_families": [
+          "manager",
+          "catalyst",
+          "portfolio_fit"
+        ],
+        "signal_family_count": 3,
+        "symbol": "AVGO"
+      },
+      {
+        "bucket": "frontier_ai_platforms",
+        "component_scores": {
+          "catalyst": 1.0,
+          "manager": 25.0,
+          "option_tilt": 0.0,
+          "portfolio_fit": 12.0,
+          "price_action": 0.0
+        },
+        "current_weight": 0.013841,
+        "event_score": 1.0,
+        "event_types": [
+          "general_news"
+        ],
+        "expected_return_rank_score": 48.95,
+        "expected_return_score": 48.95,
+        "feature_id": "6bff9699e4a250c9a8d3049c6b7e96bb",
+        "learning_adjustment": 0.0,
+        "manager_count": 8,
+        "peer_avg_weight": 0.044507,
+        "price_action_5d": -1.17,
+        "rank": 8,
+        "risk_penalty": 0.0,
+        "score": 38.0,
+        "signal_families": [
+          "manager",
+          "portfolio_fit"
+        ],
+        "signal_family_count": 2,
+        "symbol": "MSFT"
+      },
+      {
+        "bucket": "frontier_ai_platforms",
+        "component_scores": {
+          "catalyst": 1.0,
+          "manager": 25.0,
+          "option_tilt": 0.0,
+          "portfolio_fit": 8.0,
+          "price_action": 0.0
+        },
+        "current_weight": 0.0,
+        "event_score": 1.0,
+        "event_types": [
+          "general_news"
+        ],
+        "expected_return_rank_score": 47.7,
+        "expected_return_score": 47.7,
+        "feature_id": "fcc04ce7f9d357a5bec0cae89528c7be",
+        "learning_adjustment": 0.0,
+        "manager_count": 11,
+        "peer_avg_weight": 0.0,
+        "price_action_5d": -3.52,
+        "rank": 9,
+        "risk_penalty": 0.0,
+        "score": 34.0,
+        "signal_families": [
+          "manager",
+          "portfolio_fit"
+        ],
+        "signal_family_count": 2,
+        "symbol": "GOOGL"
+      },
+      {
+        "bucket": "semis_networking_hbm",
+        "component_scores": {
+          "catalyst": 0.0,
+          "manager": 25.0,
+          "option_tilt": -7.0,
+          "portfolio_fit": 12.0,
+          "price_action": 2.16
+        },
+        "current_weight": 0.053607,
+        "event_score": 0.0,
+        "event_types": [],
+        "expected_return_rank_score": 46.72,
+        "expected_return_score": 46.72,
+        "feature_id": "227b0020d8789ca88405ca066cdef11a",
+        "learning_adjustment": 0.0,
+        "manager_count": 11,
+        "peer_avg_weight": 0.062345,
+        "price_action_5d": 2.16,
+        "rank": 10,
+        "risk_penalty": 5.0,
+        "score": 32.16,
+        "signal_families": [
+          "manager",
+          "portfolio_fit"
+        ],
+        "signal_family_count": 2,
+        "symbol": "TSM"
+      },
+      {
+        "bucket": "semis_networking_hbm",
+        "component_scores": {
+          "catalyst": 0.0,
+          "manager": 25.0,
+          "option_tilt": -7.0,
+          "portfolio_fit": 12.0,
+          "price_action": 2.0
+        },
+        "current_weight": 0.041534,
+        "event_score": 0.0,
+        "event_types": [],
+        "expected_return_rank_score": 41.86,
+        "expected_return_score": 41.86,
+        "feature_id": "b61751fc3e70725a214940d2dd739622",
+        "learning_adjustment": 0.0,
+        "manager_count": 8,
+        "peer_avg_weight": 0.043564,
+        "price_action_5d": 10.9,
+        "rank": 11,
+        "risk_penalty": 5.0,
+        "score": 32.0,
+        "signal_families": [
+          "manager",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "signal_family_count": 3,
+        "symbol": "ASML"
+      },
+      {
+        "bucket": "frontier_ai_platforms",
+        "component_scores": {
+          "catalyst": 0.0,
+          "manager": 22.48,
+          "option_tilt": 0.0,
+          "portfolio_fit": 12.0,
+          "price_action": 0.0
+        },
+        "current_weight": 0.192998,
+        "event_score": 0.0,
+        "event_types": [],
+        "expected_return_rank_score": 41.56,
+        "expected_return_score": 41.56,
+        "feature_id": "292cf57dea8b8fcb3825d17b208ca1f8",
+        "learning_adjustment": 0.0,
+        "manager_count": 6,
+        "peer_avg_weight": 0.037946,
+        "price_action_5d": -3.49,
+        "rank": 12,
+        "risk_penalty": 0.0,
+        "score": 34.48,
+        "signal_families": [
+          "manager",
+          "portfolio_fit"
+        ],
+        "signal_family_count": 2,
+        "symbol": "GOOG"
+      },
+      {
+        "bucket": "frontier_ai_platforms",
+        "component_scores": {
+          "catalyst": 0.0,
+          "manager": 19.0,
+          "option_tilt": 0.0,
+          "portfolio_fit": 12.0,
+          "price_action": 3.69
+        },
+        "current_weight": 0.03142,
+        "event_score": 0.0,
+        "event_types": [],
+        "expected_return_rank_score": 36.48,
+        "expected_return_score": 36.48,
+        "feature_id": "45589e7d1e66b99924283d3d621ebcf3",
+        "learning_adjustment": 0.0,
+        "manager_count": 3,
+        "peer_avg_weight": 0.0,
+        "price_action_5d": 3.69,
+        "rank": 13,
+        "risk_penalty": 0.0,
+        "score": 34.69,
+        "signal_families": [
+          "manager",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "signal_family_count": 3,
+        "symbol": "AAPL"
+      },
+      {
+        "bucket": "ai_software_winners",
+        "component_scores": {
+          "catalyst": 0.0,
+          "manager": 20.16,
+          "option_tilt": 0.0,
+          "portfolio_fit": 8.0,
+          "price_action": 0.0
+        },
+        "current_weight": 0.0,
+        "event_score": 0.0,
+        "event_types": [],
+        "expected_return_rank_score": 34.29,
+        "expected_return_score": 34.29,
+        "feature_id": "7a9ec21a9f32bd845145637283fc1cc4",
+        "learning_adjustment": 0.0,
+        "manager_count": 6,
+        "peer_avg_weight": 0.0,
+        "price_action_5d": -2.17,
+        "rank": 14,
+        "risk_penalty": 0.0,
+        "score": 28.16,
+        "signal_families": [
+          "manager",
+          "portfolio_fit"
+        ],
+        "signal_family_count": 2,
+        "symbol": "APP"
+      },
+      {
+        "bucket": "semis_networking_hbm",
+        "component_scores": {
+          "catalyst": 0.0,
+          "manager": 12.29,
+          "option_tilt": 0.0,
+          "portfolio_fit": 8.0,
+          "price_action": 7.0
+        },
+        "current_weight": 0.0,
+        "event_score": 0.0,
+        "event_types": [],
+        "expected_return_rank_score": 34.2,
+        "expected_return_score": 34.2,
+        "feature_id": "bf999e943a0f4ce977fd56ec6df14001",
+        "learning_adjustment": 0.0,
+        "manager_count": 4,
+        "peer_avg_weight": 0.0,
+        "price_action_5d": 7.0,
+        "rank": 15,
+        "risk_penalty": 0.0,
+        "score": 27.28,
+        "signal_families": [
+          "manager",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "signal_family_count": 3,
+        "symbol": "LITE"
+      },
+      {
+        "bucket": "power_grid_gas_nuclear",
+        "component_scores": {
+          "catalyst": 4.0,
+          "manager": 4.7,
+          "option_tilt": 0.0,
+          "portfolio_fit": 12.0,
+          "price_action": 2.48
+        },
+        "current_weight": 0.012941,
+        "event_score": 4.0,
+        "event_types": [
+          "valuation_reset"
+        ],
+        "expected_return_rank_score": 31.35,
+        "expected_return_score": 31.35,
+        "feature_id": "d6ddf72086a3d461c3bb2b535e665e3c",
+        "learning_adjustment": 0.0,
+        "manager_count": 1,
+        "peer_avg_weight": 0.0,
+        "price_action_5d": 2.48,
+        "rank": 16,
+        "risk_penalty": 0.0,
+        "score": 23.18,
+        "signal_families": [
+          "manager",
+          "catalyst",
+          "portfolio_fit"
+        ],
+        "signal_family_count": 3,
+        "symbol": "ETN"
+      },
+      {
+        "bucket": "semis_networking_hbm",
+        "component_scores": {
+          "catalyst": 0.0,
+          "manager": 9.38,
+          "option_tilt": 0.0,
+          "portfolio_fit": 8.0,
+          "price_action": 4.06
+        },
+        "current_weight": 0.0,
+        "event_score": 0.0,
+        "event_types": [],
+        "expected_return_rank_score": 29.2,
+        "expected_return_score": 29.2,
+        "feature_id": "abc6d81bbae6d8040cef0272a9421abe",
+        "learning_adjustment": 0.0,
+        "manager_count": 3,
+        "peer_avg_weight": 0.0,
+        "price_action_5d": 4.06,
+        "rank": 17,
+        "risk_penalty": 0.0,
+        "score": 21.45,
+        "signal_families": [
+          "manager",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "signal_family_count": 3,
+        "symbol": "COHR"
+      },
+      {
+        "bucket": "semis_networking_hbm",
+        "component_scores": {
+          "catalyst": 0.0,
+          "manager": 18.39,
+          "option_tilt": -7.0,
+          "portfolio_fit": 8.0,
+          "price_action": 2.0
+        },
+        "current_weight": 0.0,
+        "event_score": 0.0,
+        "event_types": [],
+        "expected_return_rank_score": 28.06,
+        "expected_return_score": 28.06,
+        "feature_id": "d0f6c7ef906c483fd14ef25b3e78418e",
+        "learning_adjustment": 0.0,
+        "manager_count": 6,
+        "peer_avg_weight": 0.0,
+        "price_action_5d": 10.79,
+        "rank": 18,
+        "risk_penalty": 5.0,
+        "score": 21.39,
+        "signal_families": [
+          "manager",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "signal_family_count": 3,
+        "symbol": "INTC"
+      },
+      {
+        "bucket": "ai_software_winners",
+        "component_scores": {
+          "catalyst": 7.0,
+          "manager": 6.27,
+          "option_tilt": 0.0,
+          "portfolio_fit": 0.0,
+          "price_action": 0.0
+        },
+        "current_weight": 0.0,
+        "event_score": 7.0,
+        "event_types": [
+          "contract_win"
+        ],
+        "expected_return_rank_score": 27.3,
+        "expected_return_score": 27.3,
+        "feature_id": "d764283dbdf8bb2cafc38f19afe14f15",
+        "learning_adjustment": 0.0,
+        "manager_count": 2,
+        "peer_avg_weight": 0.0,
+        "price_action_5d": -1.25,
+        "rank": 19,
+        "risk_penalty": 0.0,
+        "score": 13.27,
+        "signal_families": [
+          "manager",
+          "catalyst"
+        ],
+        "signal_family_count": 2,
+        "symbol": "NOW"
+      },
+      {
+        "bucket": "neocloud_datacenters",
+        "component_scores": {
+          "catalyst": 0.0,
+          "manager": 4.95,
+          "option_tilt": 0.0,
+          "portfolio_fit": 12.0,
+          "price_action": 7.17
+        },
+        "current_weight": 0.038551,
+        "event_score": 0.0,
+        "event_types": [],
+        "expected_return_rank_score": 27.07,
+        "expected_return_score": 27.07,
+        "feature_id": "6195fcfa1dce11fe3342c17dd8889e34",
+        "learning_adjustment": 0.0,
+        "manager_count": 1,
+        "peer_avg_weight": 0.0,
+        "price_action_5d": 7.17,
+        "rank": 20,
+        "risk_penalty": 0.0,
+        "score": 24.12,
+        "signal_families": [
+          "manager",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "signal_family_count": 3,
+        "symbol": "CORZ"
+      }
+    ],
+    "recommendation_provenance": [
+      {
+        "current_weight": 0.079041,
+        "expected_return_rank_score": 89.48,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 1,
+        "recommended_delta_weight": 0.0,
+        "risk_constraints": [
+          "put_heavy_13f"
+        ],
+        "signal_families": [
+          "manager",
+          "catalyst",
+          "portfolio_fit"
+        ],
+        "status": "open",
+        "symbol": "NVDA",
+        "target_weight": 0.079041
+      },
+      {
+        "current_weight": 0.018783,
+        "expected_return_rank_score": 89.45,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 2,
+        "recommended_delta_weight": 0.016356,
+        "risk_constraints": [
+          "daily_turnover_cap"
+        ],
+        "signal_families": [
+          "manager",
+          "catalyst",
+          "portfolio_fit"
+        ],
+        "status": "open",
+        "symbol": "CRWV",
+        "target_weight": 0.035139
+      },
+      {
+        "current_weight": 0.040359,
+        "expected_return_rank_score": 67.05,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 3,
+        "recommended_delta_weight": 0.0,
+        "risk_constraints": [
+          "daily_turnover_cap"
+        ],
+        "signal_families": [
+          "manager",
+          "catalyst",
+          "portfolio_fit"
+        ],
+        "status": "open",
+        "symbol": "META",
+        "target_weight": 0.040359
+      },
+      {
+        "current_weight": 0.114614,
+        "expected_return_rank_score": 64.12,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 4,
+        "recommended_delta_weight": -0.022923,
+        "risk_constraints": [
+          "put_heavy_13f"
+        ],
+        "signal_families": [
+          "manager",
+          "catalyst",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "status": "open",
+        "symbol": "MU",
+        "target_weight": 0.091691
+      },
+      {
+        "current_weight": 0.0,
+        "expected_return_rank_score": 57.51,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 5,
+        "recommended_delta_weight": 0.01,
+        "risk_constraints": [],
+        "signal_families": [
+          "manager",
+          "catalyst",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "status": "open",
+        "symbol": "BE",
+        "target_weight": 0.02
+      },
+      {
+        "current_weight": 0.077834,
+        "expected_return_rank_score": 54.8,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 6,
+        "recommended_delta_weight": 0,
+        "risk_constraints": [],
+        "signal_families": [
+          "manager",
+          "portfolio_fit"
+        ],
+        "status": "ranked",
+        "symbol": "AMZN",
+        "target_weight": 0.077834
+      },
+      {
+        "current_weight": 0.018961,
+        "expected_return_rank_score": 50.29,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 7,
+        "recommended_delta_weight": -0.01,
+        "risk_constraints": [
+          "put_heavy_13f"
+        ],
+        "signal_families": [
+          "manager",
+          "catalyst",
+          "portfolio_fit"
+        ],
+        "status": "open",
+        "symbol": "AVGO",
+        "target_weight": 0.008961
+      },
+      {
+        "current_weight": 0.013841,
+        "expected_return_rank_score": 48.95,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 8,
+        "recommended_delta_weight": 0.0,
+        "risk_constraints": [
+          "daily_turnover_cap"
+        ],
+        "signal_families": [
+          "manager",
+          "portfolio_fit"
+        ],
+        "status": "open",
+        "symbol": "MSFT",
+        "target_weight": 0.013841
+      },
+      {
+        "current_weight": 0.0,
+        "expected_return_rank_score": 47.7,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 9,
+        "recommended_delta_weight": 0,
+        "risk_constraints": [],
+        "signal_families": [
+          "manager",
+          "portfolio_fit"
+        ],
+        "status": "ranked",
+        "symbol": "GOOGL",
+        "target_weight": 0.0
+      },
+      {
+        "current_weight": 0.053607,
+        "expected_return_rank_score": 46.72,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 10,
+        "recommended_delta_weight": -0.010721,
+        "risk_constraints": [
+          "put_heavy_13f"
+        ],
+        "signal_families": [
+          "manager",
+          "portfolio_fit"
+        ],
+        "status": "open",
+        "symbol": "TSM",
+        "target_weight": 0.042886
+      },
+      {
+        "current_weight": 0.041534,
+        "expected_return_rank_score": 41.86,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 11,
+        "recommended_delta_weight": -0.01,
+        "risk_constraints": [
+          "put_heavy_13f"
+        ],
+        "signal_families": [
+          "manager",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "status": "open",
+        "symbol": "ASML",
+        "target_weight": 0.031534
+      },
+      {
+        "current_weight": 0.192998,
+        "expected_return_rank_score": 41.56,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 12,
+        "recommended_delta_weight": 0.0,
+        "risk_constraints": [
+          "daily_turnover_cap"
+        ],
+        "signal_families": [
+          "manager",
+          "portfolio_fit"
+        ],
+        "status": "open",
+        "symbol": "GOOG",
+        "target_weight": 0.192998
+      },
+      {
+        "current_weight": 0.03142,
+        "expected_return_rank_score": 36.48,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 13,
+        "recommended_delta_weight": 0,
+        "risk_constraints": [],
+        "signal_families": [
+          "manager",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "status": "ranked",
+        "symbol": "AAPL",
+        "target_weight": 0.03142
+      },
+      {
+        "current_weight": 0.0,
+        "expected_return_rank_score": 34.29,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 14,
+        "recommended_delta_weight": 0,
+        "risk_constraints": [],
+        "signal_families": [
+          "manager",
+          "portfolio_fit"
+        ],
+        "status": "ranked",
+        "symbol": "APP",
+        "target_weight": 0.0
+      },
+      {
+        "current_weight": 0.0,
+        "expected_return_rank_score": 34.2,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 15,
+        "recommended_delta_weight": 0,
+        "risk_constraints": [],
+        "signal_families": [
+          "manager",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "status": "ranked",
+        "symbol": "LITE",
+        "target_weight": 0.0
+      },
+      {
+        "current_weight": 0.012941,
+        "expected_return_rank_score": 31.35,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 16,
+        "recommended_delta_weight": 0,
+        "risk_constraints": [],
+        "signal_families": [
+          "manager",
+          "catalyst",
+          "portfolio_fit"
+        ],
+        "status": "ranked",
+        "symbol": "ETN",
+        "target_weight": 0.012941
+      },
+      {
+        "current_weight": 0.0,
+        "expected_return_rank_score": 29.2,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 17,
+        "recommended_delta_weight": 0,
+        "risk_constraints": [],
+        "signal_families": [
+          "manager",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "status": "ranked",
+        "symbol": "COHR",
+        "target_weight": 0.0
+      },
+      {
+        "current_weight": 0.0,
+        "expected_return_rank_score": 28.06,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 18,
+        "recommended_delta_weight": 0,
+        "risk_constraints": [],
+        "signal_families": [
+          "manager",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "status": "ranked",
+        "symbol": "INTC",
+        "target_weight": 0.0
+      },
+      {
+        "current_weight": 0.0,
+        "expected_return_rank_score": 27.3,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 19,
+        "recommended_delta_weight": 0,
+        "risk_constraints": [],
+        "signal_families": [
+          "manager",
+          "catalyst"
+        ],
+        "status": "ranked",
+        "symbol": "NOW",
+        "target_weight": 0.0
+      },
+      {
+        "current_weight": 0.038551,
+        "expected_return_rank_score": 27.07,
+        "model_policy_version": "2026-05-equity-max-return-v1",
+        "paper_tested": true,
+        "rank": 20,
+        "recommended_delta_weight": 0,
+        "risk_constraints": [],
+        "signal_families": [
+          "manager",
+          "portfolio_fit",
+          "price_action"
+        ],
+        "status": "ranked",
+        "symbol": "CORZ",
+        "target_weight": 0.038551
+      }
+    ],
+    "session": "premarket",
+    "universe": "equities_only",
+    "version": "2026-05-equity-max-return-v1"
+  },
   "ideas": [
     {
       "bucket": "neocloud_datacenters",
@@ -1794,7 +3401,7 @@
       ],
       "symbol": "CRWV",
       "trigger": "Verify contract size, duration, counterparty quality, margins, funding, and whether revenue timing is near term.",
-      "type": "portfolio-context research"
+      "type": "portfolio-context study"
     },
     {
       "bucket": "semis_networking_hbm",
@@ -1822,7 +3429,7 @@
       ],
       "symbol": "NVDA",
       "trigger": "Verify contract size, duration, counterparty quality, margins, funding, and whether revenue timing is near term.",
-      "type": "hedge/avoidance research"
+      "type": "hedge/avoidance study"
     },
     {
       "bucket": "frontier_ai_platforms",
@@ -1848,7 +3455,7 @@
       ],
       "symbol": "META",
       "trigger": "Check whether hyperscaler capex converts into orders, backlog, utilization, and pricing power for this company.",
-      "type": "portfolio-context research"
+      "type": "portfolio-context study"
     },
     {
       "bucket": "frontier_ai_platforms",
@@ -1871,7 +3478,7 @@
       ],
       "symbol": "AMZN",
       "trigger": "Require proof that AI usage is translating into durable revenue or operating leverage.",
-      "type": "portfolio-context research"
+      "type": "portfolio-context study"
     },
     {
       "bucket": "semis_networking_hbm",
@@ -1900,7 +3507,7 @@
       ],
       "symbol": "MU",
       "trigger": "Check whether hyperscaler capex converts into orders, backlog, utilization, and pricing power for this company.",
-      "type": "hedge/avoidance research"
+      "type": "hedge/avoidance study"
     },
     {
       "bucket": "power_grid_gas_nuclear",
@@ -1927,7 +3534,7 @@
       ],
       "symbol": "BE",
       "trigger": "Verify contract size, duration, counterparty quality, margins, funding, and whether revenue timing is near term.",
-      "type": "catalyst-confirmed white-space research"
+      "type": "catalyst-confirmed white-space study"
     },
     {
       "bucket": "frontier_ai_platforms",
@@ -1952,7 +3559,7 @@
       ],
       "symbol": "MSFT",
       "trigger": "Require proof that AI usage is translating into durable revenue or operating leverage.",
-      "type": "portfolio-context research"
+      "type": "portfolio-context study"
     },
     {
       "bucket": "semis_networking_hbm",
@@ -1978,7 +3585,7 @@
       ],
       "symbol": "AVGO",
       "trigger": "Check whether hyperscaler capex converts into orders, backlog, utilization, and pricing power for this company.",
-      "type": "hedge/avoidance research"
+      "type": "hedge/avoidance study"
     },
     {
       "bucket": "frontier_ai_platforms",
@@ -2002,7 +3609,7 @@
       ],
       "symbol": "AAPL",
       "trigger": "Require proof that AI usage is translating into durable revenue or operating leverage.",
-      "type": "portfolio-context research"
+      "type": "portfolio-context study"
     },
     {
       "bucket": "frontier_ai_platforms",
@@ -2025,7 +3632,7 @@
       ],
       "symbol": "GOOG",
       "trigger": "Require proof that AI usage is translating into durable revenue or operating leverage.",
-      "type": "portfolio-context research"
+      "type": "portfolio-context study"
     }
   ],
   "latest_filing": {
@@ -2033,10 +3640,10 @@
     "cik": "0002045724",
     "filing_date": "2026-05-18",
     "form": "13F-HR",
-    "id": 712,
+    "id": 800,
     "manager_key": "situational-awareness",
     "manager_name": "Situational Awareness LP / Leopold Aschenbrenner",
-    "processed_at": "2026-05-24T17:48:50",
+    "processed_at": "2026-05-24T18:29:14",
     "report_date": "2026-03-31",
     "url": "https://www.sec.gov/Archives/edgar/data/2045724/000204572426000008/0002045724-26-000008-index.html"
   },
@@ -2052,7 +3659,7 @@
       "defensive_momentum": 1.15,
       "dollar_move": 0.25,
       "rates_move": -1.41,
-      "risk_momentum": 0.92,
+      "risk_momentum": 0.88,
       "vol_move": -6.29
     },
     "tape": [
@@ -2177,10 +3784,10 @@
         "symbol": "^TNX"
       },
       {
-        "change_pct": -0.0,
-        "five_day_pct": -1.02,
+        "change_pct": -0.12,
+        "five_day_pct": -1.13,
         "label": "Bitcoin",
-        "last": 76670.90625,
+        "last": 76580.7578125,
         "lens": "liquidity beta",
         "symbol": "BTC-USD"
       }
@@ -6605,9 +8212,9 @@
     },
     "focus_manager_groups": [
       {
-        "description": "Leopold/Situational Awareness, Altimeter, and Dragoneer.",
+        "description": "Situational Awareness / Leopold, Altimeter, Dragoneer, and D1.",
         "key": "tier_1",
-        "label": "AI Thesis Core",
+        "label": "Tier 1 Watch",
         "managers": [
           {
             "accession_number": "0002045724-26-000008",
@@ -6618,7 +8225,7 @@
             "latest_filing_date": "2026-05-18",
             "latest_report_date": "2026-03-31",
             "lens": "AI-max public equity specialist",
-            "manager_group": "AI Thesis Core",
+            "manager_group": "Tier 1 Watch",
             "manager_key": "situational-awareness",
             "manager_name": "Situational Awareness LP / Leopold Aschenbrenner",
             "manager_tier": "tier_1",
@@ -6929,7 +8536,7 @@
             "latest_filing_date": "2026-05-15",
             "latest_report_date": "2026-03-31",
             "lens": "concentrated tech/growth and AI platforms",
-            "manager_group": "AI Thesis Core",
+            "manager_group": "Tier 1 Watch",
             "manager_key": "altimeter",
             "manager_name": "Altimeter Capital Management, LP",
             "manager_tier": "tier_1",
@@ -7136,7 +8743,7 @@
             "latest_filing_date": "2026-05-15",
             "latest_report_date": "2026-03-31",
             "lens": "crossover growth, AI-adjacent internet, marketplaces",
-            "manager_group": "AI Thesis Core",
+            "manager_group": "Tier 1 Watch",
             "manager_key": "dragoneer",
             "manager_name": "Dragoneer Investment Group, LLC",
             "manager_tier": "tier_1",
@@ -7363,6 +8970,461 @@
                 "portfolio_weight": 0.0,
                 "rank": 10,
                 "symbol": "NU"
+              }
+            ]
+          },
+          {
+            "accession_number": "0001172661-26-002178",
+            "alloiq_watchlist_pct": 13.13,
+            "bucket_classified_pct": 13.13,
+            "default_portfolio_overlap_pct": 9.56,
+            "filing_url": "https://www.sec.gov/Archives/edgar/data/1747057/000117266126002178/0001172661-26-002178-index.html",
+            "latest_filing_date": "2026-05-15",
+            "latest_report_date": "2026-03-31",
+            "lens": "crossover growth and opportunistic public equities",
+            "manager_group": "Tier 1 Watch",
+            "manager_key": "d1-capital",
+            "manager_name": "D1 Capital Partners L.P.",
+            "manager_tier": "tier_1",
+            "position_count": 44,
+            "positions": [
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.07523,
+                "issuer": "MAPLEBEAR INC",
+                "portfolio_weight": 0.0,
+                "rank": 1,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.057519,
+                "issuer": "MERCADOLIBRE INC",
+                "portfolio_weight": 0.0,
+                "rank": 2,
+                "symbol": "MELI"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.047719,
+                "issuer": "JAMES HARDIE INDS PLC",
+                "portfolio_weight": 0.0,
+                "rank": 3,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.038893,
+                "issuer": "DANAHER CORP DEL",
+                "portfolio_weight": 0.0,
+                "rank": 4,
+                "symbol": "DHR"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.038444,
+                "issuer": "FLOWSERVE CORP",
+                "portfolio_weight": 0.0,
+                "rank": 5,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.035164,
+                "issuer": "US FOODS HLDG CORP",
+                "portfolio_weight": 0.0,
+                "rank": 6,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.034162,
+                "issuer": "CLEAN HARBORS INC",
+                "portfolio_weight": 0.0,
+                "rank": 7,
+                "symbol": "CLH"
+              },
+              {
+                "bucket": "frontier_ai_platforms",
+                "fund_weight": 0.033514,
+                "issuer": "AMAZON COM INC",
+                "portfolio_weight": 0.077834,
+                "rank": 8,
+                "symbol": "AMZN"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.033122,
+                "issuer": "NU HLDGS LTD",
+                "portfolio_weight": 0.0,
+                "rank": 9,
+                "symbol": "NU"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.031726,
+                "issuer": "THERMO FISHER SCIENTIFIC INC",
+                "portfolio_weight": 0.0,
+                "rank": 10,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.030854,
+                "issuer": "SOMNIGROUP INTERNATIONAL INC",
+                "portfolio_weight": 0.0,
+                "rank": 11,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.030298,
+                "issuer": "TEXAS INSTRS INC",
+                "portfolio_weight": 0.0,
+                "rank": 12,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.029873,
+                "issuer": "SEA LTD",
+                "portfolio_weight": 0.0,
+                "rank": 13,
+                "symbol": "SE"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.029479,
+                "issuer": "REDDIT INC",
+                "portfolio_weight": 0.0,
+                "rank": 14,
+                "symbol": "RDDT"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.028317,
+                "issuer": "KILROY REALTY CORP",
+                "portfolio_weight": 0.0,
+                "rank": 15,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.02815,
+                "issuer": "KNIGHT-SWIFT TRANSN HLDGS IN",
+                "portfolio_weight": 0.0,
+                "rank": 16,
+                "symbol": ""
+              },
+              {
+                "bucket": "semis_networking_hbm",
+                "fund_weight": 0.027045,
+                "issuer": "BROADCOM INC",
+                "portfolio_weight": 0.018961,
+                "rank": 17,
+                "symbol": "AVGO"
+              },
+              {
+                "bucket": "semis_networking_hbm",
+                "fund_weight": 0.024357,
+                "issuer": "NVIDIA CORPORATION",
+                "portfolio_weight": 0.079041,
+                "rank": 18,
+                "symbol": "NVDA"
+              },
+              {
+                "bucket": "ai_software_winners",
+                "fund_weight": 0.023714,
+                "issuer": "APPLOVIN CORP",
+                "portfolio_weight": 0.0,
+                "rank": 19,
+                "symbol": "APP"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.022302,
+                "issuer": "XPO INC",
+                "portfolio_weight": 0.0,
+                "rank": 20,
+                "symbol": "XPO"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.021589,
+                "issuer": "LINEAGE INC",
+                "portfolio_weight": 0.0,
+                "rank": 21,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.020208,
+                "issuer": "DISNEY WALT CO",
+                "portfolio_weight": 0.0,
+                "rank": 22,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.019724,
+                "issuer": "SCHWAB CHARLES CORP",
+                "portfolio_weight": 0.0,
+                "rank": 23,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.019517,
+                "issuer": "COUPANG INC",
+                "portfolio_weight": 0.0,
+                "rank": 24,
+                "symbol": "CPNG"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.019215,
+                "issuer": "DOORDASH INC",
+                "portfolio_weight": 0.0,
+                "rank": 25,
+                "symbol": "DASH"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.018708,
+                "issuer": "CARVANA CO",
+                "portfolio_weight": 0.0,
+                "rank": 26,
+                "symbol": "CVNA"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.018137,
+                "issuer": "CAPITAL ONE FINL CORP",
+                "portfolio_weight": 0.0,
+                "rank": 27,
+                "symbol": "COF"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.01692,
+                "issuer": "MARTIN MARIETTA MATLS INC",
+                "portfolio_weight": 0.0,
+                "rank": 28,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.014699,
+                "issuer": "SPOTIFY TECHNOLOGY S A",
+                "portfolio_weight": 0.0,
+                "rank": 29,
+                "symbol": "SPOT"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.01427,
+                "issuer": "JOHNSON CONTROLS INTERNATION",
+                "portfolio_weight": 0.0,
+                "rank": 30,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.013581,
+                "issuer": "CELESTICA INC",
+                "portfolio_weight": 0.0,
+                "rank": 31,
+                "symbol": "CLS"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.01352,
+                "issuer": "SHERWIN WILLIAMS CO",
+                "portfolio_weight": 0.0,
+                "rank": 32,
+                "symbol": ""
+              },
+              {
+                "bucket": "frontier_ai_platforms",
+                "fund_weight": 0.012004,
+                "issuer": "ALPHABET INC",
+                "portfolio_weight": 0.0,
+                "rank": 33,
+                "symbol": "GOOGL"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.011496,
+                "issuer": "APOLLO GLOBAL MGMT INC",
+                "portfolio_weight": 0.0,
+                "rank": 34,
+                "symbol": ""
+              },
+              {
+                "bucket": "semis_networking_hbm",
+                "fund_weight": 0.009886,
+                "issuer": "TAIWAN SEMICONDUCTOR MANUFAC",
+                "portfolio_weight": 0.053607,
+                "rank": 35,
+                "symbol": "TSM"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.009155,
+                "issuer": "LIVE NATION ENTERTAINMENT IN",
+                "portfolio_weight": 0.0,
+                "rank": 36,
+                "symbol": "LYV"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.008283,
+                "issuer": "ANALOG DEVICES INC",
+                "portfolio_weight": 0.0,
+                "rank": 37,
+                "symbol": "ADI"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.007901,
+                "issuer": "AFFIRM HLDGS INC",
+                "portfolio_weight": 0.0,
+                "rank": 38,
+                "symbol": "AFRM"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.007255,
+                "issuer": "FERGUSON ENTERPRISES INC",
+                "portfolio_weight": 0.0,
+                "rank": 39,
+                "symbol": "FERG"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.006675,
+                "issuer": "TOPBUILD COR",
+                "portfolio_weight": 0.0,
+                "rank": 40,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.006584,
+                "issuer": "AUTODESK INC",
+                "portfolio_weight": 0.0,
+                "rank": 41,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.006368,
+                "issuer": "UNITY SOFTWARE INC",
+                "portfolio_weight": 0.0,
+                "rank": 42,
+                "symbol": "U"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.003625,
+                "issuer": "HYPERLIQUID STRATEGIES INC",
+                "portfolio_weight": 0.0,
+                "rank": 43,
+                "symbol": ""
+              },
+              {
+                "bucket": "semis_networking_hbm",
+                "fund_weight": 0.0008,
+                "issuer": "ASML HLDG NV",
+                "portfolio_weight": 0.041534,
+                "rank": 44,
+                "symbol": "ASML"
+              }
+            ],
+            "resolved_position_count": 25,
+            "status": "ok",
+            "symbol_coverage_pct": 51.95,
+            "top10_concentration_pct": 42.55,
+            "top_positions": [
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.07523,
+                "issuer": "MAPLEBEAR INC",
+                "portfolio_weight": 0.0,
+                "rank": 1,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.057519,
+                "issuer": "MERCADOLIBRE INC",
+                "portfolio_weight": 0.0,
+                "rank": 2,
+                "symbol": "MELI"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.047719,
+                "issuer": "JAMES HARDIE INDS PLC",
+                "portfolio_weight": 0.0,
+                "rank": 3,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.038893,
+                "issuer": "DANAHER CORP DEL",
+                "portfolio_weight": 0.0,
+                "rank": 4,
+                "symbol": "DHR"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.038444,
+                "issuer": "FLOWSERVE CORP",
+                "portfolio_weight": 0.0,
+                "rank": 5,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.035164,
+                "issuer": "US FOODS HLDG CORP",
+                "portfolio_weight": 0.0,
+                "rank": 6,
+                "symbol": ""
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.034162,
+                "issuer": "CLEAN HARBORS INC",
+                "portfolio_weight": 0.0,
+                "rank": 7,
+                "symbol": "CLH"
+              },
+              {
+                "bucket": "frontier_ai_platforms",
+                "fund_weight": 0.033514,
+                "issuer": "AMAZON COM INC",
+                "portfolio_weight": 0.077834,
+                "rank": 8,
+                "symbol": "AMZN"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.033122,
+                "issuer": "NU HLDGS LTD",
+                "portfolio_weight": 0.0,
+                "rank": 9,
+                "symbol": "NU"
+              },
+              {
+                "bucket": "unmapped",
+                "fund_weight": 0.031726,
+                "issuer": "THERMO FISHER SCIENTIFIC INC",
+                "portfolio_weight": 0.0,
+                "rank": 10,
+                "symbol": ""
               }
             ]
           }
@@ -9166,107 +11228,6 @@
                 "symbol": "MDLN"
               }
             ]
-          },
-          {
-            "accession_number": "0001172661-26-002178",
-            "alloiq_watchlist_pct": 13.13,
-            "bucket_classified_pct": 13.13,
-            "default_portfolio_overlap_pct": 9.56,
-            "filing_url": "https://www.sec.gov/Archives/edgar/data/1747057/000117266126002178/0001172661-26-002178-index.html",
-            "latest_filing_date": "2026-05-15",
-            "latest_report_date": "2026-03-31",
-            "lens": "crossover growth and opportunistic public equities",
-            "manager_group": "Manager Context Bench",
-            "manager_key": "d1-capital",
-            "manager_name": "D1 Capital Partners L.P.",
-            "manager_tier": "tier_2",
-            "position_count": 44,
-            "resolved_position_count": 25,
-            "status": "ok",
-            "symbol_coverage_pct": 51.95,
-            "top10_concentration_pct": 42.55,
-            "top_positions": [
-              {
-                "bucket": "unmapped",
-                "fund_weight": 0.07523,
-                "issuer": "MAPLEBEAR INC",
-                "portfolio_weight": 0.0,
-                "rank": 1,
-                "symbol": ""
-              },
-              {
-                "bucket": "unmapped",
-                "fund_weight": 0.057519,
-                "issuer": "MERCADOLIBRE INC",
-                "portfolio_weight": 0.0,
-                "rank": 2,
-                "symbol": "MELI"
-              },
-              {
-                "bucket": "unmapped",
-                "fund_weight": 0.047719,
-                "issuer": "JAMES HARDIE INDS PLC",
-                "portfolio_weight": 0.0,
-                "rank": 3,
-                "symbol": ""
-              },
-              {
-                "bucket": "unmapped",
-                "fund_weight": 0.038893,
-                "issuer": "DANAHER CORP DEL",
-                "portfolio_weight": 0.0,
-                "rank": 4,
-                "symbol": "DHR"
-              },
-              {
-                "bucket": "unmapped",
-                "fund_weight": 0.038444,
-                "issuer": "FLOWSERVE CORP",
-                "portfolio_weight": 0.0,
-                "rank": 5,
-                "symbol": ""
-              },
-              {
-                "bucket": "unmapped",
-                "fund_weight": 0.035164,
-                "issuer": "US FOODS HLDG CORP",
-                "portfolio_weight": 0.0,
-                "rank": 6,
-                "symbol": ""
-              },
-              {
-                "bucket": "unmapped",
-                "fund_weight": 0.034162,
-                "issuer": "CLEAN HARBORS INC",
-                "portfolio_weight": 0.0,
-                "rank": 7,
-                "symbol": "CLH"
-              },
-              {
-                "bucket": "frontier_ai_platforms",
-                "fund_weight": 0.033514,
-                "issuer": "AMAZON COM INC",
-                "portfolio_weight": 0.077834,
-                "rank": 8,
-                "symbol": "AMZN"
-              },
-              {
-                "bucket": "unmapped",
-                "fund_weight": 0.033122,
-                "issuer": "NU HLDGS LTD",
-                "portfolio_weight": 0.0,
-                "rank": 9,
-                "symbol": "NU"
-              },
-              {
-                "bucket": "unmapped",
-                "fund_weight": 0.031726,
-                "issuer": "THERMO FISHER SCIENTIFIC INC",
-                "portfolio_weight": 0.0,
-                "rank": 10,
-                "symbol": ""
-              }
-            ]
           }
         ]
       }
@@ -9305,7 +11266,7 @@
         "latest_filing_date": "2026-05-18",
         "latest_report_date": "2026-03-31",
         "lens": "AI-max public equity specialist",
-        "manager_group": "AI Thesis Core",
+        "manager_group": "Tier 1 Watch",
         "manager_key": "situational-awareness",
         "manager_name": "Situational Awareness LP / Leopold Aschenbrenner",
         "manager_tier": "tier_1",
@@ -9616,7 +11577,7 @@
         "latest_filing_date": "2026-05-15",
         "latest_report_date": "2026-03-31",
         "lens": "concentrated tech/growth and AI platforms",
-        "manager_group": "AI Thesis Core",
+        "manager_group": "Tier 1 Watch",
         "manager_key": "altimeter",
         "manager_name": "Altimeter Capital Management, LP",
         "manager_tier": "tier_1",
@@ -9823,7 +11784,7 @@
         "latest_filing_date": "2026-05-15",
         "latest_report_date": "2026-03-31",
         "lens": "crossover growth, AI-adjacent internet, marketplaces",
-        "manager_group": "AI Thesis Core",
+        "manager_group": "Tier 1 Watch",
         "manager_key": "dragoneer",
         "manager_name": "Dragoneer Investment Group, LLC",
         "manager_tier": "tier_1",
@@ -11856,11 +13817,365 @@
         "latest_filing_date": "2026-05-15",
         "latest_report_date": "2026-03-31",
         "lens": "crossover growth and opportunistic public equities",
-        "manager_group": "Manager Context Bench",
+        "manager_group": "Tier 1 Watch",
         "manager_key": "d1-capital",
         "manager_name": "D1 Capital Partners L.P.",
-        "manager_tier": "tier_2",
+        "manager_tier": "tier_1",
         "position_count": 44,
+        "positions": [
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.07523,
+            "issuer": "MAPLEBEAR INC",
+            "portfolio_weight": 0.0,
+            "rank": 1,
+            "symbol": ""
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.057519,
+            "issuer": "MERCADOLIBRE INC",
+            "portfolio_weight": 0.0,
+            "rank": 2,
+            "symbol": "MELI"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.047719,
+            "issuer": "JAMES HARDIE INDS PLC",
+            "portfolio_weight": 0.0,
+            "rank": 3,
+            "symbol": ""
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.038893,
+            "issuer": "DANAHER CORP DEL",
+            "portfolio_weight": 0.0,
+            "rank": 4,
+            "symbol": "DHR"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.038444,
+            "issuer": "FLOWSERVE CORP",
+            "portfolio_weight": 0.0,
+            "rank": 5,
+            "symbol": ""
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.035164,
+            "issuer": "US FOODS HLDG CORP",
+            "portfolio_weight": 0.0,
+            "rank": 6,
+            "symbol": ""
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.034162,
+            "issuer": "CLEAN HARBORS INC",
+            "portfolio_weight": 0.0,
+            "rank": 7,
+            "symbol": "CLH"
+          },
+          {
+            "bucket": "frontier_ai_platforms",
+            "fund_weight": 0.033514,
+            "issuer": "AMAZON COM INC",
+            "portfolio_weight": 0.077834,
+            "rank": 8,
+            "symbol": "AMZN"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.033122,
+            "issuer": "NU HLDGS LTD",
+            "portfolio_weight": 0.0,
+            "rank": 9,
+            "symbol": "NU"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.031726,
+            "issuer": "THERMO FISHER SCIENTIFIC INC",
+            "portfolio_weight": 0.0,
+            "rank": 10,
+            "symbol": ""
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.030854,
+            "issuer": "SOMNIGROUP INTERNATIONAL INC",
+            "portfolio_weight": 0.0,
+            "rank": 11,
+            "symbol": ""
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.030298,
+            "issuer": "TEXAS INSTRS INC",
+            "portfolio_weight": 0.0,
+            "rank": 12,
+            "symbol": ""
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.029873,
+            "issuer": "SEA LTD",
+            "portfolio_weight": 0.0,
+            "rank": 13,
+            "symbol": "SE"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.029479,
+            "issuer": "REDDIT INC",
+            "portfolio_weight": 0.0,
+            "rank": 14,
+            "symbol": "RDDT"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.028317,
+            "issuer": "KILROY REALTY CORP",
+            "portfolio_weight": 0.0,
+            "rank": 15,
+            "symbol": ""
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.02815,
+            "issuer": "KNIGHT-SWIFT TRANSN HLDGS IN",
+            "portfolio_weight": 0.0,
+            "rank": 16,
+            "symbol": ""
+          },
+          {
+            "bucket": "semis_networking_hbm",
+            "fund_weight": 0.027045,
+            "issuer": "BROADCOM INC",
+            "portfolio_weight": 0.018961,
+            "rank": 17,
+            "symbol": "AVGO"
+          },
+          {
+            "bucket": "semis_networking_hbm",
+            "fund_weight": 0.024357,
+            "issuer": "NVIDIA CORPORATION",
+            "portfolio_weight": 0.079041,
+            "rank": 18,
+            "symbol": "NVDA"
+          },
+          {
+            "bucket": "ai_software_winners",
+            "fund_weight": 0.023714,
+            "issuer": "APPLOVIN CORP",
+            "portfolio_weight": 0.0,
+            "rank": 19,
+            "symbol": "APP"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.022302,
+            "issuer": "XPO INC",
+            "portfolio_weight": 0.0,
+            "rank": 20,
+            "symbol": "XPO"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.021589,
+            "issuer": "LINEAGE INC",
+            "portfolio_weight": 0.0,
+            "rank": 21,
+            "symbol": ""
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.020208,
+            "issuer": "DISNEY WALT CO",
+            "portfolio_weight": 0.0,
+            "rank": 22,
+            "symbol": ""
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.019724,
+            "issuer": "SCHWAB CHARLES CORP",
+            "portfolio_weight": 0.0,
+            "rank": 23,
+            "symbol": ""
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.019517,
+            "issuer": "COUPANG INC",
+            "portfolio_weight": 0.0,
+            "rank": 24,
+            "symbol": "CPNG"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.019215,
+            "issuer": "DOORDASH INC",
+            "portfolio_weight": 0.0,
+            "rank": 25,
+            "symbol": "DASH"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.018708,
+            "issuer": "CARVANA CO",
+            "portfolio_weight": 0.0,
+            "rank": 26,
+            "symbol": "CVNA"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.018137,
+            "issuer": "CAPITAL ONE FINL CORP",
+            "portfolio_weight": 0.0,
+            "rank": 27,
+            "symbol": "COF"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.01692,
+            "issuer": "MARTIN MARIETTA MATLS INC",
+            "portfolio_weight": 0.0,
+            "rank": 28,
+            "symbol": ""
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.014699,
+            "issuer": "SPOTIFY TECHNOLOGY S A",
+            "portfolio_weight": 0.0,
+            "rank": 29,
+            "symbol": "SPOT"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.01427,
+            "issuer": "JOHNSON CONTROLS INTERNATION",
+            "portfolio_weight": 0.0,
+            "rank": 30,
+            "symbol": ""
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.013581,
+            "issuer": "CELESTICA INC",
+            "portfolio_weight": 0.0,
+            "rank": 31,
+            "symbol": "CLS"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.01352,
+            "issuer": "SHERWIN WILLIAMS CO",
+            "portfolio_weight": 0.0,
+            "rank": 32,
+            "symbol": ""
+          },
+          {
+            "bucket": "frontier_ai_platforms",
+            "fund_weight": 0.012004,
+            "issuer": "ALPHABET INC",
+            "portfolio_weight": 0.0,
+            "rank": 33,
+            "symbol": "GOOGL"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.011496,
+            "issuer": "APOLLO GLOBAL MGMT INC",
+            "portfolio_weight": 0.0,
+            "rank": 34,
+            "symbol": ""
+          },
+          {
+            "bucket": "semis_networking_hbm",
+            "fund_weight": 0.009886,
+            "issuer": "TAIWAN SEMICONDUCTOR MANUFAC",
+            "portfolio_weight": 0.053607,
+            "rank": 35,
+            "symbol": "TSM"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.009155,
+            "issuer": "LIVE NATION ENTERTAINMENT IN",
+            "portfolio_weight": 0.0,
+            "rank": 36,
+            "symbol": "LYV"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.008283,
+            "issuer": "ANALOG DEVICES INC",
+            "portfolio_weight": 0.0,
+            "rank": 37,
+            "symbol": "ADI"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.007901,
+            "issuer": "AFFIRM HLDGS INC",
+            "portfolio_weight": 0.0,
+            "rank": 38,
+            "symbol": "AFRM"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.007255,
+            "issuer": "FERGUSON ENTERPRISES INC",
+            "portfolio_weight": 0.0,
+            "rank": 39,
+            "symbol": "FERG"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.006675,
+            "issuer": "TOPBUILD COR",
+            "portfolio_weight": 0.0,
+            "rank": 40,
+            "symbol": ""
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.006584,
+            "issuer": "AUTODESK INC",
+            "portfolio_weight": 0.0,
+            "rank": 41,
+            "symbol": ""
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.006368,
+            "issuer": "UNITY SOFTWARE INC",
+            "portfolio_weight": 0.0,
+            "rank": 42,
+            "symbol": "U"
+          },
+          {
+            "bucket": "unmapped",
+            "fund_weight": 0.003625,
+            "issuer": "HYPERLIQUID STRATEGIES INC",
+            "portfolio_weight": 0.0,
+            "rank": 43,
+            "symbol": ""
+          },
+          {
+            "bucket": "semis_networking_hbm",
+            "fund_weight": 0.0008,
+            "issuer": "ASML HLDG NV",
+            "portfolio_weight": 0.041534,
+            "rank": 44,
+            "symbol": "ASML"
+          }
+        ],
         "resolved_position_count": 25,
         "status": "ok",
         "symbol_coverage_pct": 51.95,
@@ -13588,7 +15903,7 @@
         },
         {
           "kind": "weekly",
-          "purpose": "Run full idea research, thesis/falsifier review, and weekly opportunity/risk queue.",
+          "purpose": "Run full idea study, thesis/falsifier review, and weekly opportunity/risk queue.",
           "when": "Sunday morning ET"
         }
       ],
@@ -13720,9 +16035,9 @@
         }
       ],
       "promotion_rules": [
-        "Names with at least two independent signal families are eligible for higher-priority research.",
+        "Names with at least two independent signal families are eligible for higher-priority study.",
         "Owned names with financing, regulatory, crowding, or put-heavy risk can override add logic into trim, hedge, or review.",
-        "White-space long ideas require manager support, signal density, and entry discipline before a starter-weight proposal.",
+        "White-space long ideas require manager support, signal density, and entry discipline before a starter target.",
         "Every recommendation carries a trigger, risk, and falsifier; none are execution instructions."
       ],
       "score_components_seen": [
@@ -13734,7 +16049,7 @@
       ]
     },
     "session": "premarket",
-    "summary": "AlloIQ ranks watchlist names by independent public-market signal families, constrains sizing with portfolio risk limits, and publishes approval-only portfolio-weight research proposals.",
+    "summary": "AlloIQ ranks watchlist names by independent public-market signal families, constrains sizing with portfolio risk limits, and publishes approval-only portfolio-weight trade targets.",
     "updated_by_backend": true,
     "version": "2026-05-live-assistant-v1"
   },
@@ -15127,6 +17442,288 @@
       ]
     }
   },
+  "paper_portfolio": {
+    "as_of": "2026-05-24",
+    "fill_policy": "next_available_daily_close_proxy",
+    "live_order_execution": "disabled",
+    "metrics": {
+      "completed_outcome_count": 0,
+      "filled_proxy_count": 0,
+      "hit_rate": null,
+      "max_drawdown": null,
+      "missed_opportunity": null,
+      "paper_trade_count": 10,
+      "planned_count": 10,
+      "status": "tracking"
+    },
+    "mode": "paper_only",
+    "paper_trades": [
+      {
+        "created_at": "2026-05-24T00:00:00Z",
+        "current_weight": 0.079041,
+        "fill_policy": "next_available_daily_close_proxy",
+        "paper_trade_id": "2181cee909cebefe6f5b41939765fa42",
+        "proxy_fill_price": 215.3300018310547,
+        "recommended_delta_weight": 0.0,
+        "status": "planned",
+        "symbol": "NVDA",
+        "target_weight": 0.079041,
+        "ticket_id": "062edd836afedda788bf7149b9281400",
+        "trade_action": "hold_hedge"
+      },
+      {
+        "created_at": "2026-05-24T00:00:00Z",
+        "current_weight": 0.114614,
+        "fill_policy": "next_available_daily_close_proxy",
+        "paper_trade_id": "3a68273047e345e7dabc4f9fd87b12c6",
+        "proxy_fill_price": 751.0,
+        "recommended_delta_weight": -0.022923,
+        "status": "planned",
+        "symbol": "MU",
+        "target_weight": 0.091691,
+        "ticket_id": "de95d5a6173a3624ac6fa38fe6c5d61f",
+        "trade_action": "trim"
+      },
+      {
+        "created_at": "2026-05-24T00:00:00Z",
+        "current_weight": 0.018961,
+        "fill_policy": "next_available_daily_close_proxy",
+        "paper_trade_id": "ae4e23c0676f0896066024e1ee6e50a1",
+        "proxy_fill_price": 414.1400146484375,
+        "recommended_delta_weight": -0.01,
+        "status": "planned",
+        "symbol": "AVGO",
+        "target_weight": 0.008961,
+        "ticket_id": "b1a262a40a60ebd9f5198f1b47e54574",
+        "trade_action": "trim"
+      },
+      {
+        "created_at": "2026-05-24T00:00:00Z",
+        "current_weight": 0.053607,
+        "fill_policy": "next_available_daily_close_proxy",
+        "paper_trade_id": "7e97f48439b0cb4bd1664a5ec0bd194a",
+        "proxy_fill_price": 404.5199890136719,
+        "recommended_delta_weight": -0.010721,
+        "status": "planned",
+        "symbol": "TSM",
+        "target_weight": 0.042886,
+        "ticket_id": "d83e8864ed4ebe271958e5c8a5c7155f",
+        "trade_action": "trim"
+      },
+      {
+        "created_at": "2026-05-24T00:00:00Z",
+        "current_weight": 0.041534,
+        "fill_policy": "next_available_daily_close_proxy",
+        "paper_trade_id": "c23f9dc54929aa991f1aeead69f6ebb9",
+        "proxy_fill_price": 1632.9000244140625,
+        "recommended_delta_weight": -0.01,
+        "status": "planned",
+        "symbol": "ASML",
+        "target_weight": 0.031534,
+        "ticket_id": "b4feb40e020681c134066faa52dbf872",
+        "trade_action": "trim"
+      },
+      {
+        "created_at": "2026-05-24T00:00:00Z",
+        "current_weight": 0.0,
+        "fill_policy": "next_available_daily_close_proxy",
+        "paper_trade_id": "5da291e1f62934ad7f520c71dcaadb32",
+        "proxy_fill_price": 302.489990234375,
+        "recommended_delta_weight": 0.01,
+        "status": "planned",
+        "symbol": "BE",
+        "target_weight": 0.02,
+        "ticket_id": "0266e0e3379275d9454737b864514c3f",
+        "trade_action": "add"
+      },
+      {
+        "created_at": "2026-05-24T00:00:00Z",
+        "current_weight": 0.018783,
+        "fill_policy": "next_available_daily_close_proxy",
+        "paper_trade_id": "a76be0e7253d657c2e6fdb0ccdfbf007",
+        "proxy_fill_price": 105.48999786376953,
+        "recommended_delta_weight": 0.016356,
+        "status": "planned",
+        "symbol": "CRWV",
+        "target_weight": 0.035139,
+        "ticket_id": "322b020b8a7e1702245832ad80c3c596",
+        "trade_action": "add"
+      },
+      {
+        "created_at": "2026-05-24T00:00:00Z",
+        "current_weight": 0.040359,
+        "fill_policy": "next_available_daily_close_proxy",
+        "paper_trade_id": "1a753e0f646b55890c8dae01135e1e8a",
+        "proxy_fill_price": 610.260009765625,
+        "recommended_delta_weight": 0.0,
+        "status": "planned",
+        "symbol": "META",
+        "target_weight": 0.040359,
+        "ticket_id": "426d41485ed25fd5c7b14867b25860c8",
+        "trade_action": "watch"
+      },
+      {
+        "created_at": "2026-05-24T00:00:00Z",
+        "current_weight": 0.013841,
+        "fill_policy": "next_available_daily_close_proxy",
+        "paper_trade_id": "eb280e8a82515e59f13bbc2e0b9f361d",
+        "proxy_fill_price": 418.57000732421875,
+        "recommended_delta_weight": 0.0,
+        "status": "planned",
+        "symbol": "MSFT",
+        "target_weight": 0.013841,
+        "ticket_id": "fa1e4159c6b34c76c058aeea0768f0db",
+        "trade_action": "watch"
+      },
+      {
+        "created_at": "2026-05-24T00:00:00Z",
+        "current_weight": 0.192998,
+        "fill_policy": "next_available_daily_close_proxy",
+        "paper_trade_id": "355e6073237cf3645957c9dc36dcb8be",
+        "proxy_fill_price": 379.3800048828125,
+        "recommended_delta_weight": 0.0,
+        "status": "planned",
+        "symbol": "GOOG",
+        "target_weight": 0.192998,
+        "ticket_id": "6712d71fec0e6a69c3d370323eae86fc",
+        "trade_action": "trim"
+      }
+    ],
+    "session": "premarket",
+    "snapshots": [
+      {
+        "bucket": "semis_networking_hbm",
+        "current_weight": 0.114614,
+        "paper_delta_weight": -0.022923,
+        "paper_target_weight": 0.091691,
+        "symbol": "MU"
+      },
+      {
+        "bucket": "unmapped",
+        "current_weight": 0.0,
+        "paper_delta_weight": 0.02,
+        "paper_target_weight": 0.02,
+        "symbol": "BE"
+      },
+      {
+        "bucket": "neocloud_datacenters",
+        "current_weight": 0.018783,
+        "paper_delta_weight": 0.016356,
+        "paper_target_weight": 0.035139,
+        "symbol": "CRWV"
+      },
+      {
+        "bucket": "semis_networking_hbm",
+        "current_weight": 0.053607,
+        "paper_delta_weight": -0.010721,
+        "paper_target_weight": 0.042886,
+        "symbol": "TSM"
+      },
+      {
+        "bucket": "semis_networking_hbm",
+        "current_weight": 0.041534,
+        "paper_delta_weight": -0.01,
+        "paper_target_weight": 0.031534,
+        "symbol": "ASML"
+      },
+      {
+        "bucket": "semis_networking_hbm",
+        "current_weight": 0.018961,
+        "paper_delta_weight": -0.01,
+        "paper_target_weight": 0.008961,
+        "symbol": "AVGO"
+      },
+      {
+        "bucket": "frontier_ai_platforms",
+        "current_weight": 0.192998,
+        "paper_delta_weight": 0.0,
+        "paper_target_weight": 0.192998,
+        "symbol": "GOOG"
+      },
+      {
+        "bucket": "semis_networking_hbm",
+        "current_weight": 0.079041,
+        "paper_delta_weight": 0.0,
+        "paper_target_weight": 0.079041,
+        "symbol": "NVDA"
+      },
+      {
+        "bucket": "frontier_ai_platforms",
+        "current_weight": 0.077834,
+        "paper_target_weight": 0.077834,
+        "symbol": "AMZN"
+      },
+      {
+        "bucket": "ai_software_winners",
+        "current_weight": 0.060753,
+        "paper_target_weight": 0.060753,
+        "symbol": "CRWD"
+      },
+      {
+        "bucket": "semis_networking_hbm",
+        "current_weight": 0.056418,
+        "paper_target_weight": 0.056418,
+        "symbol": "ANET"
+      },
+      {
+        "bucket": "ai_software_winners",
+        "current_weight": 0.052398,
+        "paper_target_weight": 0.052398,
+        "symbol": "SHOP"
+      },
+      {
+        "bucket": "power_grid_gas_nuclear",
+        "current_weight": 0.041646,
+        "paper_target_weight": 0.041646,
+        "symbol": "VRT"
+      },
+      {
+        "bucket": "frontier_ai_platforms",
+        "current_weight": 0.040359,
+        "paper_delta_weight": 0.0,
+        "paper_target_weight": 0.040359,
+        "symbol": "META"
+      },
+      {
+        "bucket": "neocloud_datacenters",
+        "current_weight": 0.038551,
+        "paper_target_weight": 0.038551,
+        "symbol": "CORZ"
+      },
+      {
+        "bucket": "frontier_ai_platforms",
+        "current_weight": 0.03142,
+        "paper_target_weight": 0.03142,
+        "symbol": "AAPL"
+      },
+      {
+        "bucket": "semis_networking_hbm",
+        "current_weight": 0.029963,
+        "paper_target_weight": 0.029963,
+        "symbol": "MRVL"
+      },
+      {
+        "bucket": "ai_enabled_financials",
+        "current_weight": 0.016858,
+        "paper_target_weight": 0.016858,
+        "symbol": "HOOD"
+      },
+      {
+        "bucket": "frontier_ai_platforms",
+        "current_weight": 0.013841,
+        "paper_delta_weight": 0.0,
+        "paper_target_weight": 0.013841,
+        "symbol": "MSFT"
+      },
+      {
+        "bucket": "power_grid_gas_nuclear",
+        "current_weight": 0.012941,
+        "paper_target_weight": 0.012941,
+        "symbol": "ETN"
+      }
+    ],
+    "version": "2026-05-paper-equity-v1"
+  },
   "portfolio": {
     "by_bucket": [
       {
@@ -15265,7 +17862,7 @@
   "portfolio_benchmark": {
     "action_queue": [
       {
-        "action": "Hold at 7.9%; do not add, and size any hedge at 1.0%.",
+        "action": "Hold at 7.9%; do not add, and keep risk budget at 1.0%.",
         "approval_required": true,
         "confidence": 85,
         "constraint_notes": [],
@@ -15289,11 +17886,11 @@
         ],
         "score": 50.0,
         "signal_family_count": 3,
-        "sizing_basis": "portfolio-weight research proposal; approval required; no order execution",
-        "sizing_summary": "Hold at 7.9%; do not add, and size any hedge at 1.0%.",
+        "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
+        "sizing_summary": "Hold at 7.9%; do not add, and keep risk budget at 1.0%.",
         "symbol": "NVDA",
         "target_weight": 0.079041,
-        "trade_action": "hold_hedge",
+        "trade_action": "hold",
         "why": "Owned position has a risk catalyst or put-heavy 13F signal."
       },
       {
@@ -15321,7 +17918,7 @@
         ],
         "score": 39.9,
         "signal_family_count": 4,
-        "sizing_basis": "portfolio-weight research proposal; approval required; no order execution",
+        "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
         "sizing_summary": "Trim 2.3% to 9.2% until risk flags clear.",
         "symbol": "MU",
         "target_weight": 0.091691,
@@ -15351,7 +17948,7 @@
         ],
         "score": 35.41,
         "signal_family_count": 3,
-        "sizing_basis": "portfolio-weight research proposal; approval required; no order execution",
+        "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
         "sizing_summary": "Trim 1.0% to 0.9% until risk flags clear.",
         "symbol": "AVGO",
         "target_weight": 0.008961,
@@ -15379,7 +17976,7 @@
         ],
         "score": 32.16,
         "signal_family_count": 2,
-        "sizing_basis": "portfolio-weight research proposal; approval required; no order execution",
+        "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
         "sizing_summary": "Trim 1.1% to 4.3% until risk flags clear.",
         "symbol": "TSM",
         "target_weight": 0.042886,
@@ -15407,7 +18004,7 @@
         ],
         "score": 32.0,
         "signal_family_count": 3,
-        "sizing_basis": "portfolio-weight research proposal; approval required; no order execution",
+        "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
         "sizing_summary": "Trim 1.0% to 3.2% until risk flags clear.",
         "symbol": "ASML",
         "target_weight": 0.031534,
@@ -15435,7 +18032,7 @@
         "risk_flags": [],
         "score": 39.62,
         "signal_family_count": 4,
-        "sizing_basis": "portfolio-weight research proposal; approval required; no order execution",
+        "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
         "sizing_summary": "Add +1.0% starter now to 1.0%; build toward 2.0% target on a cleaner entry.",
         "symbol": "BE",
         "target_weight": 0.02,
@@ -15468,7 +18065,7 @@
         ],
         "score": 53.96,
         "signal_family_count": 3,
-        "sizing_basis": "portfolio-weight research proposal; approval required; no order execution",
+        "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
         "sizing_summary": "Add +1.8% to 3.6% target versus focus-fund sizing.",
         "symbol": "CRWV",
         "target_weight": 0.035139,
@@ -15500,7 +18097,7 @@
         ],
         "score": 43.0,
         "signal_family_count": 3,
-        "sizing_basis": "portfolio-weight research proposal; approval required; no order execution",
+        "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
         "sizing_summary": "Watch only; risk controls blocked the add until constraints clear.",
         "symbol": "META",
         "target_weight": 0.040359,
@@ -15532,7 +18129,7 @@
         ],
         "score": 38.0,
         "signal_family_count": 2,
-        "sizing_basis": "portfolio-weight research proposal; approval required; no order execution",
+        "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
         "sizing_summary": "Watch only; risk controls blocked the add until constraints clear.",
         "symbol": "MSFT",
         "target_weight": 0.013841,
@@ -15562,7 +18159,7 @@
         ],
         "score": 34.48,
         "signal_family_count": 2,
-        "sizing_basis": "portfolio-weight research proposal; approval required; no order execution",
+        "sizing_basis": "approval-only portfolio-weight target delta for the trade feed",
         "sizing_summary": "Trim 2.9% to 16.4% and re-earn any add with fresh signal confirmation.",
         "symbol": "GOOG",
         "target_weight": 0.192998,
@@ -15856,7 +18453,7 @@
       },
       {
         "horizon": "3m",
-        "manager_group": "AI Thesis Core",
+        "manager_group": "Tier 1 Watch",
         "manager_key": "situational-awareness",
         "manager_name": "Situational Awareness LP / Leopold Aschenbrenner",
         "manager_tier": "tier_1",
@@ -16108,7 +18705,7 @@
       },
       {
         "horizon": "3m",
-        "manager_group": "AI Thesis Core",
+        "manager_group": "Tier 1 Watch",
         "manager_key": "dragoneer",
         "manager_name": "Dragoneer Investment Group, LLC",
         "manager_tier": "tier_1",
@@ -16127,7 +18724,7 @@
       },
       {
         "horizon": "3m",
-        "manager_group": "AI Thesis Core",
+        "manager_group": "Tier 1 Watch",
         "manager_key": "altimeter",
         "manager_name": "Altimeter Capital Management, LP",
         "manager_tier": "tier_1",
@@ -16500,7 +19097,7 @@
   },
   "recommended_moves": [
     {
-      "action": "Hedge existing exposure",
+      "action": "Hold with risk budget",
       "bucket": "semis_networking_hbm",
       "bucket_weight": 0.394139,
       "consensus_value": 6455046273.0,
@@ -16531,7 +19128,7 @@
       "trigger": "Verify contract economics, timing, counterparty quality, and whether it changes forward revenue or margins."
     },
     {
-      "action": "Add-on-dip research",
+      "action": "Add on pullback",
       "bucket": "frontier_ai_platforms",
       "bucket_weight": 0.356452,
       "consensus_value": 8699483627.0,
@@ -16557,7 +19154,7 @@
       "trigger": "Look for AI usage translating into revenue, retention, or operating leverage."
     },
     {
-      "action": "Add-on-dip research",
+      "action": "Add on pullback",
       "bucket": "frontier_ai_platforms",
       "bucket_weight": 0.356452,
       "consensus_value": 7666130639.0,
@@ -16586,7 +19183,7 @@
       "trigger": "Check whether capex guidance flows into backlog, utilization, pricing, or supply constraints for this name."
     },
     {
-      "action": "Add-on-dip research",
+      "action": "Add on pullback",
       "bucket": "neocloud_datacenters",
       "bucket_weight": 0.057333,
       "consensus_value": 1075668394.0,
@@ -16644,7 +19241,7 @@
       "trigger": "Look for AI usage translating into revenue, retention, or operating leverage."
     },
     {
-      "action": "Hedge existing exposure",
+      "action": "Hold with risk budget",
       "bucket": "semis_networking_hbm",
       "bucket_weight": 0.394139,
       "consensus_value": 881337532.0,
@@ -16676,7 +19273,7 @@
       "trigger": "Check whether capex guidance flows into backlog, utilization, pricing, or supply constraints for this name."
     },
     {
-      "action": "Hedge existing exposure",
+      "action": "Hold with risk budget",
       "bucket": "semis_networking_hbm",
       "bucket_weight": 0.394139,
       "consensus_value": 8379470684.0,
@@ -16702,7 +19299,7 @@
       "trigger": "Look for backlog, hyperscaler capex, supply constraints, and gross-margin direction."
     },
     {
-      "action": "Hedge existing exposure",
+      "action": "Hold with risk budget",
       "bucket": "semis_networking_hbm",
       "bucket_weight": 0.394139,
       "consensus_value": 3412159864.0,
@@ -16731,7 +19328,7 @@
       "trigger": "Check whether capex guidance flows into backlog, utilization, pricing, or supply constraints for this name."
     },
     {
-      "action": "Add-on-dip research",
+      "action": "Add on pullback",
       "bucket": "frontier_ai_platforms",
       "bucket_weight": 0.356452,
       "consensus_value": 6292680854.0,
@@ -16789,7 +19386,7 @@
       "trigger": "Verify contract economics, timing, counterparty quality, and whether it changes forward revenue or margins."
     },
     {
-      "action": "Hedge existing exposure",
+      "action": "Hold with risk budget",
       "bucket": "semis_networking_hbm",
       "bucket_weight": 0.394139,
       "consensus_value": 2026997229.0,
@@ -16829,7 +19426,7 @@
       "manager_count": 6,
       "news_count": 0,
       "portfolio_weight": 0.192998,
-      "posture": "Research",
+      "posture": "Study",
       "rationale": "Manager overlap is enough to justify work, but evidence is not strong enough for an urgent move.",
       "risk": "Platform leaders can monetize AI slowly while spending aggressively, compressing margins before revenue catches up.",
       "signal_families": [
@@ -17244,7 +19841,7 @@
     ]
   },
   "site": {
-    "built_at": "2026-05-24T17:54:53Z",
+    "built_at": "2026-05-24T18:38:32Z",
     "domain": "alloiq.com",
     "last_run_kind": "premarket",
     "name": "AlloIQ",
@@ -17252,7 +19849,7 @@
     "report_session": "premarket",
     "source_report": "2026-05-24-premarket.json",
     "stale_status": {
-      "built_at": "2026-05-24T17:54:53Z",
+      "built_at": "2026-05-24T18:38:32Z",
       "is_stale_at_build": false,
       "max_age_hours": 20,
       "policy": "client marks stale when built_at exceeds max_age_hours",

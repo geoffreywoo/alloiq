@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0e151b">
     <meta
       name="description"
-      content="A public weights-only breakdown of the Geoffrey Woo Portfolio, including allocation, thesis buckets, and research proposals."
+      content="A public weights-only breakdown of the Geoffrey Woo Portfolio, including allocation, thesis buckets, and current target deltas."
     >
     <title>Geoffrey Woo Portfolio | AlloIQ</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -35,7 +35,8 @@
         <div class="topbar-meta">
           <span id="portfolioDate">Loading</span>
           <span class="badge">Weights-only</span>
-          <a class="topbar-link" href="/">Investor OS</a>
+          <a class="topbar-link" href="/">Home</a>
+          <a class="topbar-link" href="/dashboard">Trade OS</a>
         </div>
       </header>
 
@@ -53,13 +54,13 @@
           <div class="portfolio-hero-actions">
             <button id="copyWeightsButton" class="primary-button" type="button">Copy weights CSV</button>
             <a class="secondary-button" href="/ai-thesis-core">AI core positions</a>
-            <a class="secondary-button" href="/">Open full dashboard</a>
+            <a class="secondary-button" href="/dashboard">Open Trade OS</a>
           </div>
         </section>
 
         <p class="notice">
-          Public research only. This is not investment advice, an execution instruction, or an order feed.
-          If you mirror it, use percentages and your own risk limits.
+          Mirror by percentage weights; do not use share counts. Keep your own cash, taxes,
+          concentration, and timing rules.
         </p>
 
         <section id="portfolioSummary" class="portfolio-summary-grid" aria-label="Portfolio summary"></section>
@@ -69,7 +70,7 @@
             <h2>Copy The Public Weights</h2>
             <p>
               The clean way to copy this portfolio is to size each ticker as a percentage of your own
-              public-equity sleeve. Do not copy share counts, private values, margin, taxes, or execution timing.
+              public-equity sleeve. Do not copy share counts, private values, margin, taxes, or timing blindly.
             </p>
           </div>
           <div id="copyStatus" class="copy-status">Ready to copy sanitized ticker weights.</div>
@@ -105,7 +106,7 @@
           <section class="panel">
             <div class="panel-head">
               <h3>Rebalance Notes</h3>
-              <span>Research proposals, not orders</span>
+              <span>Current target deltas</span>
             </div>
             <div id="portfolioRebalanceList" class="rebalance-list"></div>
           </section>
@@ -121,7 +122,7 @@
       </main>
 
       <footer class="site-footer">
-        <span>Public research. Portfolio data is weights only, not share counts, private values, or orders.</span>
+        <span>Public weights, public filings, daily AI markets signals. Approval-only; no live order execution.</span>
         <a href="https://x.com/geoffreywoo" target="_blank" rel="noreferrer">Created by @geoffreywoo</a>
       </footer>
     </div>

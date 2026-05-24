@@ -1,0 +1,10 @@
+{
+  "name": "alloiq",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "python3 -m invest site build --privacy public",
+    "build:private": "python3 -m invest site build --privacy private",
+    "dev": "python3 -m http.server 4173 --directory web"
+  }
+}

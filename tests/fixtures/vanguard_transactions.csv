@@ -1,0 +1,5 @@
+Trade Date,Transaction Type,Symbol,Description,Shares,Price,Amount,Fees,Account
+05/07/2026,Buy,NVDA,NVIDIA CORP,2,900.50,-1801.00,0,Vanguard Brokerage
+05/07/2026,Sell,MSFT,MICROSOFT CORP,-1,410.00,410.00,0,Vanguard Brokerage
+05/07/2026,Dividend,,VANGUARD FEDERAL MONEY MARKET,0,0,5.20,0,Vanguard Brokerage
+

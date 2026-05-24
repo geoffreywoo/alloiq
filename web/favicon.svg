@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#101820"/>
+  <path d="M12 49h40v5H12z" fill="#d9f24f" opacity=".45"/>
+  <text x="32" y="29" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="800" fill="#ffffff">A</text>
+  <text x="32" y="47" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" font-weight="800" fill="#ffffff">IQ</text>
+</svg>

@@ -1,0 +1,68 @@
+from datetime import date
+from decimal import Decimal
+from pathlib import Path
+import sqlite3
+import unittest
+
+from invest.config import AppConfig
+from invest.db import init_db, insert_positions
+from invest.models import Position
+from invest.portfolio import build_portfolio_exposure
+
+
+class PortfolioTests(unittest.TestCase):
+    def test_manual_positions_are_combined_with_database_positions(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        init_db(conn)
+        insert_positions(
+            conn,
+            [
+                Position(
+                    broker="ibkr",
+                    account="taxable",
+                    as_of=date(2026, 5, 23),
+                    symbol="AMZN",
+                    quantity=Decimal("10"),
+                    market_value=Decimal("1000"),
+                )
+            ],
+        )
+        config = AppConfig(
+            path=Path("config/invest.toml"),
+            data={
+                "portfolio": {
+                    "manual_positions": [
+                        {"broker": "external", "account": "sample-sleeve", "symbol": "NVDA", "quantity": 100},
+                        {"broker": "external", "account": "sample-sleeve", "symbol": "TSM", "quantity": 50},
+                        {"broker": "external", "account": "sample-sleeve", "symbol": "AMZN", "quantity": 25},
+                    ]
+                },
+                "thesis_buckets": [
+                    {"key": "semis_networking_hbm", "symbols": ["NVDA", "TSM"]},
+                    {"key": "frontier_ai_platforms", "symbols": ["AMZN"]},
+                ],
+            },
+        )
+        prices = {
+            "NVDA": {"last": Decimal("2")},
+            "TSM": {"last": Decimal("5")},
+            "AMZN": {"last": Decimal("10")},
+        }
+
+        portfolio = build_portfolio_exposure(conn, config, prices=prices, as_of=date(2026, 5, 24))
+        by_symbol = {row["symbol"]: row for row in portfolio["by_symbol"]}
+        by_broker = {row["broker"]: row for row in portfolio["by_broker"]}
+
+        self.assertEqual(portfolio["symbol_count"], 3)
+        self.assertEqual(portfolio["position_count"], 4)
+        self.assertAlmostEqual(by_symbol["NVDA"]["market_value"], 200.0)
+        self.assertAlmostEqual(by_symbol["TSM"]["market_value"], 250.0)
+        self.assertAlmostEqual(by_symbol["AMZN"]["market_value"], 1250.0)
+        self.assertAlmostEqual(by_broker["external"]["market_value"], 700.0)
+        self.assertAlmostEqual(by_broker["ibkr"]["market_value"], 1000.0)
+        self.assertAlmostEqual(by_symbol["AMZN"]["weight"], 1250.0 / 1700.0)
+
+
+if __name__ == "__main__":
+    unittest.main()

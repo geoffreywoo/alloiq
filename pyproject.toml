@@ -1,0 +1,14 @@
+[project]
+name = "alloiq"
+version = "0.1.0"
+description = "Read-only AI-forward public markets intelligence CLI and static app for AlloIQ."
+requires-python = ">=3.11"
+authors = [{ name = "Local" }]
+dependencies = []
+
+[project.scripts]
+invest = "invest.cli:main"
+alloiq = "invest.cli:main"
+
+[tool.alloiq]
+test-command = "python3 -m unittest discover -s tests"

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FlexQueryResponse>
+  <FlexStatements>
+    <FlexStatement accountId="SIM-ACCOUNT">
+      <Trades>
+        <Trade accountId="SIM-ACCOUNT" tradeDate="2026-05-07" symbol="NVDA" description="NVIDIA CORP" buySell="BUY" quantity="10" tradePrice="900.50" proceeds="-9005" ibCommission="-1" currency="USD" tradeID="T1"/>
+        <Trade accountId="SIM-ACCOUNT" tradeDate="2026-05-07" symbol="INTC" description="INTEL CORP" buySell="SELL" quantity="-20" tradePrice="35" proceeds="700" ibCommission="-1" currency="USD" tradeID="T2"/>
+      </Trades>
+      <CashTransactions>
+        <CashTransaction accountId="SIM-ACCOUNT" date="2026-05-07" type="Dividend" description="DIVIDEND NVDA" amount="12.34" currency="USD" transactionID="C1"/>
+      </CashTransactions>
+      <OpenPositions>
+        <OpenPosition accountId="SIM-ACCOUNT" reportDate="2026-05-07" symbol="NVDA" description="NVIDIA CORP" position="10" costBasisMoney="9006" positionValue="9100" currency="USD"/>
+      </OpenPositions>
+    </FlexStatement>
+  </FlexStatements>
+</FlexQueryResponse>

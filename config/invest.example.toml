@@ -1,0 +1,267 @@
+[product]
+name = "AlloIQ"
+domain = "alloiq.com"
+
+[database]
+path = "data/invest.db"
+
+[reports]
+directory = "reports"
+timezone = "America/Puerto_Rico"
+premarket_time = "08:00"
+postmarket_time = "17:00"
+
+[ibkr]
+enabled = true
+token_env = "IBKR_FLEX_TOKEN"
+activity_query_id_env = "IBKR_FLEX_ACTIVITY_QUERY_ID"
+raw_directory = "data/raw/ibkr"
+
+[vanguard]
+enabled = false
+import_directory = "data/imports/vanguard"
+stale_after_days = 7
+
+[portfolio]
+# Optional manually maintained sleeves. These are valued from latest quote data
+# during report generation and published only as aggregate weights in public mode.
+# [[portfolio.manual_positions]]
+# broker = "external"
+# account = "sample-sleeve"
+# symbol = "NVDA"
+# description = "NVIDIA Corp"
+# quantity = 0
+
+[[managers]]
+key = "situational-awareness"
+name = "Situational Awareness LP"
+display_name = "Situational Awareness LP / Leopold Aschenbrenner"
+cik = "0002045724"
+primary = true
+lens = "AI-max public equity specialist"
+
+[[managers]]
+key = "duquesne"
+name = "Duquesne Family Office LLC"
+display_name = "Duquesne Family Office / Stanley Druckenmiller"
+cik = "0001536411"
+lens = "macro, rates, commodities, tactical growth"
+
+[[managers]]
+key = "pershing-square"
+name = "Pershing Square Capital Management, L.P."
+display_name = "Pershing Square / Bill Ackman"
+cik = "0001336528"
+lens = "concentrated activist quality compounders"
+
+[[managers]]
+key = "tci"
+name = "TCI Fund Management Ltd"
+display_name = "TCI / Chris Hohn"
+cik = "0001647251"
+lens = "concentrated global quality compounders, activist capital allocation"
+
+[[managers]]
+key = "durable"
+name = "Durable Capital Partners LP"
+display_name = "Durable Capital / Henry Ellenbogen"
+cik = "0001798849"
+lens = "crossover growth, durable compounders, internet and software"
+
+[[managers]]
+key = "atreides"
+name = "Atreides Management, LP"
+display_name = "Atreides / Gavin Baker"
+cik = "0001777813"
+lens = "TMT, AI infrastructure, growth, tactical public equities"
+
+[[managers]]
+key = "berkshire"
+name = "Berkshire Hathaway Inc"
+display_name = "Berkshire Hathaway / Buffett, Combs, Weschler"
+cik = "0001067983"
+lens = "quality, value, capital allocation, cash discipline"
+
+[[managers]]
+key = "appaloosa"
+name = "Appaloosa LP"
+display_name = "Appaloosa / David Tepper"
+cik = "0001656456"
+lens = "macro, tech, cyclicals, tactical risk appetite"
+
+[[managers]]
+key = "baupost"
+name = "Baupost Group LLC/MA"
+display_name = "Baupost / Seth Klarman"
+cik = "0001061768"
+lens = "risk-off value, distressed, margin-of-safety discipline"
+
+[[managers]]
+key = "light-street"
+name = "Light Street Capital Management, LLC"
+display_name = "Light Street / Glen Kacher"
+cik = "0001569049"
+lens = "technology growth, AI-adjacent software and internet"
+
+[[managers]]
+key = "valley-forge"
+name = "Valley Forge Capital Management, LP"
+display_name = "Valley Forge / Dev Kantesaria"
+cik = "0001697868"
+lens = "concentrated quality, moats, capital-light compounders"
+
+[[managers]]
+key = "dorsey"
+name = "Dorsey Asset Management, LLC"
+display_name = "Dorsey Asset Management / Pat Dorsey"
+cik = "0001671657"
+lens = "moats, quality compounders, high-conviction public equities"
+
+[[managers]]
+key = "akre"
+name = "Akre Capital Management LLC"
+display_name = "Akre Capital / Chuck Akre"
+cik = "0001112520"
+lens = "quality compounders, reinvestment runways, durable moats"
+
+[[managers]]
+key = "altimeter"
+name = "Altimeter Capital Management, LP"
+cik = "0001541617"
+lens = "concentrated tech/growth and AI platforms"
+
+[[managers]]
+key = "dragoneer"
+name = "Dragoneer Investment Group, LLC"
+cik = "0001602189"
+lens = "crossover growth, AI-adjacent internet, marketplaces"
+
+[[managers]]
+key = "coatue"
+name = "Coatue Management LLC"
+cik = "0001135730"
+lens = "TMT, AI infrastructure, software, internet"
+
+[[managers]]
+key = "greenoaks"
+name = "Greenoaks Capital Partners LLC"
+cik = "0001840735"
+lens = "private/public growth, internet, software"
+
+[[managers]]
+key = "tiger-global"
+name = "Tiger Global Management LLC"
+cik = "0001167483"
+lens = "global internet/software growth"
+
+[[managers]]
+key = "d1-capital"
+name = "D1 Capital Partners L.P."
+cik = "0001747057"
+lens = "crossover growth and opportunistic public equities"
+
+[[managers]]
+key = "whale-rock"
+name = "Whale Rock Capital Management LLC"
+cik = "0001387322"
+lens = "technology/media/telecom growth"
+
+[[managers]]
+key = "viking-global"
+name = "Viking Global Investors LP"
+cik = "0001103804"
+lens = "large multi-sector long/short equity"
+
+[[managers]]
+key = "lone-pine"
+name = "Lone Pine Capital LLC"
+cik = "0001061165"
+lens = "Tiger-cub growth and quality compounders"
+
+[focus_managers]
+tier1_keys = ["situational-awareness", "altimeter", "dragoneer"]
+tier2_keys = [
+  "duquesne", "pershing-square", "tci", "durable", "atreides", "berkshire",
+  "appaloosa", "baupost", "light-street", "valley-forge", "dorsey", "akre",
+  "coatue", "greenoaks", "tiger-global", "whale-rock",
+  "viking-global", "lone-pine", "d1-capital"
+]
+keys = [
+  "situational-awareness", "duquesne", "pershing-square", "tci", "durable", "atreides",
+  "berkshire", "appaloosa", "baupost", "light-street", "valley-forge", "dorsey", "akre",
+  "altimeter", "dragoneer", "coatue", "greenoaks", "tiger-global", "d1-capital",
+  "whale-rock", "viking-global", "lone-pine"
+]
+
+[[thesis_buckets]]
+key = "frontier_ai_platforms"
+label = "Frontier AI Platforms"
+symbols = ["MSFT", "GOOGL", "GOOG", "META", "AMZN", "ORCL", "AAPL"]
+
+[[thesis_buckets]]
+key = "semis_networking_hbm"
+label = "Semiconductors, HBM, Networking"
+symbols = ["NVDA", "AVGO", "AMD", "TSM", "ASML", "MU", "MRVL", "ANET", "ARM", "INTC", "COHR", "LITE"]
+
+[[thesis_buckets]]
+key = "neocloud_datacenters"
+label = "Neoclouds and Data Centers"
+symbols = ["CRWV", "APLD", "CORZ", "IREN", "CIFR", "BTDR", "BITF"]
+
+[[thesis_buckets]]
+key = "power_grid_gas_nuclear"
+label = "Power, Grid, Gas, Nuclear"
+symbols = ["BE", "CEG", "TLN", "VST", "EQT", "GEV", "VRT", "ETN", "OKLO", "SMR"]
+
+[[thesis_buckets]]
+key = "ai_software_winners"
+label = "AI Software Winners"
+symbols = ["PLTR", "SNOW", "DDOG", "MDB", "NOW", "CRM", "APP", "CRWD", "SHOP"]
+
+[[thesis_buckets]]
+key = "ai_enabled_financials"
+label = "AI-Enabled Financials and Market Structure"
+symbols = ["HOOD"]
+
+[[thesis_buckets]]
+key = "disrupted_incumbents"
+label = "Disrupted Incumbents"
+symbols = ["ADBE", "INTU", "ACN", "EPAM", "WIX"]
+
+[watchlist]
+symbols = [
+  "BE", "CRWV", "INTC", "LITE", "CORZ", "IREN", "APLD", "CIFR", "EQT", "COHR",
+  "NVDA", "AVGO", "AMD", "TSM", "ASML", "MU", "MRVL", "VRT", "CEG", "TLN",
+  "VST", "GEV", "ORCL", "MSFT", "GOOGL", "GOOG", "META", "AMZN", "ANET", "ARM",
+  "PLTR", "SNOW", "DDOG", "MDB", "NOW", "CRM", "APP", "CLSK", "BTDR", "BITF",
+  "AAPL", "CRWD", "SHOP", "ETN", "HOOD"
+]
+
+[macro]
+symbols = ["QQQ", "SMH", "IGV", "IWM", "SPY", "TLT", "HYG", "LQD", "UUP", "GLD", "USO", "XLE", "XLU", "^VIX", "^TNX", "BTC-USD"]
+
+[news]
+enabled = true
+max_items_per_query = 5
+queries = [
+  "AI hyperscaler capex guidance Nvidia Broadcom TSMC AMD",
+  "AI data center power contract grid interconnection nuclear gas",
+  "CoreWeave financing customer contract AI infrastructure",
+  "neocloud GPU financing utilization customer concentration",
+  "HBM supply constraint Micron SK Hynix Nvidia AI",
+  "Microsoft Amazon Google Meta Oracle AI capex data centers",
+  "Vertiv GE Vernova Eaton Constellation AI power grid",
+  "CrowdStrike Shopify Palantir ServiceNow AI revenue retention",
+  "SEC 8-K AI data center financing contract",
+  "hedge fund 13F AI stocks Altimeter Coatue Dragoneer Greenoaks",
+  "Leopold Aschenbrenner Situational Awareness LP",
+  "Stanley Druckenmiller AI stocks rates macro",
+  "Bill Ackman Pershing Square portfolio AI stocks",
+  "Federal Reserve Treasury yields dollar AI stocks",
+  "EIA electricity natural gas power demand data centers"
+]
+
+[news.source_strategy]
+primary = ["SEC EDGAR", "Company IR", "press releases", "earnings transcripts"]
+market_news = ["Reuters", "Bloomberg", "Dow Jones", "Benzinga", "Polygon", "Finnhub", "Alpha Vantage"]
+specialist = ["SemiAnalysis", "The Information", "DatacenterDynamics", "Utility Dive", "EIA", "FRED", "U.S. Treasury"]

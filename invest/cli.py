@@ -69,6 +69,14 @@ def main(argv: list[str] | None = None) -> int:
     paper_sub = paper.add_subparsers(dest="paper_command", required=True)
     paper_sub.add_parser("update", help="Print the latest paper portfolio payload")
 
+    valuation = sub.add_parser("valuation", help="Estimate 13F and private portfolio entry/current values")
+    valuation_sub = valuation.add_subparsers(dest="valuation_command", required=True)
+    valuation_report = valuation_sub.add_parser("report", help="Build a best-effort valuation report")
+    valuation_report.add_argument("--scope", choices=["all", "managers", "portfolio"], default="all")
+    valuation_report.add_argument("--manager-set", choices=["ai-maxxi", "tier1", "all"], default="ai-maxxi")
+    valuation_report.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    valuation_report.add_argument("--out", default="", help="Optional output path")
+
     warehouse = sub.add_parser("warehouse", help="Manage the private Neon/Postgres warehouse")
     warehouse_sub = warehouse.add_subparsers(dest="warehouse_command", required=True)
     warehouse_sub.add_parser("migrate", help="Create or update private warehouse tables")
@@ -165,6 +173,8 @@ def main(argv: list[str] | None = None) -> int:
         return command_engine(args, config)
     if args.command == "paper":
         return command_paper(args, config)
+    if args.command == "valuation":
+        return command_valuation(args, config, conn)
     if args.command == "decisions":
         return command_decisions(args)
     if args.command == "tickets":
@@ -235,6 +245,78 @@ def command_engine(args, config) -> int:
 def command_paper(args, config) -> int:
     print(json.dumps(latest_payload(config).get("paper_portfolio") or {}, indent=2, sort_keys=True, default=str))
     return 0
+
+
+def command_valuation(args, config, conn) -> int:
+    from datetime import date
+
+    from .portfolio import build_portfolio_exposure
+    from .valuation import (
+        AI_MAXXI_MANAGER_KEYS,
+        VALUATION_VERSION,
+        build_manager_valuation_snapshot,
+        build_portfolio_valuation_snapshot,
+        format_valuation_markdown,
+        manager_valuation_symbols,
+        valuation_methodology,
+        write_valuation_report,
+    )
+    from .market import fetch_daily_prices
+
+    manager_keys = valuation_manager_keys(args.manager_set, config)
+    price_symbols = []
+    if args.scope in {"all", "managers"}:
+        price_symbols.extend(manager_valuation_symbols(conn, manager_keys))
+    if args.scope in {"all", "portfolio"}:
+        price_symbols.extend(config.watchlist_symbols)
+        price_symbols.extend(str(row.get("symbol", "")).upper() for row in config.manual_positions)
+    prices = fetch_daily_prices(unique_symbols(price_symbols))
+    snapshot = {
+        "version": VALUATION_VERSION,
+        "as_of": date.today().isoformat(),
+        "scope": args.scope,
+        "manager_set": args.manager_set,
+        "methodology": valuation_methodology(),
+        "managers": {},
+        "portfolio": {},
+    }
+    if args.scope in {"all", "managers"}:
+        snapshot["managers"] = build_manager_valuation_snapshot(conn, config, prices, manager_keys)
+    if args.scope in {"all", "portfolio"}:
+        portfolio = build_portfolio_exposure(conn, config, prices=prices, as_of=date.today())
+        snapshot["portfolio"] = build_portfolio_valuation_snapshot(portfolio, date.today())
+    if args.out:
+        path = write_valuation_report(snapshot, Path(args.out), args.format)
+        print(f"Wrote {path}")
+        return 0
+    if args.format == "json":
+        print(json.dumps(snapshot, indent=2, sort_keys=True, default=str))
+    else:
+        print(format_valuation_markdown(snapshot), end="")
+    return 0
+
+
+def valuation_manager_keys(manager_set: str, config) -> list[str]:
+    if manager_set == "ai-maxxi":
+        return ["situational-awareness", "altimeter", "dragoneer"]
+    if manager_set == "tier1":
+        tier_map = config.focus_manager_tier_map
+        return [
+            key for key in config.focus_manager_keys
+            if tier_map.get(key) == "tier_1" or key in {"situational-awareness", "altimeter", "dragoneer", "d1-capital"}
+        ]
+    return config.focus_manager_keys
+
+
+def unique_symbols(symbols) -> list[str]:
+    seen = set()
+    out = []
+    for symbol in symbols:
+        clean = str(symbol or "").upper()
+        if clean and clean not in seen:
+            seen.add(clean)
+            out.append(clean)
+    return out
 
 
 def command_decisions(args) -> int:

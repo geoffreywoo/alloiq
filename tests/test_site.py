@@ -62,6 +62,10 @@ class SiteTests(unittest.TestCase):
             "paper_portfolio": {
                 "paper_trades": [{"symbol": "NVDA", "estimated_shares": 2, "target_weight": 0.11}],
             },
+            "portfolio_valuation_private": {
+                "current_value_total": 1000,
+                "positions": [{"symbol": "NVDA", "current_value": 1000}],
+            },
             "approval_tickets": [
                 {
                     "ticket_id": "abc",
@@ -92,6 +96,10 @@ class SiteTests(unittest.TestCase):
                                 "fund_weight": 1.0,
                                 "portfolio_weight": 1.0,
                                 "value": 1000000,
+                                "entry_price_estimate": 100.0,
+                                "current_price": 125.0,
+                                "current_value_estimate": 1250000.0,
+                                "valuation_confidence": "low",
                             }
                         ],
                         "positions": [
@@ -104,6 +112,10 @@ class SiteTests(unittest.TestCase):
                                 "portfolio_weight": 1.0,
                                 "value": 1000000,
                                 "shares": 10,
+                                "entry_price_estimate": 100.0,
+                                "current_price": 125.0,
+                                "current_value_estimate": 1250000.0,
+                                "valuation_confidence": "low",
                             }
                         ],
                     }
@@ -149,6 +161,12 @@ class SiteTests(unittest.TestCase):
         self.assertNotIn("account", json.dumps(public["calendars"]))
         self.assertNotIn("raw_json", json.dumps(public["engine"]))
         self.assertNotIn("estimated_shares", json.dumps(public["paper_portfolio"]))
+        self.assertNotIn("portfolio_valuation_private", public)
+        self.assertEqual(
+            public["manager_radar"]["focus_managers"][0]["top_positions"][0]["current_value_estimate"],
+            1250000.0,
+        )
+        self.assertNotIn("shares", public["manager_radar"]["focus_managers"][0]["positions"][0])
 
     def test_public_moves_call_out_put_heavy_names(self):
         moves = build_public_moves(

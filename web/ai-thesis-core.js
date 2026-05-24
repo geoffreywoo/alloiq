@@ -1,4 +1,15 @@
 const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+const compactMoney = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  notation: "compact",
+  maximumFractionDigits: 2,
+});
+const priceMoney = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 2,
+});
 
 const coreKeys = new Set(["situational-awareness", "altimeter", "dragoneer"]);
 
@@ -62,6 +73,7 @@ function renderSummary() {
   const managers = coreManagers();
   const allPositions = managers.flatMap((manager) => managerPositions(manager).map((position) => ({ manager, position })));
   const owned = allPositions.filter(({ position }) => Number(position.portfolio_weight || 0) > 0);
+  const priced = allPositions.filter(({ position }) => position.current_value_estimate != null);
   const overlap = overlapRows().filter((row) => row.manager_count > 1);
   const latestDate = managers.map((manager) => manager.latest_report_date).filter(Boolean).sort().at(-1);
   const summary = [
@@ -73,7 +85,7 @@ function renderSummary() {
     {
       label: "Published positions",
       value: String(allPositions.length),
-      detail: "Common-stock 13F rows, weights only.",
+      detail: `${priced.length} have current value estimates.`,
     },
     {
       label: "Symbols in 2+ funds",
@@ -188,6 +200,9 @@ function managerTemplate(manager) {
               <th>Thesis Bucket</th>
               <th>Fund Weight</th>
               <th>GW Weight</th>
+              <th>Entry Proxy</th>
+              <th>Current Est.</th>
+              <th>Est. Return</th>
               <th>Read</th>
             </tr>
           </thead>
@@ -213,6 +228,18 @@ function positionTemplate(position) {
       <td>${escapeHtml(labelize(position.bucket || "unmapped"))}</td>
       <td><strong>${escapeHtml(formatWeight(position.fund_weight))}</strong></td>
       <td>${escapeHtml(formatWeight(position.portfolio_weight))}</td>
+      <td>
+        <strong>${escapeHtml(formatPrice(position.entry_price_estimate))}</strong>
+        <span>13F mark ${escapeHtml(formatPrice(position.latest_report_price))}</span>
+      </td>
+      <td>
+        <strong>${escapeHtml(formatMoney(position.current_value_estimate))}</strong>
+        <span>Px ${escapeHtml(formatPrice(position.current_price))}</span>
+      </td>
+      <td>
+        <strong class="${Number(position.entry_return_estimate_pct || 0) >= 0 ? "positive" : "negative"}">${escapeHtml(formatSignedPct(position.entry_return_estimate_pct))}</strong>
+        <span>${escapeHtml(position.valuation_confidence || "estimate")} confidence</span>
+      </td>
       <td><span class="tag">${escapeHtml(relationship)}</span></td>
     </tr>
   `;
@@ -220,7 +247,24 @@ function positionTemplate(position) {
 
 async function copyCoreCsv() {
   const rows = [
-    ["manager", "rank", "symbol", "issuer", "fund_weight_pct", "bucket", "gw_portfolio_weight_pct", "report_date", "filing_date", "filing_url"],
+    [
+      "manager",
+      "rank",
+      "symbol",
+      "issuer",
+      "fund_weight_pct",
+      "bucket",
+      "gw_portfolio_weight_pct",
+      "entry_price_estimate",
+      "latest_report_price",
+      "current_price",
+      "current_value_estimate",
+      "entry_return_estimate_pct",
+      "valuation_confidence",
+      "report_date",
+      "filing_date",
+      "filing_url",
+    ],
   ];
   for (const manager of coreManagers()) {
     for (const position of managerPositions(manager)) {
@@ -232,6 +276,12 @@ async function copyCoreCsv() {
         percentNumber(position.fund_weight),
         labelize(position.bucket || "unmapped"),
         percentNumber(position.portfolio_weight),
+        rawNumber(position.entry_price_estimate),
+        rawNumber(position.latest_report_price),
+        rawNumber(position.current_price),
+        rawNumber(position.current_value_estimate),
+        rawNumber(position.entry_return_estimate_pct),
+        position.valuation_confidence || "",
         manager.latest_report_date || "",
         manager.latest_filing_date || "",
         manager.filing_url || "",
@@ -298,6 +348,27 @@ function formatPlainPct(value) {
 
 function percentNumber(value) {
   return number.format(Number(value || 0) * 100);
+}
+
+function rawNumber(value) {
+  return value == null || Number.isNaN(Number(value)) ? "" : String(Number(value));
+}
+
+function formatPrice(value) {
+  if (value == null || Number.isNaN(Number(value))) return "n/a";
+  return priceMoney.format(Number(value));
+}
+
+function formatMoney(value) {
+  if (value == null || Number.isNaN(Number(value))) return "n/a";
+  return compactMoney.format(Number(value));
+}
+
+function formatSignedPct(value) {
+  if (value == null || Number.isNaN(Number(value))) return "n/a";
+  const numeric = Number(value);
+  const prefix = numeric > 0 ? "+" : "";
+  return `${prefix}${number.format(numeric)}%`;
 }
 
 function labelize(value) {

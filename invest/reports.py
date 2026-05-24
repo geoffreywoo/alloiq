@@ -25,6 +25,13 @@ from .portfolio import build_portfolio_exposure
 from .risk import apply_risk_controls, normalize_limits
 from .thesis import build_decision_cards
 from .util import ensure_dir, stable_id
+from .valuation import (
+    AI_MAXXI_MANAGER_KEYS,
+    attach_manager_valuations,
+    build_manager_valuation_snapshot,
+    build_portfolio_valuation_snapshot,
+    manager_valuation_symbols,
+)
 
 
 NEWS_ALIASES = {
@@ -88,6 +95,12 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         if row.get("symbol")
     }
     manager_radar = build_manager_radar(conn, config, portfolio_weights)
+    valuation_symbols = [symbol for symbol in manager_valuation_symbols(conn, AI_MAXXI_MANAGER_KEYS) if symbol not in prices]
+    if valuation_symbols:
+        prices.update(fetch_daily_prices(valuation_symbols))
+    manager_valuation = build_manager_valuation_snapshot(conn, config, prices, AI_MAXXI_MANAGER_KEYS)
+    manager_radar = attach_manager_valuations(manager_radar, manager_valuation)
+    portfolio_valuation_private = build_portfolio_valuation_snapshot(portfolio, as_of)
     recent_transactions = transactions_since(conn, as_of - timedelta(days=5))
     recent_news = [enrich_news_item(dict(row)) for row in latest_news(conn, limit=60)]
     news_counts = count_news_by_symbol(recent_news, config.watchlist_symbols)
@@ -164,6 +177,7 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         "positions": {k: float(v) for k, v in positions.items()},
         "portfolio": portfolio,
         "manager_radar": manager_radar,
+        "portfolio_valuation_private": portfolio_valuation_private,
         "macro": macro,
         "transactions": [dict(row) for row in recent_transactions],
         "news": [dict(row) for row in recent_news],

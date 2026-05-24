@@ -94,6 +94,7 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
     public_payload["private_data_redacted"] = True
     public_payload["positions"] = {}
     public_payload["transactions"] = []
+    public_payload.pop("portfolio_valuation_private", None)
     public_payload["disclaimer"] = "Public weights, public filings, daily AI markets signals. Approval-only; no live order execution."
     if public_payload.get("latest_filing"):
         public_payload["latest_filing"] = strip_private_keys(public_payload["latest_filing"])
@@ -229,7 +230,7 @@ def sanitize_focus_manager(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def sanitize_manager_position(position: dict[str, Any]) -> dict[str, Any]:
-    return {
+    clean = {
         "rank": int(position.get("rank") or 0),
         "symbol": position.get("symbol", ""),
         "issuer": position.get("issuer", ""),
@@ -237,6 +238,24 @@ def sanitize_manager_position(position: dict[str, Any]) -> dict[str, Any]:
         "fund_weight": round(float(position.get("fund_weight") or 0), 6),
         "portfolio_weight": round(float(position.get("portfolio_weight") or 0), 6),
     }
+    for key in (
+        "reported_amount",
+        "latest_report_price",
+        "entry_price_estimate",
+        "current_price",
+        "current_value_estimate",
+        "entry_return_estimate_pct",
+        "value_change_since_report_pct",
+        "valuation_confidence",
+        "valuation_method",
+        "observed_quarters",
+        "excluded_quarters",
+        "first_seen_report_date",
+        "source",
+    ):
+        if key in position:
+            clean[key] = position.get(key)
+    return clean
 
 
 def build_public_focus_manager_groups(focus_managers: list[dict[str, Any]]) -> list[dict[str, Any]]:

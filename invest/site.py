@@ -378,7 +378,7 @@ def ensure_static_assets(out_dir: Path) -> None:
     source_dir = DEFAULT_WEB_DIR
     if out_dir.resolve() == source_dir.resolve():
         return
-    for name in ("index.html", "styles.css", "app.js", "favicon.svg", "manifest.webmanifest", "robots.txt", "sitemap.xml"):
+    for name in ("index.html", "styles.css", "app.js", "favicon.svg", "logo.svg", "manifest.webmanifest", "robots.txt", "sitemap.xml"):
         source = source_dir / name
         if source.exists():
             shutil.copyfile(source, out_dir / name)

@@ -1,22 +1,23 @@
 :root {
   color-scheme: light;
   --ink: #0b1117;
-  --muted: #586674;
-  --paper: #f4f6f1;
-  --surface: #ffffff;
-  --surface-alt: #f9faf5;
-  --line: #d4dbd0;
-  --track: #e5ebe1;
-  --blue: #1d5f9f;
-  --green: #14765a;
-  --red: #ad3f45;
-  --amber: #b16a19;
-  --plum: #594879;
-  --teal: #1a7178;
-  --terminal: #101820;
-  --electric: #d9f24f;
-  --shadow: 0 14px 34px rgba(11, 17, 23, 0.08);
-  --shadow-strong: 0 22px 60px rgba(11, 17, 23, 0.12);
+  --muted: #5a6673;
+  --paper: #f5f6f0;
+  --surface: #fffffb;
+  --surface-alt: #f8faf3;
+  --line: #d8dfd2;
+  --track: #e8ede3;
+  --blue: #2558d5;
+  --green: #08745f;
+  --red: #b04449;
+  --amber: #b5681e;
+  --plum: #66518d;
+  --olive: #69752d;
+  --teal: #0f7580;
+  --terminal: #0e151b;
+  --electric: #dfff4f;
+  --shadow: 0 14px 34px rgba(14, 21, 27, 0.075);
+  --shadow-strong: 0 22px 60px rgba(14, 21, 27, 0.12);
 }
 
 * {
@@ -61,7 +62,7 @@ input {
   min-height: 72px;
   padding: 12px clamp(16px, 3vw, 36px);
   border-bottom: 1px solid var(--line);
-  background: rgba(244, 246, 241, 0.96);
+  background: rgba(245, 246, 240, 0.96);
   backdrop-filter: blur(18px) saturate(1.08);
 }
 
@@ -74,12 +75,15 @@ input {
 }
 
 .brand-mark {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: grid;
-  width: 38px;
-  height: 38px;
+  width: 42px;
+  height: 42px;
   place-items: center;
-  border: 1px solid rgba(11, 17, 23, 0.9);
-  border-radius: 6px;
+  border: 1px solid rgba(14, 21, 27, 0.92);
+  border-radius: 8px;
   background: var(--terminal);
   color: white;
   font-family: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
@@ -87,11 +91,41 @@ input {
   font-weight: 800;
   line-height: 0.95;
   text-transform: uppercase;
-  box-shadow: inset 0 -7px 0 rgba(217, 242, 79, 0.16);
+  box-shadow: inset 0 -7px 0 rgba(223, 255, 79, 0.16);
+}
+
+.brand-mark::before,
+.brand-mark::after {
+  position: absolute;
+  z-index: 0;
+  content: "";
+}
+
+.brand-mark::before {
+  right: 8px;
+  bottom: 12px;
+  left: 8px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--electric);
+  opacity: 0.9;
+  transform: rotate(-13deg);
+  transform-origin: left center;
+}
+
+.brand-mark::after {
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 5px;
+  background: var(--electric);
+  opacity: 0.48;
 }
 
 .brand-mark span {
   display: block;
+  position: relative;
+  z-index: 1;
 }
 
 .brand strong {
@@ -100,8 +134,17 @@ input {
 }
 
 .brand-wordmark {
+  display: inline-flex;
+  align-items: baseline;
   font-weight: 800;
   letter-spacing: 0;
+}
+
+.brand-wordmark .brand-iq {
+  color: var(--blue);
+  font-family: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.94em;
+  font-weight: 800;
 }
 
 .brand small {
@@ -152,7 +195,7 @@ input {
   height: calc(100vh - 72px);
   padding: 18px 12px;
   border-right: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 251, 0.22);
 }
 
 .rail-button {
@@ -178,8 +221,8 @@ input {
 }
 
 .rail-button.active {
-  border-color: rgba(36, 88, 166, 0.25);
-  background: rgba(29, 95, 159, 0.1);
+  border-color: rgba(37, 88, 213, 0.22);
+  background: rgba(37, 88, 213, 0.09);
   color: var(--blue);
   box-shadow: inset 3px 0 0 var(--blue);
 }
@@ -253,7 +296,7 @@ h3 {
 
 .search input:focus {
   border-color: var(--blue);
-  outline: 3px solid rgba(36, 88, 166, 0.16);
+  outline: 3px solid rgba(37, 88, 213, 0.16);
 }
 
 .notice {
@@ -336,7 +379,7 @@ h3 {
   overflow: hidden;
   min-height: 118px;
   padding: 15px;
-  border: 1px solid rgba(11, 17, 23, 0.12);
+  border: 1px solid rgba(14, 21, 27, 0.12);
   border-radius: 8px;
   background: var(--surface);
   box-shadow: var(--shadow);
@@ -354,7 +397,7 @@ h3 {
 
 .decision-primary {
   background: var(--terminal);
-  color: #ffffff;
+  color: var(--surface);
   box-shadow: var(--shadow-strong);
 }
 
@@ -373,7 +416,7 @@ h3 {
 
 .decision-primary span,
 .decision-primary small {
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(255, 255, 251, 0.72);
 }
 
 .decision-card strong {
@@ -465,9 +508,9 @@ h3 {
   gap: 2px;
   width: 156px;
   padding: 9px;
-  border: 1px solid rgba(11, 17, 23, 0.18);
+  border: 1px solid rgba(14, 21, 27, 0.18);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.96);
+  background: rgba(255, 255, 251, 0.96);
   box-shadow: var(--shadow);
   color: var(--muted);
   font-size: 0.72rem;
@@ -860,7 +903,7 @@ h3 {
   height: 34px;
   border: 1px solid var(--line);
   border-radius: 7px;
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .peer-gap-current,
@@ -878,7 +921,7 @@ h3 {
 
 .peer-gap-peer {
   bottom: 7px;
-  background: rgba(20, 118, 90, 0.58);
+  background: rgba(8, 116, 95, 0.58);
 }
 
 .peer-gap-target {
@@ -904,7 +947,7 @@ h3 {
 }
 
 .legend-peer {
-  background: rgba(20, 118, 90, 0.58);
+  background: rgba(8, 116, 95, 0.58);
 }
 
 .legend-target {
@@ -1082,7 +1125,7 @@ h3 {
   min-height: 104px;
   padding: 12px;
   border-radius: 8px;
-  color: #ffffff;
+  color: var(--surface);
 }
 
 .tile strong,
@@ -1112,7 +1155,7 @@ h3 {
   border: 1px dashed var(--line);
   border-radius: 8px;
   color: var(--muted);
-  background: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 251, 0.55);
 }
 
 .site-footer {

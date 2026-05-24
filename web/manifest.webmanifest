@@ -3,7 +3,15 @@
   "short_name": "AlloIQ",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f7f8f4",
-  "theme_color": "#101820",
-  "description": "AI-forward hedge fund 13F, news, movement, and recommended research moves."
+  "background_color": "#f5f6f0",
+  "theme_color": "#0e151b",
+  "description": "AI markets intelligence for portfolio-weight decisions.",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
 }

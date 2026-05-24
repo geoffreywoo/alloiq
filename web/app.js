@@ -16,15 +16,31 @@ const number = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
+const brandColors = {
+  ink: "#0b1117",
+  muted: "#5a6673",
+  surface: "#fffffb",
+  surfaceAlt: "#f8faf3",
+  line: "#d8dfd2",
+  blue: "#2558d5",
+  green: "#08745f",
+  red: "#b04449",
+  amber: "#b5681e",
+  plum: "#66518d",
+  olive: "#69752d",
+  teal: "#0f7580",
+  terminal: "#0e151b",
+};
+
 const bucketColors = {
-  frontier_ai_platforms: "#2458a6",
-  semis_networking_hbm: "#1f7a5f",
-  neocloud_datacenters: "#ad6b20",
-  power_grid_gas_nuclear: "#206f7a",
-  ai_software_winners: "#5e4b7c",
-  ai_enabled_financials: "#5f6f2a",
-  disrupted_incumbents: "#b64a4a",
-  unmapped: "#5b6673",
+  frontier_ai_platforms: brandColors.blue,
+  semis_networking_hbm: brandColors.green,
+  neocloud_datacenters: brandColors.amber,
+  power_grid_gas_nuclear: brandColors.teal,
+  ai_software_winners: brandColors.plum,
+  ai_enabled_financials: brandColors.olive,
+  disrupted_incumbents: brandColors.red,
+  unmapped: brandColors.muted,
 };
 
 const aiThesisCoreBenchmarkNames = new Set(["AI Thesis Core median proxy", "Tier 1 median proxy"]);
@@ -42,9 +58,13 @@ async function init() {
 function wireNavigation() {
   document.querySelectorAll(".rail-button").forEach((button) => {
     button.addEventListener("click", () => {
-      document.querySelectorAll(".rail-button").forEach((item) => item.classList.remove("active"));
+      document.querySelectorAll(".rail-button").forEach((item) => {
+        item.classList.remove("active");
+        item.removeAttribute("aria-current");
+      });
       document.querySelectorAll(".view").forEach((item) => item.classList.remove("active"));
       button.classList.add("active");
+      button.setAttribute("aria-current", "page");
       document.getElementById(button.dataset.view).classList.add("active");
       drawSignalCanvas(filteredCards());
     });
@@ -790,7 +810,7 @@ function drawSignalCanvas(cards) {
   const context = canvas.getContext("2d");
   context.scale(ratio, ratio);
   context.clearRect(0, 0, width, height);
-  context.fillStyle = "#f8faf6";
+  context.fillStyle = brandColors.surfaceAlt;
   context.fillRect(0, 0, width, height);
   const padLeft = 44;
   const padTop = 24;
@@ -798,7 +818,7 @@ function drawSignalCanvas(cards) {
   const padBottom = 62;
   const plotWidth = width - padLeft - padRight;
   const plotHeight = height - padTop - padBottom;
-  context.strokeStyle = "#d8ddd5";
+  context.strokeStyle = brandColors.line;
   context.lineWidth = 1;
   context.strokeRect(padLeft, padTop, plotWidth, plotHeight);
   context.globalAlpha = 0.72;
@@ -813,7 +833,7 @@ function drawSignalCanvas(cards) {
     context.stroke();
   }
   context.globalAlpha = 1;
-  context.fillStyle = "#5b6673";
+  context.fillStyle = brandColors.muted;
   context.font = "600 12px Geist, system-ui, sans-serif";
   context.fillText("Consensus funds", width - 136, height - 22);
   context.save();
@@ -822,7 +842,7 @@ function drawSignalCanvas(cards) {
   context.fillText("Signal score", 0, 0);
   context.restore();
   if (!cards.length) {
-    context.fillStyle = "#5b6673";
+    context.fillStyle = brandColors.muted;
     context.font = "600 13px Geist, system-ui, sans-serif";
     context.fillText("No matching signals.", padLeft + 14, padTop + 30);
     return;
@@ -830,9 +850,9 @@ function drawSignalCanvas(cards) {
   const maxScore = Math.max(...cards.map((card) => card.score || 0), 60);
   const maxManagers = Math.max(...cards.map((card) => card.consensus_manager_count || 0), 10);
   const legend = [
-    ["Owned", "#101820"],
-    ["Add", "#1f7a5f"],
-    ["Trim/Risk", "#b64a4a"],
+    ["Owned", brandColors.terminal],
+    ["Add", brandColors.green],
+    ["Trim/Risk", brandColors.red],
   ];
   legend.forEach(([label, color], index) => {
     const x = padLeft + index * 82;
@@ -841,7 +861,7 @@ function drawSignalCanvas(cards) {
     context.arc(x, y - 4, 4, 0, Math.PI * 2);
     context.fillStyle = color;
     context.fill();
-    context.fillStyle = "#5b6673";
+    context.fillStyle = brandColors.muted;
     context.font = "600 11px Geist, system-ui, sans-serif";
     context.fillText(label, x + 9, y);
   });
@@ -853,12 +873,12 @@ function drawSignalCanvas(cards) {
     const hovered = state.signalHoverSymbol === card.symbol;
     const action = (state.payload.portfolio_benchmark?.action_queue || []).find((item) => item.symbol === card.symbol);
     const delta = Number(action?.recommended_delta_weight || 0);
-    const pointColor = delta > 0 ? "#1f7a5f" : delta < 0 ? "#b64a4a" : bucketColors[card.bucket] || bucketColors.unmapped;
+    const pointColor = delta > 0 ? brandColors.green : delta < 0 ? brandColors.red : bucketColors[card.bucket] || bucketColors.unmapped;
     state.signalPoints.push({ x, y, radius, card });
     if (selected || hovered) {
       context.beginPath();
       context.arc(x, y, radius + 6, 0, Math.PI * 2);
-      context.fillStyle = "#101820";
+      context.fillStyle = brandColors.terminal;
       context.globalAlpha = selected ? 0.16 : 0.1;
       context.fill();
       context.globalAlpha = 1;
@@ -869,10 +889,10 @@ function drawSignalCanvas(cards) {
     context.globalAlpha = selected || hovered ? 0.98 : 0.82;
     context.fill();
     context.globalAlpha = 1;
-    context.strokeStyle = selected || hovered ? "#101820" : "#ffffff";
+    context.strokeStyle = selected || hovered ? brandColors.terminal : brandColors.surface;
     context.lineWidth = selected || hovered ? 2 : 1;
     context.stroke();
-    context.fillStyle = "#101820";
+    context.fillStyle = brandColors.ink;
     context.font = `${selected || hovered ? "800" : "700"} 12px Geist, system-ui, sans-serif`;
     context.fillText(card.symbol, Math.min(width - 48, x + radius + 5), y + 4);
   });

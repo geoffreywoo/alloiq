@@ -22,12 +22,66 @@ The product earns trust by being specific:
 - It labels 13F data as delayed public filings.
 - It keeps the user close to evidence.
 
+## Brand Platform
+
+### Name Meaning
+
+`AlloIQ` means allocation intelligence.
+
+- **Allo:** allocation, weighing, moving capital between live alternatives.
+- **IQ:** judgment under incomplete information, not a generic chatbot promise.
+- **Combined idea:** turn public evidence into portfolio-weight decisions.
+
+Use the name as one word: `AlloIQ`. Do not write `Allo IQ`, `Allo.iq`, or `Allo AI`.
+
+### Positioning Line
+
+Primary line:
+
+> AI markets intelligence.
+
+Expanded line:
+
+> AI markets intelligence for portfolio-weight decisions.
+
+Use the short line in the header and compact surfaces. Use the expanded line in docs, metadata, README, and product descriptions where the decision loop needs to be explicit.
+
+### Brand Traits
+
+AlloIQ should feel:
+
+- **Allocative:** everything points back to weight, gap, action, or benchmark.
+- **Evidence-bound:** filings, prices, news, macro, and manager signal remain traceable.
+- **Tactical:** daily decisions are visible without turning the product into a trading toy.
+- **Discreet:** it publishes research-weight views, not private account artifacts.
+- **High-agency:** recommendations are direct. No vague "insights" posture.
+
+Brand anti-traits:
+
+- Not a social investing feed.
+- Not a brokerage.
+- Not a newsletter layout.
+- Not a chatbot wrapper.
+- Not a Bloomberg clone with less data.
+
+### Brand Narrative
+
+AlloIQ has one daily loop:
+
+1. What changed?
+2. What does it imply for portfolio weights?
+3. Which elite-manager or macro signal confirms or disagrees?
+4. What should be added, trimmed, hedged, or studied?
+
+Every page, chart, and label should serve that loop.
+
 ## Aesthetic Direction
 
 - **Direction:** Investor OS.
 - **Decoration level:** Intentional, restrained.
 - **Mood:** Calm, sharp, evidence-first. The app should feel like an operating console for one AI public-equity workflow, with the confidence of a portfolio analytics tool and the source discipline of a research product.
 - **Design posture:** Dense but readable. Quiet until a decision needs attention.
+- **Signature:** Graphite control surfaces, warm paper, allocation blue, and a thin signal-lime proof mark.
 
 Safe choices:
 
@@ -41,6 +95,51 @@ Risks worth taking:
 - The Action Queue is allowed to feel more like an order blotter than a report card.
 - AI Thesis Core manager signal gets product prominence, because that is the user's edge.
 - Copy can be direct and investor-native. Avoid overexplaining every market term.
+
+## Logo System
+
+### Core Mark
+
+The AlloIQ mark is an `A/IQ` monogram inside a compact graphite control tile.
+
+Construction:
+
+- Square tile with 8px radius.
+- Graphite fill.
+- `A` sits above `IQ` in Geist Mono or the closest available mono fallback.
+- A thin signal-lime shelf sits along the lower edge.
+- A short diagonal signal stroke cuts through the lower third, suggesting allocation reweighting and signal slope.
+
+The mark should read at favicon size before it reads as a clever logo. Avoid complex line art.
+
+### Wordmark
+
+Use `AlloIQ` as a text wordmark in Geist Sans:
+
+- `Allo` in high-weight sans.
+- `IQ` may use Geist Mono or mono styling to create a product-system feel.
+- Keep letter spacing at `0`.
+- Do not use all caps for the full wordmark.
+
+### Lockups
+
+Approved lockups:
+
+- **Primary horizontal:** mark + wordmark + support line.
+- **Compact:** mark only, for favicon and narrow app chrome.
+- **Text-only:** `AlloIQ`, for dense table or footer references.
+
+Do not place the mark in a colored circle. Do not add an icon next to it. Do not put the logo over gradients or photos.
+
+### Brand Assets
+
+Current public assets:
+
+- `web/favicon.svg`: compact `A/IQ` mark.
+- `web/logo.svg`: horizontal brand lockup for sharing, docs, and future metadata.
+- CSS brand lockup: `.brand`, `.brand-mark`, `.brand-wordmark`.
+
+Any future asset must preserve the same geometry and color roles. Do not introduce a second logo language.
 
 ## Information Hierarchy
 
@@ -90,6 +189,7 @@ If only three things fit above the fold:
 - **Body:** Geist Sans. Used for app copy, rows, labels, nav, buttons.
 - **Data:** Geist Sans with `font-variant-numeric: tabular-nums`. Use for percentages, returns, weights, and scores.
 - **Code / command text:** Geist Mono.
+- **Brand IQ styling:** Geist Mono for the `IQ` portion of the wordmark when the surface allows.
 - **Fallback:** `ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`.
 
 ### Current Implementation Note
@@ -122,27 +222,30 @@ Rules:
 
 ### Approach
 
-Restrained. One primary accent, semantic colors, warm paper, no decorative gradients.
+Restrained, but ownable. Graphite, warm paper, allocation blue, and signal lime define the brand. Semantic colors support decisions. No decorative gradients.
+
+The palette should feel like a research terminal printed on warm paper, not a crypto dashboard or generic enterprise SaaS app.
 
 ### Core Tokens
 
 | Token | Hex | Use |
 |---|---|---|
-| `--ink` | `#0b1117` | Primary text, brand mark, high-confidence values |
-| `--muted` | `#586674` | Secondary copy, metadata, labels |
-| `--paper` | `#f4f6f1` | App background |
-| `--surface` | `#ffffff` | Panels, controls, primary cards |
-| `--surface-alt` | `#f9faf5` | Rows, nested cards, lower-emphasis surfaces |
-| `--line` | `#d4dbd0` | Borders and dividers |
-| `--track` | `#e5ebe1` | Bar tracks and inactive fills |
-| `--blue` | `#1d5f9f` | Primary accent, active nav, links |
-| `--green` | `#14765a` | Positive values, constructive signals |
-| `--red` | `#ad3f45` | Negative values, risk states |
-| `--amber` | `#b16a19` | Warning, energy/power bucket |
-| `--plum` | `#594879` | Software / secondary category color |
-| `--teal` | `#1a7178` | Macro / infrastructure accent |
-| `--terminal` | `#101820` | Brand mark and high-priority decision cards |
-| `--electric` | `#d9f24f` | Thin proof-of-life accent only, not a dominant color |
+| `--ink` | `#0b1117` | Primary text, high-confidence values |
+| `--muted` | `#5a6673` | Secondary copy, metadata, labels |
+| `--paper` | `#f5f6f0` | App background |
+| `--surface` | `#fffffb` | Panels, controls, primary cards |
+| `--surface-alt` | `#f8faf3` | Rows, nested cards, lower-emphasis surfaces |
+| `--line` | `#d8dfd2` | Borders and dividers |
+| `--track` | `#e8ede3` | Bar tracks and inactive fills |
+| `--blue` | `#2558d5` | Allocation blue: active nav, links, current portfolio weight |
+| `--green` | `#08745f` | Positive values, add/lift signals |
+| `--red` | `#b04449` | Negative values, trim/drag/risk states |
+| `--amber` | `#b5681e` | Warning, financing, power/energy state |
+| `--plum` | `#66518d` | Software / secondary category color |
+| `--olive` | `#69752d` | AI-enabled financials / secondary category color |
+| `--teal` | `#0f7580` | Macro / infrastructure accent |
+| `--terminal` | `#0e151b` | Brand mark and high-priority decision cards |
+| `--electric` | `#dfff4f` | Signal-lime proof mark and thin priority accent |
 
 ### Semantic Usage
 
@@ -150,7 +253,28 @@ Restrained. One primary accent, semantic colors, warm paper, no decorative gradi
 - Negative return or trim signal: red.
 - Warning, financing, crowding, or uncertainty: amber.
 - Active navigation, links, selected states: blue.
+- Current portfolio bars: blue.
+- Peer or consensus comparison bars: green at reduced opacity.
+- Target or post-action marker: terminal graphite.
+- Brand proof mark and selected primary card top edge: electric lime.
 - Bucket colors are allowed, but only to support scanning. Do not make the whole page a rainbow.
+
+### Data Visualization Palette
+
+Use this grammar consistently:
+
+| Meaning | Color |
+|---|---|
+| Current portfolio | Allocation blue |
+| AI Thesis Core / peer evidence | Green, reduced opacity when used as a comparison |
+| Add / lift | Green |
+| Trim / drag | Red |
+| Hold / neutral | Muted graphite |
+| Hedge / risk gate | Amber |
+| Target / post-action marker | Terminal graphite |
+| Selected or live signal | Electric lime as a thin accent only |
+
+Do not let color carry the full meaning. Text must include signed deltas, labels, or legends.
 
 ### Forbidden Color Moves
 
@@ -217,12 +341,12 @@ Rules:
 Borders:
 
 - Use `1px solid var(--line)` as the default.
-- Active nav may use `rgba(36, 88, 166, 0.25)`.
+- Active nav may use `rgba(37, 88, 213, 0.22)`.
 - Empty states use dashed borders.
 
 Elevation:
 
-- Use one shadow token only: `0 18px 50px rgba(16, 24, 32, 0.08)`.
+- Use restrained shadow tokens only: `0 14px 34px rgba(14, 21, 27, 0.075)` and `0 22px 60px rgba(14, 21, 27, 0.12)` for primary decision cards.
 - Do not add stacked shadows, glow, or glassmorphism.
 
 ## Components
@@ -538,3 +662,6 @@ Suggested browser QA targets:
 | 2026-05-24 | AI Thesis Core manager signal receives first-class treatment | The product thesis depends on elite AI/growth investor comparison |
 | 2026-05-24 | Public site stays weights-only | Privacy boundary is part of the product trust model |
 | 2026-05-24 | Target typography moves from Inter to Geist Sans | Inter works, but it is too generic for the long-term product identity |
+| 2026-05-24 | AlloIQ brand means allocation intelligence | The name should point to weight decisions, not generic AI content |
+| 2026-05-24 | `A/IQ` graphite tile becomes the core mark | The product needs a compact app-native identity that works in nav, favicon, and docs |
+| 2026-05-24 | Palette moves to graphite, warm paper, allocation blue, signal lime | Creates stronger ownership while preserving research-console restraint |

@@ -1,6 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="12" fill="#101820"/>
-  <path d="M12 49h40v5H12z" fill="#d9f24f" opacity=".45"/>
-  <text x="32" y="29" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="800" fill="#ffffff">A</text>
-  <text x="32" y="47" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" font-weight="800" fill="#ffffff">IQ</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AlloIQ">
+  <rect width="64" height="64" rx="12" fill="#0e151b"/>
+  <path d="M11 54h42v5H11z" fill="#dfff4f" opacity=".55"/>
+  <path d="M14 42l36-8" stroke="#dfff4f" stroke-width="3" stroke-linecap="round"/>
+  <text x="32" y="27" text-anchor="middle" font-family="Geist Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="800" fill="#fffffb">A</text>
+  <text x="32" y="47" text-anchor="middle" font-family="Geist Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17" font-weight="800" fill="#fffffb">IQ</text>
 </svg>

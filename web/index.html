@@ -50,6 +50,7 @@
           <a class="rail-button rail-link" href="/ai-thesis-core">AI Core</a>
           <button class="rail-button" data-view="macro" type="button">Macro</button>
           <button class="rail-button" data-view="news" type="button">News</button>
+          <button class="rail-button" data-view="method" type="button">Method</button>
         </nav>
 
         <section class="content">
@@ -242,6 +243,46 @@
               <span>Linked sources by symbol and theme</span>
             </div>
             <div id="newsList" class="news-list"></div>
+          </section>
+
+          <section class="view" id="method" aria-labelledby="methodTitle">
+            <div class="section-head">
+              <h2 id="methodTitle">Reporting & Recommendation Algorithm</h2>
+              <span id="methodSummary">Live backend method</span>
+            </div>
+            <div id="methodKpis" class="kpi-grid"></div>
+            <div class="split">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Backend Pipeline</h3>
+                  <span>What runs before this JSON publishes</span>
+                </div>
+                <div id="methodPipelineList" class="list"></div>
+              </section>
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Current Source Status</h3>
+                  <span>Live inputs used for this run</span>
+                </div>
+                <div id="methodSourceList" class="list"></div>
+              </section>
+            </div>
+            <div class="split">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Scoring Model</h3>
+                  <span>Signal components and promotion rules</span>
+                </div>
+                <div id="methodScoringList" class="list"></div>
+              </section>
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Risk & Privacy Boundary</h3>
+                  <span>Approval-only sizing and public sanitizer</span>
+                </div>
+                <div id="methodRiskList" class="list"></div>
+              </section>
+            </div>
           </section>
         </section>
       </main>

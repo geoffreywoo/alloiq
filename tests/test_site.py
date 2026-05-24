@@ -1,3 +1,4 @@
+import json
 import unittest
 
 from invest.site import build_public_moves, sanitize_payload
@@ -35,6 +36,20 @@ class SiteTests(unittest.TestCase):
             ],
             "macro": {"regime": "mixed macro tape"},
             "ideas": [],
+            "data_health": {
+                "recommendation_posture": "normal",
+                "sources": [{"source": "broker_positions", "label": "Broker positions", "status": "ok", "detail": "1 row"}],
+            },
+            "methodology": {
+                "version": "test",
+                "updated_by_backend": True,
+                "risk_and_sizing": {
+                    "private_ticket_fields": ["estimated_notional", "estimated_shares"],
+                    "approval_required": True,
+                    "order_execution": "none",
+                },
+                "public_privacy": {"stripped_fields": ["quantity", "market_value"]},
+            },
             "approval_tickets": [
                 {
                     "ticket_id": "abc",
@@ -111,6 +126,13 @@ class SiteTests(unittest.TestCase):
         self.assertNotIn("estimated_shares", public["approval_tickets"][0])
         self.assertNotIn("raw", public["approval_tickets"][0])
         self.assertTrue(public["approval_tickets"][0]["approval_required"])
+        self.assertTrue(public["methodology"]["updated_by_backend"])
+        self.assertNotIn("estimated_notional", public["methodology"]["risk_and_sizing"])
+        self.assertNotIn("estimated_notional", json.dumps(public["methodology"]))
+        self.assertNotIn("estimated_shares", json.dumps(public["methodology"]))
+        self.assertNotIn('"quantity"', json.dumps(public["methodology"]))
+        self.assertNotIn('"market_value"', json.dumps(public["methodology"]))
+        self.assertEqual(public["data_health"]["sources"][0]["source"], "position_snapshot")
 
     def test_public_moves_call_out_put_heavy_names(self):
         moves = build_public_moves(
@@ -188,6 +210,23 @@ class SiteTests(unittest.TestCase):
         self.assertNotIn("quantity", public["weekly_research"]["ideas"][0])
         self.assertNotIn("broker", public["weekly_research"]["ideas"][0])
         self.assertEqual(public["weekly_research"]["ideas"][0]["portfolio_weight"], 0.1)
+
+    def test_public_payload_adds_default_methodology(self):
+        public = sanitize_payload(
+            {
+                "portfolio": {"position_count": 0, "by_bucket": [], "by_symbol": []},
+                "manager_radar": {},
+                "portfolio_benchmark": {"action_queue": []},
+                "signal_synthesis": {"confirmed_card_count": 2},
+                "decision_cards": [],
+                "macro": {},
+                "ideas": [],
+            }
+        )
+
+        self.assertEqual(public["methodology"]["current_run"]["confirmed_card_count"], 2)
+        self.assertEqual(public["methodology"]["risk_and_sizing"]["order_execution"], "none")
+        self.assertEqual(public["methodology"]["public_privacy"]["mode"], "weights_only")
 
 
 if __name__ == "__main__":

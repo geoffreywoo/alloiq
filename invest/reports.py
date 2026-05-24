@@ -18,7 +18,7 @@ from .managers import build_manager_radar
 from .market import fetch_daily_prices, fetch_return_windows
 from .news import enrich_news_item, fetch_many
 from .portfolio import build_portfolio_exposure
-from .risk import apply_risk_controls
+from .risk import apply_risk_controls, normalize_limits
 from .thesis import build_decision_cards
 from .util import ensure_dir, stable_id
 
@@ -131,6 +131,16 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         filing_result_count=bool(latest_filing),
         broker_result_count=portfolio.get("position_count", 0),
     )
+    methodology = build_methodology(
+        config,
+        session,
+        data_health,
+        signal_synthesis,
+        portfolio_benchmark,
+        cards,
+        approval_tickets,
+        earnings_events,
+    )
     payload = {
         "as_of": as_of.isoformat(),
         "session": session,
@@ -148,6 +158,7 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         "portfolio_benchmark": portfolio_benchmark,
         "approval_tickets": approval_tickets,
         "data_health": data_health,
+        "methodology": methodology,
         "decision_cards": cards[:20],
         "ideas": ideas,
         "stale_vanguard": stale_vanguard,
@@ -706,6 +717,142 @@ def build_data_health(
         ),
         "sources": sources,
         "weak_source_count": len(weak_sources),
+    }
+
+
+def build_methodology(
+    config: AppConfig,
+    session: str,
+    data_health: dict[str, Any],
+    signal_synthesis: dict[str, Any],
+    portfolio_benchmark: dict[str, Any],
+    cards: list[dict[str, Any]],
+    approval_tickets: list[dict[str, Any]],
+    earnings_events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    limits = normalize_public_limits(config.risk_limits)
+    score_keys = sorted(
+        {
+            key
+            for card in cards[:20]
+            for key in (card.get("score_components") or {}).keys()
+        }
+    ) or ["manager", "catalyst", "portfolio_fit", "price_action", "option_tilt"]
+    action_queue = portfolio_benchmark.get("action_queue") or []
+    constraint_flags = sorted(
+        {
+            str(flag)
+            for action in action_queue
+            for flag in action.get("risk_flags", [])
+            if str(flag).strip()
+        }
+    )
+    source_statuses = [
+        {
+            "source": row.get("source", ""),
+            "label": row.get("label", ""),
+            "status": row.get("status", "unknown"),
+            "detail": row.get("detail", ""),
+        }
+        for row in data_health.get("sources", [])
+    ]
+    return {
+        "version": "2026-05-live-assistant-v1",
+        "updated_by_backend": True,
+        "session": session,
+        "summary": "AlloIQ ranks watchlist names by independent public-market signal families, constrains sizing with portfolio risk limits, and publishes approval-only portfolio-weight research proposals.",
+        "pipeline": {
+            "commands": [
+                f"python3 -m invest pipeline --kind {kind} --privacy public"
+                for kind in ["premarket", "postmarket", "weekly"]
+            ],
+            "cadence": [
+                {"kind": "premarket", "when": "8:00 AM ET on NYSE trading days", "purpose": "Refresh holdings, filings, overnight catalysts, macro tape, and approval tickets before the open."},
+                {"kind": "postmarket", "when": "4:30 PM ET on NYSE trading days", "purpose": "Refresh end-of-day price action, attribution, catalysts, and follow-up ticket state."},
+                {"kind": "weekly", "when": "Sunday morning ET", "purpose": "Run full idea research, thesis/falsifier review, and weekly opportunity/risk queue."},
+            ],
+            "steps": [
+                {"key": "filings", "label": "SEC 13F refresh", "source": "Public EDGAR manager filings"},
+                {"key": "broker_sync", "label": "Private position sync", "source": "Private read-only position feed plus optional manual sleeves"},
+                {"key": "news", "label": "Catalyst classification", "source": "Configured RSS/news queries and event rules"},
+                {"key": "prices", "label": "Price and return windows", "source": "Public chart data for watchlist and macro symbols"},
+                {"key": "earnings", "label": "Earnings and filing windows", "source": "Manual dates, SEC company submissions, and news-derived guidance signals"},
+                {"key": "risk", "label": "Risk and sizing controls", "source": "Configured portfolio limits before publishing tickets"},
+                {"key": "privacy", "label": "Public sanitizer", "source": "Weights-only JSON and privacy scan"},
+                {"key": "warehouse", "label": "Private warehouse sync", "source": "Neon Postgres run history and decision ledger"},
+            ],
+            "configured_inputs": {
+                "watchlist_symbol_count": len(config.watchlist_symbols),
+                "news_query_count": len(config.news_queries),
+                "macro_symbol_count": len(config.macro_symbols or DEFAULT_MACRO_SYMBOLS),
+                "manager_count": len(config.data.get("managers", [])),
+                "focus_manager_count": len(config.focus_manager_keys),
+                "manual_earnings_event_count": len(config.manual_earnings_events),
+                "sec_company_marker_count": len(config.earnings_sec_companies),
+            },
+        },
+        "current_run": {
+            "recommendation_posture": data_health.get("recommendation_posture", "unknown"),
+            "confirmed_card_count": signal_synthesis.get("confirmed_card_count", 0),
+            "dominant_signal_families": signal_synthesis.get("dominant_families", []),
+            "open_approval_ticket_count": len(approval_tickets),
+            "earnings_event_count": len(earnings_events),
+            "source_statuses": source_statuses,
+        },
+        "scoring_model": {
+            "score_components_seen": score_keys,
+            "components": [
+                {"key": "manager", "max_points": 25, "rule": "Tracked-manager overlap, consensus holder count, primary-manager exposure, and option tilt from public 13F data."},
+                {"key": "catalyst", "max_points": 20, "rule": "Classified news events such as capex signals, contract wins, financing risk, regulatory risk, supply constraints, and earnings revisions."},
+                {"key": "portfolio_fit", "max_points": 12, "rule": "Current portfolio ownership or strong manager consensus gives context for add, trim, hedge, or white-space review."},
+                {"key": "price_action", "max_points": 10, "rule": "Recent price movement gates entry discipline; moderate strength and large drawdowns are treated differently."},
+                {"key": "option_tilt", "max_points": 5, "rule": "Call-heavy public filings can add support; put-heavy filings can subtract or force risk review."},
+            ],
+            "promotion_rules": [
+                "Names with at least two independent signal families are eligible for higher-priority research.",
+                "Owned names with financing, regulatory, crowding, or put-heavy risk can override add logic into trim, hedge, or review.",
+                "White-space long ideas require manager support, signal density, and entry discipline before a starter-weight proposal.",
+                "Every recommendation carries a trigger, risk, and falsifier; none are execution instructions.",
+            ],
+        },
+        "risk_and_sizing": {
+            "limits": limits,
+            "constraint_flags_observed": constraint_flags,
+            "sizing_unit": "portfolio_weight",
+            "approval_required": True,
+            "order_execution": "none",
+            "private_ticket_fields": ["estimated notional", "estimated share count"],
+        },
+        "public_privacy": {
+            "mode": "weights_only",
+            "published_artifacts": ["web/data/latest.json", "web/data/reports.json"],
+            "stripped_fields": [
+                "account identifiers",
+                "broker names",
+                "share quantities",
+                "cost basis",
+                "market value",
+                "estimated notional",
+                "estimated share count",
+                "transactions",
+                "raw private payloads",
+            ],
+        },
+    }
+
+
+def normalize_public_limits(raw_limits: dict[str, Any]) -> dict[str, Any]:
+    limits = normalize_limits(raw_limits)
+    return {
+        "max_single_name_weight": float(limits["max_single_name_weight"]),
+        "max_bucket_weight": float(limits["max_bucket_weight"]),
+        "max_daily_turnover": float(limits["max_daily_turnover"]),
+        "max_one_ticket_delta": float(limits["max_one_ticket_delta"]),
+        "min_signal_family_count": int(limits["min_signal_family_count"]),
+        "earnings_blackout_days": int(limits["earnings_blackout_days"]),
+        "earnings_risk_window_days": int(limits["earnings_risk_window_days"]),
+        "no_add_symbol_count": len(limits["no_add_symbols"]),
+        "watch_only_symbol_count": len(limits["watch_only_symbols"]),
     }
 
 

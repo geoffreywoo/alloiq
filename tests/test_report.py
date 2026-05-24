@@ -2,7 +2,7 @@ from pathlib import Path
 import unittest
 
 from invest.config import AppConfig
-from invest.reports import alias_matches, build_weekly_research, render_markdown
+from invest.reports import alias_matches, build_methodology, build_weekly_research, render_markdown
 
 
 class ReportTests(unittest.TestCase):
@@ -139,6 +139,34 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(weekly["ideas"][0]["symbol"], "NVDA")
         self.assertEqual(weekly["ideas"][0]["trade_action"], "add")
         self.assertTrue(weekly["ideas"][0]["research_questions"])
+
+    def test_methodology_reflects_backend_inputs_and_approval_boundary(self):
+        config = AppConfig(
+            path=Path("config/invest.toml"),
+            data={
+                "watchlist": {"symbols": ["NVDA", "GOOGL"]},
+                "news": {"queries": ["AI capex"]},
+                "risk": {"max_single_name_weight": 0.12, "max_one_ticket_delta": 0.02},
+                "managers": [{"key": "situational-awareness", "name": "Situational Awareness LP", "primary": True}],
+            },
+        )
+
+        methodology = build_methodology(
+            config,
+            "premarket",
+            {"recommendation_posture": "normal", "sources": [{"source": "prices", "status": "ok"}]},
+            {"confirmed_card_count": 2, "dominant_families": [{"family": "manager", "count": 2}]},
+            {"action_queue": [{"risk_flags": ["ticket_delta_cap"]}]},
+            [{"symbol": "NVDA", "score_components": {"manager": 10, "catalyst": 4}}],
+            [{"symbol": "NVDA"}],
+            [{"symbol": "NVDA"}],
+        )
+
+        self.assertTrue(methodology["updated_by_backend"])
+        self.assertEqual(methodology["pipeline"]["configured_inputs"]["watchlist_symbol_count"], 2)
+        self.assertEqual(methodology["risk_and_sizing"]["limits"]["max_single_name_weight"], 0.12)
+        self.assertEqual(methodology["risk_and_sizing"]["order_execution"], "none")
+        self.assertIn("ticket_delta_cap", methodology["risk_and_sizing"]["constraint_flags_observed"])
 
 
 if __name__ == "__main__":

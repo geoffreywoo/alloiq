@@ -25,12 +25,12 @@
       "risk_flags": [
         "put_heavy_13f"
       ],
-      "session": "postmarket",
+      "session": "premarket",
       "sizing_basis": "portfolio-weight research proposal; not an execution order",
       "status": "open",
       "symbol": "NVDA",
       "target_weight": 0.079041,
-      "ticket_id": "62387958e7bfc97f5ea2061d51a269a9",
+      "ticket_id": "062edd836afedda788bf7149b9281400",
       "trade_action": "hold_hedge",
       "trigger": ""
     },
@@ -59,12 +59,12 @@
       "risk_flags": [
         "put_heavy_13f"
       ],
-      "session": "postmarket",
+      "session": "premarket",
       "sizing_basis": "portfolio-weight research proposal; not an execution order",
       "status": "open",
       "symbol": "MU",
       "target_weight": 0.091691,
-      "ticket_id": "1aef5fa52948916caec5f499cd896213",
+      "ticket_id": "de95d5a6173a3624ac6fa38fe6c5d61f",
       "trade_action": "trim",
       "trigger": ""
     },
@@ -91,12 +91,12 @@
       "risk_flags": [
         "put_heavy_13f"
       ],
-      "session": "postmarket",
+      "session": "premarket",
       "sizing_basis": "portfolio-weight research proposal; not an execution order",
       "status": "open",
       "symbol": "AVGO",
       "target_weight": 0.008961,
-      "ticket_id": "2583a17d99ac705590b93f9289e83d2e",
+      "ticket_id": "b1a262a40a60ebd9f5198f1b47e54574",
       "trade_action": "trim",
       "trigger": ""
     },
@@ -121,12 +121,12 @@
       "risk_flags": [
         "put_heavy_13f"
       ],
-      "session": "postmarket",
+      "session": "premarket",
       "sizing_basis": "portfolio-weight research proposal; not an execution order",
       "status": "open",
       "symbol": "TSM",
       "target_weight": 0.042886,
-      "ticket_id": "8ed2fe770a9163c9866975f461b27b4a",
+      "ticket_id": "d83e8864ed4ebe271958e5c8a5c7155f",
       "trade_action": "trim",
       "trigger": ""
     },
@@ -151,12 +151,12 @@
       "risk_flags": [
         "put_heavy_13f"
       ],
-      "session": "postmarket",
+      "session": "premarket",
       "sizing_basis": "portfolio-weight research proposal; not an execution order",
       "status": "open",
       "symbol": "ASML",
       "target_weight": 0.031534,
-      "ticket_id": "635205b3cba10d977adc53937e03b2c4",
+      "ticket_id": "b4feb40e020681c134066faa52dbf872",
       "trade_action": "trim",
       "trigger": ""
     },
@@ -181,12 +181,12 @@
       "recommended_delta_weight": 0.01,
       "risk": "AI power demand may be real while permitting, interconnection, commodity prices, or project execution cap equity upside.",
       "risk_flags": [],
-      "session": "postmarket",
+      "session": "premarket",
       "sizing_basis": "portfolio-weight research proposal; not an execution order",
       "status": "open",
       "symbol": "BE",
       "target_weight": 0.02,
-      "ticket_id": "567a73fabe5178cb1a1c0d6dcf8134f6",
+      "ticket_id": "0266e0e3379275d9454737b864514c3f",
       "trade_action": "add",
       "trigger": ""
     },
@@ -216,12 +216,12 @@
       "risk_flags": [
         "daily_turnover_cap"
       ],
-      "session": "postmarket",
+      "session": "premarket",
       "sizing_basis": "portfolio-weight research proposal; not an execution order",
       "status": "open",
       "symbol": "CRWV",
       "target_weight": 0.035139,
-      "ticket_id": "17d22a6f0fc2e38d106477c4da56b793",
+      "ticket_id": "322b020b8a7e1702245832ad80c3c596",
       "trade_action": "add",
       "trigger": ""
     },
@@ -250,12 +250,12 @@
       "risk_flags": [
         "daily_turnover_cap"
       ],
-      "session": "postmarket",
+      "session": "premarket",
       "sizing_basis": "portfolio-weight research proposal; not an execution order",
       "status": "open",
       "symbol": "META",
       "target_weight": 0.040359,
-      "ticket_id": "0fd78a0a0d1a5d79db4350e98b544cfd",
+      "ticket_id": "426d41485ed25fd5c7b14867b25860c8",
       "trade_action": "watch",
       "trigger": ""
     },
@@ -284,12 +284,12 @@
       "risk_flags": [
         "daily_turnover_cap"
       ],
-      "session": "postmarket",
+      "session": "premarket",
       "sizing_basis": "portfolio-weight research proposal; not an execution order",
       "status": "open",
       "symbol": "MSFT",
       "target_weight": 0.013841,
-      "ticket_id": "d9bd196e5516606186735eecd8750bd3",
+      "ticket_id": "fa1e4159c6b34c76c058aeea0768f0db",
       "trade_action": "watch",
       "trigger": ""
     },
@@ -316,12 +316,12 @@
       "risk_flags": [
         "daily_turnover_cap"
       ],
-      "session": "postmarket",
+      "session": "premarket",
       "sizing_basis": "portfolio-weight research proposal; not an execution order",
       "status": "open",
       "symbol": "GOOG",
       "target_weight": 0.192998,
-      "ticket_id": "bb5fa1904ab51c0468df961f4289321a",
+      "ticket_id": "6712d71fec0e6a69c3d370323eae86fc",
       "trade_action": "trim",
       "trigger": ""
     }
@@ -2052,7 +2052,7 @@
       "defensive_momentum": 1.15,
       "dollar_move": 0.25,
       "rates_move": -1.41,
-      "risk_momentum": 0.89,
+      "risk_momentum": 0.92,
       "vol_move": -6.29
     },
     "tape": [
@@ -2177,10 +2177,10 @@
         "symbol": "^TNX"
       },
       {
-        "change_pct": -0.09,
-        "five_day_pct": -1.11,
+        "change_pct": -0.0,
+        "five_day_pct": -1.02,
         "label": "Bitcoin",
-        "last": 76601.859375,
+        "last": 76670.90625,
         "lens": "liquidity beta",
         "symbol": "BTC-USD"
       }
@@ -13517,6 +13517,227 @@
       }
     ]
   },
+  "methodology": {
+    "current_run": {
+      "confirmed_card_count": 38,
+      "dominant_signal_families": [
+        {
+          "count": 38,
+          "family": "manager"
+        },
+        {
+          "count": 29,
+          "family": "portfolio_fit"
+        },
+        {
+          "count": 24,
+          "family": "price_action"
+        },
+        {
+          "count": 9,
+          "family": "catalyst"
+        }
+      ],
+      "earnings_event_count": 2,
+      "open_approval_ticket_count": 10,
+      "recommendation_posture": "normal",
+      "source_statuses": [
+        {
+          "detail": "22 current broker/account rows available",
+          "label": "Broker positions",
+          "source": "broker_positions",
+          "status": "ok"
+        },
+        {
+          "detail": "22/22 managers have stored filings.",
+          "label": "Manager 13F radar",
+          "source": "manager_13f",
+          "status": "ok"
+        },
+        {
+          "detail": "60 recent items classified.",
+          "label": "News catalysts",
+          "source": "news",
+          "status": "ok"
+        },
+        {
+          "detail": "45 symbols priced.",
+          "label": "Market prices",
+          "source": "prices",
+          "status": "ok"
+        },
+        {
+          "detail": "2 events or filing markers.",
+          "label": "Earnings calendar",
+          "source": "earnings",
+          "status": "ok"
+        }
+      ]
+    },
+    "pipeline": {
+      "cadence": [
+        {
+          "kind": "premarket",
+          "purpose": "Refresh holdings, filings, overnight catalysts, macro tape, and approval tickets before the open.",
+          "when": "8:00 AM ET on NYSE trading days"
+        },
+        {
+          "kind": "postmarket",
+          "purpose": "Refresh end-of-day price action, attribution, catalysts, and follow-up ticket state.",
+          "when": "4:30 PM ET on NYSE trading days"
+        },
+        {
+          "kind": "weekly",
+          "purpose": "Run full idea research, thesis/falsifier review, and weekly opportunity/risk queue.",
+          "when": "Sunday morning ET"
+        }
+      ],
+      "commands": [
+        "python3 -m invest pipeline --kind premarket --privacy public",
+        "python3 -m invest pipeline --kind postmarket --privacy public",
+        "python3 -m invest pipeline --kind weekly --privacy public"
+      ],
+      "configured_inputs": {
+        "focus_manager_count": 22,
+        "macro_symbol_count": 16,
+        "manager_count": 22,
+        "manual_earnings_event_count": 0,
+        "news_query_count": 15,
+        "sec_company_marker_count": 0,
+        "watchlist_symbol_count": 45
+      },
+      "steps": [
+        {
+          "key": "filings",
+          "label": "SEC 13F refresh",
+          "source": "Public EDGAR manager filings"
+        },
+        {
+          "key": "broker_sync",
+          "label": "Private position sync",
+          "source": "Private read-only position feed plus optional manual sleeves"
+        },
+        {
+          "key": "news",
+          "label": "Catalyst classification",
+          "source": "Configured RSS/news queries and event rules"
+        },
+        {
+          "key": "prices",
+          "label": "Price and return windows",
+          "source": "Public chart data for watchlist and macro symbols"
+        },
+        {
+          "key": "earnings",
+          "label": "Earnings and filing windows",
+          "source": "Manual dates, SEC company submissions, and news-derived guidance signals"
+        },
+        {
+          "key": "risk",
+          "label": "Risk and sizing controls",
+          "source": "Configured portfolio limits before publishing tickets"
+        },
+        {
+          "key": "privacy",
+          "label": "Public sanitizer",
+          "source": "Weights-only JSON and privacy scan"
+        },
+        {
+          "key": "warehouse",
+          "label": "Private warehouse sync",
+          "source": "Neon Postgres run history and decision ledger"
+        }
+      ]
+    },
+    "public_privacy": {
+      "mode": "weights_only",
+      "published_artifacts": [
+        "web/data/latest.json",
+        "web/data/reports.json"
+      ],
+      "stripped_fields": [
+        "account identifiers",
+        "broker names",
+        "share quantities",
+        "cost basis",
+        "market value",
+        "estimated notional",
+        "estimated share count",
+        "transactions",
+        "raw private payloads"
+      ]
+    },
+    "risk_and_sizing": {
+      "approval_required": true,
+      "constraint_flags_observed": [
+        "daily_turnover_cap",
+        "put_heavy_13f"
+      ],
+      "limits": {
+        "earnings_blackout_days": 2,
+        "earnings_risk_window_days": 7,
+        "max_bucket_weight": 0.45,
+        "max_daily_turnover": 0.08,
+        "max_one_ticket_delta": 0.03,
+        "max_single_name_weight": 0.15,
+        "min_signal_family_count": 2,
+        "no_add_symbol_count": 0,
+        "watch_only_symbol_count": 0
+      },
+      "order_execution": "none",
+      "private_ticket_fields": [
+        "estimated notional",
+        "estimated share count"
+      ],
+      "sizing_unit": "portfolio_weight"
+    },
+    "scoring_model": {
+      "components": [
+        {
+          "key": "manager",
+          "max_points": 25,
+          "rule": "Tracked-manager overlap, consensus holder count, primary-manager exposure, and option tilt from public 13F data."
+        },
+        {
+          "key": "catalyst",
+          "max_points": 20,
+          "rule": "Classified news events such as capex signals, contract wins, financing risk, regulatory risk, supply constraints, and earnings revisions."
+        },
+        {
+          "key": "portfolio_fit",
+          "max_points": 12,
+          "rule": "Current portfolio ownership or strong manager consensus gives context for add, trim, hedge, or white-space review."
+        },
+        {
+          "key": "price_action",
+          "max_points": 10,
+          "rule": "Recent price movement gates entry discipline; moderate strength and large drawdowns are treated differently."
+        },
+        {
+          "key": "option_tilt",
+          "max_points": 5,
+          "rule": "Call-heavy public filings can add support; put-heavy filings can subtract or force risk review."
+        }
+      ],
+      "promotion_rules": [
+        "Names with at least two independent signal families are eligible for higher-priority research.",
+        "Owned names with financing, regulatory, crowding, or put-heavy risk can override add logic into trim, hedge, or review.",
+        "White-space long ideas require manager support, signal density, and entry discipline before a starter-weight proposal.",
+        "Every recommendation carries a trigger, risk, and falsifier; none are execution instructions."
+      ],
+      "score_components_seen": [
+        "catalyst",
+        "manager",
+        "option_tilt",
+        "portfolio_fit",
+        "price_action"
+      ]
+    },
+    "session": "premarket",
+    "summary": "AlloIQ ranks watchlist names by independent public-market signal families, constrains sizing with portfolio risk limits, and publishes approval-only portfolio-weight research proposals.",
+    "updated_by_backend": true,
+    "version": "2026-05-live-assistant-v1"
+  },
   "news": [
     {
       "event_direction": "mixed",
@@ -16621,7 +16842,7 @@
       "trigger": "Look for AI usage translating into revenue, retention, or operating leverage."
     }
   ],
-  "session": "postmarket",
+  "session": "premarket",
   "signal_synthesis": {
     "confirmed_card_count": 38,
     "dominant_families": [
@@ -17023,15 +17244,15 @@
     ]
   },
   "site": {
-    "built_at": "2026-05-24T17:53:07Z",
+    "built_at": "2026-05-24T17:54:53Z",
     "domain": "alloiq.com",
-    "last_run_kind": "postmarket",
+    "last_run_kind": "premarket",
     "name": "AlloIQ",
     "privacy": "public",
-    "report_session": "postmarket",
-    "source_report": "2026-05-24-postmarket.json",
+    "report_session": "premarket",
+    "source_report": "2026-05-24-premarket.json",
     "stale_status": {
-      "built_at": "2026-05-24T17:53:07Z",
+      "built_at": "2026-05-24T17:54:53Z",
       "is_stale_at_build": false,
       "max_age_hours": 20,
       "policy": "client marks stale when built_at exceeds max_age_hours",

@@ -111,6 +111,9 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
     public_payload["data_health"] = sanitize_data_health(
         public_payload.get("data_health") or default_data_health(public_payload)
     )
+    public_payload["methodology"] = sanitize_methodology(
+        public_payload.get("methodology") or default_methodology(public_payload)
+    )
     if "weekly_research" in public_payload:
         public_payload["weekly_research"] = sanitize_weekly_research(public_payload["weekly_research"])
     public_payload.pop("stale_vanguard", None)
@@ -310,6 +313,125 @@ def sanitize_data_health(health: dict[str, Any]) -> dict[str, Any]:
         sources.append(row)
     clean["sources"] = sources
     return clean
+
+
+def sanitize_methodology(methodology: dict[str, Any]) -> dict[str, Any]:
+    clean = sanitize_methodology_terms(strip_private_keys(methodology))
+    clean["updated_by_backend"] = bool(clean.get("updated_by_backend", False))
+    return clean
+
+
+def sanitize_methodology_terms(value: Any) -> Any:
+    replacements = {
+        "account": "account identifiers",
+        "accounts": "account identifiers",
+        "broker": "broker names",
+        "brokers": "broker names",
+        "quantity": "share quantities",
+        "shares": "share counts",
+        "cost_basis": "cost basis",
+        "market_value": "market value",
+        "estimated_notional": "estimated notional",
+        "estimated_shares": "estimated share count",
+        "raw_json": "raw private payload",
+    }
+    if isinstance(value, dict):
+        return {key: sanitize_methodology_terms(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [sanitize_methodology_terms(item) for item in value]
+    if isinstance(value, str):
+        return replacements.get(value, value)
+    return value
+
+
+def default_methodology(payload: dict[str, Any]) -> dict[str, Any]:
+    benchmark = payload.get("portfolio_benchmark") or {}
+    signal_synthesis = payload.get("signal_synthesis") or {}
+    data_health = payload.get("data_health") or default_data_health(payload)
+    action_queue = benchmark.get("action_queue") or []
+    flags = sorted(
+        {
+            str(flag)
+            for action in action_queue
+            for flag in action.get("risk_flags", [])
+            if str(flag).strip()
+        }
+    )
+    score_keys = sorted(
+        {
+            key
+            for card in payload.get("decision_cards", [])
+            for key in (card.get("score_components") or {}).keys()
+        }
+    ) or ["manager", "catalyst", "portfolio_fit", "price_action", "option_tilt"]
+    return {
+        "version": "derived-from-public-snapshot",
+        "updated_by_backend": False,
+        "session": payload.get("session", ""),
+        "summary": "AlloIQ ranks watchlist names by independent public-market signal families, constrains sizing with portfolio risk limits, and publishes approval-only portfolio-weight research proposals.",
+        "pipeline": {
+            "cadence": [
+                {"kind": "premarket", "when": "8:00 AM ET on NYSE trading days", "purpose": "Refresh holdings, filings, overnight catalysts, macro tape, and approval tickets before the open."},
+                {"kind": "postmarket", "when": "4:30 PM ET on NYSE trading days", "purpose": "Refresh end-of-day price action, attribution, catalysts, and follow-up ticket state."},
+                {"kind": "weekly", "when": "Sunday morning ET", "purpose": "Run full idea research, thesis/falsifier review, and weekly opportunity/risk queue."},
+            ],
+            "steps": [
+                {"key": "filings", "label": "SEC 13F refresh", "source": "Public EDGAR manager filings"},
+                {"key": "broker_sync", "label": "Private position sync", "source": "Private read-only position feed plus optional manual sleeves"},
+                {"key": "news", "label": "Catalyst classification", "source": "Configured RSS/news queries and event rules"},
+                {"key": "prices", "label": "Price and return windows", "source": "Public chart data for watchlist and macro symbols"},
+                {"key": "earnings", "label": "Earnings and filing windows", "source": "Manual dates, SEC company submissions, and news-derived guidance signals"},
+                {"key": "risk", "label": "Risk and sizing controls", "source": "Configured portfolio limits before publishing tickets"},
+                {"key": "privacy", "label": "Public sanitizer", "source": "Weights-only JSON and privacy scan"},
+                {"key": "warehouse", "label": "Private warehouse sync", "source": "Neon Postgres run history and decision ledger"},
+            ],
+        },
+        "current_run": {
+            "recommendation_posture": data_health.get("recommendation_posture", "unknown"),
+            "confirmed_card_count": signal_synthesis.get("confirmed_card_count", 0),
+            "dominant_signal_families": signal_synthesis.get("dominant_families", []),
+            "open_approval_ticket_count": len(payload.get("approval_tickets") or []),
+            "earnings_event_count": len(payload.get("earnings_events") or []),
+            "source_statuses": data_health.get("sources", []),
+        },
+        "scoring_model": {
+            "score_components_seen": score_keys,
+            "components": [
+                {"key": "manager", "max_points": 25, "rule": "Tracked-manager overlap, consensus holder count, primary-manager exposure, and option tilt from public 13F data."},
+                {"key": "catalyst", "max_points": 20, "rule": "Classified news events such as capex signals, contract wins, financing risk, regulatory risk, supply constraints, and earnings revisions."},
+                {"key": "portfolio_fit", "max_points": 12, "rule": "Current portfolio ownership or strong manager consensus gives context for add, trim, hedge, or white-space review."},
+                {"key": "price_action", "max_points": 10, "rule": "Recent price movement gates entry discipline; moderate strength and large drawdowns are treated differently."},
+                {"key": "option_tilt", "max_points": 5, "rule": "Call-heavy public filings can add support; put-heavy filings can subtract or force risk review."},
+            ],
+            "promotion_rules": [
+                "Names with at least two independent signal families are eligible for higher-priority research.",
+                "Owned names with financing, regulatory, crowding, or put-heavy risk can override add logic into trim, hedge, or review.",
+                "Every recommendation carries a trigger, risk, and falsifier; none are execution instructions.",
+            ],
+        },
+        "risk_and_sizing": {
+            "constraint_flags_observed": flags,
+            "sizing_unit": "portfolio_weight",
+            "approval_required": True,
+            "order_execution": "none",
+            "private_ticket_fields": ["estimated notional", "estimated share count"],
+        },
+        "public_privacy": {
+            "mode": "weights_only",
+            "published_artifacts": ["web/data/latest.json", "web/data/reports.json"],
+            "stripped_fields": [
+                "account identifiers",
+                "broker names",
+                "share quantities",
+                "cost basis",
+                "market value",
+                "estimated notional",
+                "estimated share count",
+                "transactions",
+                "raw private payloads",
+            ],
+        },
+    }
 
 
 def default_data_health(payload: dict[str, Any]) -> dict[str, Any]:

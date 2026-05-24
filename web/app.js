@@ -56,7 +56,7 @@ async function init() {
 }
 
 function wireNavigation() {
-  document.querySelectorAll(".rail-button").forEach((button) => {
+  document.querySelectorAll(".rail-button[data-view]").forEach((button) => {
     button.addEventListener("click", () => {
       document.querySelectorAll(".rail-button").forEach((item) => {
         item.classList.remove("active");

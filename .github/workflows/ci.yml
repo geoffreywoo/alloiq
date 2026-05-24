@@ -40,6 +40,8 @@ jobs:
               Path("web/data/latest.json"),
               Path("web/data/reports.json"),
               Path("web/index.html"),
+              Path("web/portfolio.html"),
+              Path("web/portfolio.js"),
           ]
           patterns = [
               r'"quantity"',

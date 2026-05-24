@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0e151b">
+    <meta
+      name="description"
+      content="A public weights-only breakdown of the Geoffrey Woo Portfolio, including allocation, thesis buckets, and research proposals."
+    >
+    <title>Geoffrey Woo Portfolio | AlloIQ</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    >
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="AlloIQ home">
+          <span class="brand-mark">
+            <span>A</span>
+            <span>IQ</span>
+          </span>
+          <span>
+            <strong class="brand-wordmark"><span>Allo</span><span class="brand-iq">IQ</span></strong>
+            <small class="brand-system">AI markets intelligence</small>
+          </span>
+        </a>
+        <div class="topbar-meta">
+          <span id="portfolioDate">Loading</span>
+          <span class="badge">Weights-only</span>
+          <a class="topbar-link" href="/">Investor OS</a>
+        </div>
+      </header>
+
+      <main class="portfolio-page">
+        <section class="portfolio-hero">
+          <div>
+            <p class="eyebrow">alloiq.com / gw portfolio</p>
+            <h1>Geoffrey Woo Portfolio</h1>
+            <p>
+              A public, weights-only map of what Geoffrey owns, why the book is shaped this way,
+              and how a friend can mirror the allocation by percentage without seeing private records,
+              share counts, or dollar values.
+            </p>
+          </div>
+          <div class="portfolio-hero-actions">
+            <button id="copyWeightsButton" class="primary-button" type="button">Copy weights CSV</button>
+            <a class="secondary-button" href="/">Open full dashboard</a>
+          </div>
+        </section>
+
+        <p class="notice">
+          Public research only. This is not investment advice, an execution instruction, or an order feed.
+          If you mirror it, use percentages and your own risk limits.
+        </p>
+
+        <section id="portfolioSummary" class="portfolio-summary-grid" aria-label="Portfolio summary"></section>
+
+        <section class="portfolio-share-panel">
+          <div>
+            <h2>Copy The Public Weights</h2>
+            <p>
+              The clean way to copy this portfolio is to size each ticker as a percentage of your own
+              public-equity sleeve. Do not copy share counts, private values, margin, taxes, or execution timing.
+            </p>
+          </div>
+          <div id="copyStatus" class="copy-status">Ready to copy sanitized ticker weights.</div>
+        </section>
+
+        <section class="portfolio-grid">
+          <section class="panel portfolio-allocation-panel">
+            <div class="panel-head">
+              <h3>Current Position Weights</h3>
+              <span>Public snapshot</span>
+            </div>
+            <div id="portfolioWeightTable" class="portfolio-weight-table"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Thesis Buckets</h3>
+              <span>Where the AI-max bet lives</span>
+            </div>
+            <div id="bucketThesisList" class="bucket-thesis-list"></div>
+          </section>
+        </section>
+
+        <section class="portfolio-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Concentration Map</h3>
+              <span>Largest weights and buckets</span>
+            </div>
+            <div id="concentrationMap" class="concentration-map"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Rebalance Notes</h3>
+              <span>Research proposals, not orders</span>
+            </div>
+            <div id="portfolioRebalanceList" class="rebalance-list"></div>
+          </section>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h3>What Changed Recently</h3>
+            <span>Top 5-day return drivers</span>
+          </div>
+          <div id="portfolioAttribution" class="portfolio-attribution-grid"></div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <span>Public research. Portfolio data is weights only, not share counts, private values, or orders.</span>
+        <a href="https://x.com/geoffreywoo" target="_blank" rel="noreferrer">Created by @geoffreywoo</a>
+      </footer>
+    </div>
+
+    <script src="/portfolio.js" type="module"></script>
+  </body>
+</html>

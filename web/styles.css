@@ -168,6 +168,10 @@ input {
   text-align: right;
 }
 
+.topbar-meta span {
+  white-space: nowrap;
+}
+
 .refresh-error {
   color: var(--red);
   font-weight: 700;
@@ -1229,7 +1233,7 @@ h3 {
 
 .home-decision-band {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px;
   overflow: hidden;
   border: 1px solid rgba(14, 21, 27, 0.16);

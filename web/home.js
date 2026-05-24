@@ -40,6 +40,7 @@ function render() {
   document.title = asOf ? `AlloIQ - GW AI-Max Portfolio ${asOf}` : "AlloIQ - GW AI-Max Portfolio";
   document.getElementById("homeDate").textContent = asOf ? `Snapshot ${asOf}` : "Public snapshot";
   renderSnapshot();
+  renderPerformance();
   renderTopTrade();
   renderFreshness();
   renderTopWeights();
@@ -55,6 +56,26 @@ function renderSnapshot() {
   if (snapshot) {
     snapshot.textContent = top ? `Largest weight: ${top.symbol} ${formatWeight(top.weight)}` : "Public weights only";
   }
+}
+
+function renderPerformance() {
+  const primary = horizonFor("3M") || horizonFor("3m") || (payload.portfolio_benchmark?.horizon_returns || [])[0];
+  const ytd = horizonFor("YTD") || horizonFor("ytd");
+  const oneYear = horizonFor("1Y") || horizonFor("1y");
+  const title = document.getElementById("homePerformance");
+  const detail = document.getElementById("homePerformanceDetail");
+  if (!title || !detail) return;
+  if (!primary) {
+    title.textContent = "n/a";
+    detail.textContent = "No return windows in this snapshot.";
+    return;
+  }
+  title.textContent = `${primary.label || "3M"} ${formatPct(primary.portfolio_return)}`;
+  detail.textContent = [
+    ytd ? `YTD ${formatPct(ytd.portfolio_return)}` : "",
+    oneYear ? `1Y ${formatPct(oneYear.portfolio_return)}` : "",
+    "current-weight proxy",
+  ].filter(Boolean).join(" | ");
 }
 
 function renderTopTrade() {
@@ -103,6 +124,13 @@ function sortedSymbols() {
   return [...(payload?.portfolio?.by_symbol || [])].sort((a, b) => Number(b.weight || 0) - Number(a.weight || 0));
 }
 
+function horizonFor(label) {
+  const target = String(label || "").toLowerCase();
+  return (payload?.portfolio_benchmark?.horizon_returns || []).find((row) => (
+    String(row.label || "").toLowerCase() === target || String(row.key || "").toLowerCase() === target
+  ));
+}
+
 function tradeLabel(trade) {
   const delta = Number(trade.recommended_delta_weight || 0);
   if (delta > 0) return `Add ${formatAbsWeight(delta)}`;
@@ -131,6 +159,11 @@ function formatWeight(value) {
 
 function formatAbsWeight(value) {
   return formatWeight(Math.abs(Number(value || 0)));
+}
+
+function formatPct(value) {
+  if (value == null || Number.isNaN(Number(value))) return "n/a";
+  return `${Number(value) >= 0 ? "+" : ""}${number.format(Number(value))}%`;
 }
 
 function labelize(value) {

@@ -22472,7 +22472,7 @@
     ]
   },
   "site": {
-    "built_at": "2026-05-24T18:57:06Z",
+    "built_at": "2026-05-24T19:33:07Z",
     "domain": "alloiq.com",
     "last_run_kind": "premarket",
     "name": "AlloIQ",
@@ -22480,7 +22480,7 @@
     "report_session": "premarket",
     "source_report": "2026-05-24-premarket.json",
     "stale_status": {
-      "built_at": "2026-05-24T18:57:06Z",
+      "built_at": "2026-05-24T19:33:07Z",
       "is_stale_at_build": false,
       "max_age_hours": 20,
       "policy": "client marks stale when built_at exceeds max_age_hours",

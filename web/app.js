@@ -252,6 +252,7 @@ function renderKpis() {
   const portfolioName = portfolio.display_name || "Geoffrey Woo Portfolio";
   const primaryLabel = benchmark.primary_label || "3M";
   const primaryReturn = benchmark.primary_portfolio_return ?? benchmark.portfolio_return_5d;
+  const returnStack = timeAdjustedReturnDetail(benchmark);
   const medianPeer = (benchmark.benchmarks || []).find((row) => aiThesisCoreBenchmarkNames.has(row.name))
     || (benchmark.benchmarks || []).find((row) => row.name === "Focus-manager median proxy");
   const nasdaq = (benchmark.benchmarks || []).find((row) => row.name === "Nasdaq 100");
@@ -260,7 +261,7 @@ function renderKpis() {
     {
       label: `${portfolioName} ${primaryLabel} return proxy`,
       value: formatPct(primaryReturn),
-      detail: `Current weights priced for ${formatPlainPct(benchmark.primary_price_coverage_pct ?? benchmark.price_coverage_pct)} of the portfolio`,
+      detail: returnStack || `Current weights priced for ${formatPlainPct(benchmark.primary_price_coverage_pct ?? benchmark.price_coverage_pct)} of the portfolio`,
     },
     {
       label: "Active vs Nasdaq 100",
@@ -297,6 +298,23 @@ function scoreDetail(scores = {}) {
   return `AI ${ai}, risk ${risk}`;
 }
 
+function timeAdjustedReturnDetail(benchmark) {
+  const windows = ["3M", "YTD", "1Y"]
+    .map((label) => {
+      const row = benchmarkReturnWindow(benchmark, label);
+      return row ? `${row.label || label} ${formatPct(row.portfolio_return)}` : "";
+    })
+    .filter(Boolean);
+  return windows.length ? `${windows.join(" | ")} | current-weight proxy` : "";
+}
+
+function benchmarkReturnWindow(benchmark, label) {
+  const target = String(label || "").toLowerCase();
+  return (benchmark.horizon_returns || []).find((row) => (
+    String(row.label || "").toLowerCase() === target || String(row.key || "").toLowerCase() === target
+  ));
+}
+
 function kpiTemplate(item) {
   return `
     <article class="kpi">
@@ -318,7 +336,7 @@ function renderDashboard() {
   const actionCount = document.getElementById("actionCount");
   const benchmarkHorizon = document.getElementById("benchmarkHorizon");
   if (actionCount) actionCount.textContent = `${actions.length} trades`;
-  if (benchmarkHorizon) benchmarkHorizon.textContent = `${benchmark.primary_label || "3M"} current-weight horizon`;
+  if (benchmarkHorizon) benchmarkHorizon.textContent = timeAdjustedReturnDetail(benchmark) || `${benchmark.primary_label || "3M"} current-weight horizon`;
   const decisionStack = document.getElementById("decisionStack");
   if (decisionStack) {
     decisionStack.innerHTML = decisionStackTemplate(benchmark, actions, macro);
@@ -437,7 +455,7 @@ function returnCurveTemplate(horizons) {
       <div class="curve-labels">
         ${rows.map((row) => `<span>${escapeHtml(row.label || row.key)} ${escapeHtml(formatPct(row.portfolio_return))}</span>`).join("")}
       </div>
-      <p class="curve-note">Uses current public weights and price moves. This is not realized account performance.</p>
+      <p class="curve-note">Current public weights repriced over each window. Share counts and account values stay private.</p>
     </div>
   `;
 }
@@ -447,7 +465,7 @@ function horizonTemplate(row) {
     <article class="horizon-tile searchable" data-search="${searchAttribute(row)}">
       <span>${escapeHtml(row.label || row.key || "Window")}</span>
       <strong>${escapeHtml(formatPct(row.portfolio_return))}</strong>
-      <small>${escapeHtml(formatPlainPct(row.price_coverage_pct))} price coverage | current weights</small>
+      <small>${escapeHtml(formatPlainPct(row.price_coverage_pct))} priced | current-weight proxy</small>
     </article>
   `;
 }

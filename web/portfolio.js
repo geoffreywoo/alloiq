@@ -85,11 +85,7 @@ function renderSummary() {
       value: labelize(topBucket.bucket || "n/a"),
       detail: `${formatWeight(topBucket.weight)} of public weights.`,
     },
-    {
-      label: "Primary return proxy",
-      value: formatPct(benchmark.primary_portfolio_return ?? benchmark.portfolio_return_5d),
-      detail: benchmark.return_basis || "Current-weight public-price proxy.",
-    },
+    ...["3M", "YTD", "1Y"].map((label) => returnWindowCard(benchmark, label)),
     {
       label: "Vs AI peer proxy",
       value: aiPeer ? formatPp(aiPeer.portfolio_vs_benchmark) : "n/a",
@@ -255,6 +251,22 @@ function sortedBuckets() {
   return [...(payload?.portfolio?.by_bucket || [])].sort((a, b) => Number(b.weight || 0) - Number(a.weight || 0));
 }
 
+function returnWindowCard(benchmark, label) {
+  const row = horizonFor(benchmark, label);
+  return {
+    label: `${label} return proxy`,
+    value: row ? formatPct(row.portfolio_return) : "n/a",
+    detail: row ? `${formatPlainPct(row.price_coverage_pct)} priced | current-weight proxy` : "Window unavailable.",
+  };
+}
+
+function horizonFor(benchmark, label) {
+  const target = String(label || "").toLowerCase();
+  return (benchmark.horizon_returns || []).find((row) => (
+    String(row.label || "").toLowerCase() === target || String(row.key || "").toLowerCase() === target
+  ));
+}
+
 function summaryCard(item) {
   return `
     <article class="kpi">
@@ -312,6 +324,11 @@ function tradeWeightLabel(value) {
 function formatPct(value) {
   if (value == null || Number.isNaN(Number(value))) return "n/a";
   return `${Number(value) >= 0 ? "+" : ""}${number.format(Number(value))}%`;
+}
+
+function formatPlainPct(value) {
+  if (value == null || Number.isNaN(Number(value))) return "n/a";
+  return `${number.format(Number(value))}%`;
 }
 
 function formatPp(value) {

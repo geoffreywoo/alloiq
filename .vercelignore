@@ -1,0 +1,12 @@
+.env
+config/invest.toml
+data/invest.db
+data/raw/
+reports/*.json
+reports/*.md
+.vercel/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/

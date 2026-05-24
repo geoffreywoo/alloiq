@@ -1,10 +1,11 @@
+import json
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from invest.config import AppConfig
-from invest.pipeline import run_pipeline
+from invest.pipeline import PortfolioSnapshotRegression, run_pipeline
 
 
 class PipelineTests(unittest.TestCase):
@@ -54,6 +55,47 @@ class PipelineTests(unittest.TestCase):
         brokers.assert_not_called()
         brief.assert_not_called()
         site.assert_not_called()
+
+    def test_public_pipeline_refuses_to_publish_shrunken_portfolio_after_broker_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reports_dir = root / "reports"
+            out_dir = root / "web"
+            reports_dir.mkdir()
+            (out_dir / "data").mkdir(parents=True)
+            previous_payload = {
+                "portfolio": {
+                    "position_count": 12,
+                    "symbol_count": 8,
+                    "by_symbol": [{"symbol": "NVDA", "weight": 0.2}],
+                }
+            }
+            new_payload = {
+                "as_of": "2026-05-24",
+                "session": "premarket",
+                "portfolio": {"position_count": 3, "symbol_count": 3},
+            }
+            latest = out_dir / "data" / "latest.json"
+            report_json = reports_dir / "2026-05-24-premarket.json"
+            latest.write_text(json.dumps(previous_payload), encoding="utf-8")
+            report_json.write_text(json.dumps(new_payload), encoding="utf-8")
+            config = AppConfig(
+                path=Path("config/invest.toml"),
+                data={"reports": {"directory": str(reports_dir)}},
+            )
+            with (
+                patch("invest.pipeline.refresh_filings", return_value={"stored": 0}),
+                patch(
+                    "invest.pipeline.sync_brokers",
+                    return_value={"imported": 0, "details": {"ibkr": {"status": "failed"}}},
+                ),
+                patch("invest.pipeline.generate_brief", return_value=(reports_dir / "brief.md", report_json)),
+                patch("invest.pipeline.build_site") as site,
+            ):
+                with self.assertRaises(PortfolioSnapshotRegression):
+                    run_pipeline(None, config, "premarket", out_dir=out_dir, force=True)
+
+            site.assert_not_called()
 
 
 if __name__ == "__main__":

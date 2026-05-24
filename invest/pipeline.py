@@ -17,6 +17,10 @@ from .site import build_site
 from .warehouse import sync_report_payload
 
 
+class PortfolioSnapshotRegression(RuntimeError):
+    pass
+
+
 def run_pipeline(
     conn,
     config: AppConfig,
@@ -42,6 +46,7 @@ def run_pipeline(
     broker_result = sync_brokers(conn, config)
     md_path, json_path = generate_brief(conn, config, kind)
     report_payload = json.loads(json_path.read_text(encoding="utf-8")) if json_path.exists() else {}
+    assert_no_public_portfolio_regression(report_payload, broker_result, out_dir, privacy)
     site_result = build_site(
         config.reports_dir,
         out_dir,
@@ -62,6 +67,54 @@ def run_pipeline(
     }
     ran_result["warehouse"] = sync_report_payload(report_payload, ran_result)
     return ran_result
+
+
+def assert_no_public_portfolio_regression(
+    report_payload: dict[str, Any],
+    broker_result: dict[str, Any],
+    out_dir: Path,
+    privacy: str,
+) -> None:
+    if privacy != "public" or not broker_sync_has_problem(broker_result):
+        return
+    previous = load_existing_public_snapshot(out_dir)
+    if not previous:
+        return
+    previous_portfolio = previous.get("portfolio") or {}
+    current_portfolio = report_payload.get("portfolio") or {}
+    previous_symbols = int(previous_portfolio.get("symbol_count") or 0)
+    current_symbols = int(current_portfolio.get("symbol_count") or 0)
+    previous_rows = int(previous_portfolio.get("position_count") or 0)
+    current_rows = int(current_portfolio.get("position_count") or 0)
+    if previous_symbols and current_symbols < previous_symbols:
+        raise PortfolioSnapshotRegression(
+            "Refusing to publish public snapshot because broker sync failed/skipped "
+            f"and portfolio symbol count would shrink from {previous_symbols} to {current_symbols}."
+        )
+    if previous_rows and current_rows < previous_rows:
+        raise PortfolioSnapshotRegression(
+            "Refusing to publish public snapshot because broker sync failed/skipped "
+            f"and portfolio position rows would shrink from {previous_rows} to {current_rows}."
+        )
+
+
+def broker_sync_has_problem(broker_result: dict[str, Any]) -> bool:
+    details = broker_result.get("details") or {}
+    for detail in details.values():
+        status = str((detail or {}).get("status") or "")
+        if status in {"failed", "skipped"}:
+            return True
+    return False
+
+
+def load_existing_public_snapshot(out_dir: Path) -> dict[str, Any]:
+    path = out_dir / "data" / "latest.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
 
 
 def refresh_filings(conn, config: AppConfig, max_filings: int | None = 2) -> dict[str, Any]:

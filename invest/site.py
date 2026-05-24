@@ -19,9 +19,15 @@ BENCHMARK_NAME_MAP = {
 }
 
 
-def build_site(reports_dir: Path, out_dir: Path = DEFAULT_WEB_DIR, privacy: str = "public") -> dict[str, Any]:
+def build_site(
+    reports_dir: Path,
+    out_dir: Path = DEFAULT_WEB_DIR,
+    privacy: str = "public",
+    run_kind: str | None = None,
+    workflow: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     ensure_dir(out_dir / "data")
-    report_paths = sorted(reports_dir.glob("*.json"))
+    report_paths = sorted(reports_dir.glob("*.json"), key=lambda path: (path.stat().st_mtime, path.name))
     if not report_paths:
         existing_snapshot = out_dir / "data" / "latest.json"
         if existing_snapshot.exists():
@@ -37,12 +43,18 @@ def build_site(reports_dir: Path, out_dir: Path = DEFAULT_WEB_DIR, privacy: str 
     latest_path = report_paths[-1]
     payload = json.loads(latest_path.read_text(encoding="utf-8"))
     web_payload = sanitize_payload(payload, privacy=privacy)
+    built_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    last_run_kind = run_kind or str(payload.get("session") or "manual")
     web_payload["site"] = {
         "name": "AlloIQ",
         "domain": "alloiq.com",
         "privacy": privacy,
         "source_report": latest_path.name,
-        "built_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "last_run_kind": last_run_kind,
+        "report_session": payload.get("session", ""),
+        "built_at": built_at,
+        "workflow": workflow or {"provider": "local", "name": "", "run_id": "", "sha": ""},
+        "stale_status": stale_status(last_run_kind, built_at),
     }
     report_index = [
         {
@@ -82,6 +94,8 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
     public_payload["private_data_redacted"] = True
     public_payload["positions"] = {}
     public_payload["transactions"] = []
+    if public_payload.get("latest_filing"):
+        public_payload["latest_filing"] = strip_private_keys(public_payload["latest_filing"])
     public_payload["portfolio"] = sanitize_portfolio(public_payload.get("portfolio") or {})
     portfolio_weights = portfolio_weight_by_symbol(public_payload["portfolio"])
     public_payload["manager_radar"] = sanitize_manager_radar(public_payload.get("manager_radar") or {})
@@ -92,6 +106,14 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
         sanitize_card(card, portfolio_weights) for card in public_payload.get("decision_cards", [])
     ]
     public_payload["ideas"] = [sanitize_idea(idea) for idea in public_payload.get("ideas", [])]
+    public_payload["approval_tickets"] = sanitize_approval_tickets(public_payload.get("approval_tickets", []))
+    public_payload["earnings_events"] = sanitize_earnings_events(public_payload.get("earnings_events", []))
+    public_payload["data_health"] = sanitize_data_health(
+        public_payload.get("data_health") or default_data_health(public_payload)
+    )
+    if "weekly_research" in public_payload:
+        public_payload["weekly_research"] = sanitize_weekly_research(public_payload["weekly_research"])
+    public_payload.pop("stale_vanguard", None)
     public_payload["recommended_moves"] = build_public_moves(
         public_payload.get("decision_cards", []),
         public_payload.get("macro", {}),
@@ -248,6 +270,117 @@ def sanitize_idea(idea: dict[str, Any]) -> dict[str, Any]:
     return clean
 
 
+def sanitize_weekly_research(research: dict[str, Any]) -> dict[str, Any]:
+    clean = strip_private_keys(research)
+    clean["ideas"] = [strip_private_keys(idea) for idea in clean.get("ideas", [])]
+    return clean
+
+
+def sanitize_approval_tickets(tickets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    public_tickets = []
+    for ticket in tickets:
+        clean = strip_private_keys(ticket)
+        clean.pop("order_execution", None)
+        clean["approval_required"] = True
+        clean["sizing_basis"] = "portfolio-weight research proposal; not an execution order"
+        public_tickets.append(clean)
+    return public_tickets
+
+
+def sanitize_earnings_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sanitized = []
+    for event in events:
+        clean = strip_private_keys(event)
+        clean.pop("raw", None)
+        sanitized.append(clean)
+    return sanitized
+
+
+def sanitize_data_health(health: dict[str, Any]) -> dict[str, Any]:
+    clean = strip_private_keys(health)
+    sources = []
+    for source in clean.get("sources", []):
+        row = dict(source)
+        if row.get("source") == "broker_positions":
+            row["source"] = "position_snapshot"
+            row["label"] = "Position snapshot"
+        if row.get("source") == "manual_broker_import":
+            row["source"] = "manual_import"
+            row["label"] = "Manual import freshness"
+        sources.append(row)
+    clean["sources"] = sources
+    return clean
+
+
+def default_data_health(payload: dict[str, Any]) -> dict[str, Any]:
+    portfolio = payload.get("portfolio") or {}
+    manager_radar = payload.get("manager_radar") or {}
+    news = payload.get("news") or []
+    prices = [card for card in payload.get("decision_cards", []) if card.get("last_price") is not None]
+    return {
+        "recommendation_posture": "normal" if portfolio.get("position_count") else "research_only_until_positions_refresh",
+        "summary": "Public snapshot includes sanitized source-health estimates.",
+        "sources": [
+            {
+                "source": "position_snapshot",
+                "label": "Position snapshot",
+                "status": "ok" if portfolio.get("position_count") else "missing",
+                "detail": f"{portfolio.get('position_count', 0)} position rows represented as public weights.",
+            },
+            {
+                "source": "manager_13f",
+                "label": "Manager 13F radar",
+                "status": "ok" if manager_radar.get("stored_latest_count") else "missing",
+                "detail": f"{manager_radar.get('stored_latest_count', 0)}/{manager_radar.get('manager_count', 0)} managers have stored filings.",
+            },
+            {
+                "source": "news",
+                "label": "News catalysts",
+                "status": "ok" if news else "missing",
+                "detail": f"{len(news)} public news rows in this snapshot.",
+            },
+            {
+                "source": "prices",
+                "label": "Market prices",
+                "status": "ok" if prices else "missing",
+                "detail": f"{len(prices)} decision cards include last prices.",
+            },
+        ],
+    }
+
+
+def strip_private_keys(value: Any) -> Any:
+    private_keys = {
+        "account",
+        "accounts",
+        "broker",
+        "brokers",
+        "cost_basis",
+        "estimated_notional",
+        "estimated_shares",
+        "external_id",
+        "market_value",
+        "notional",
+        "portfolio_value",
+        "positions",
+        "quantity",
+        "raw",
+        "raw_json",
+        "shares",
+        "transaction_id",
+        "transactions",
+    }
+    if isinstance(value, dict):
+        return {
+            key: strip_private_keys(item)
+            for key, item in value.items()
+            if key not in private_keys
+        }
+    if isinstance(value, list):
+        return [strip_private_keys(item) for item in value]
+    return value
+
+
 def sanitize_candidate(candidate: str) -> str:
     lowered = candidate.lower()
     if "hold" in lowered or "add-on" in lowered:
@@ -384,6 +517,17 @@ def public_trigger(card: dict[str, Any], action: str) -> str:
     if bucket == "ai_software_winners":
         return "Look for AI feature adoption translating into net retention, pricing, and new workload creation."
     return "Define the variant view and the next public catalyst before acting."
+
+
+def stale_status(run_kind: str, built_at: str) -> dict[str, Any]:
+    max_age_hours = 192 if run_kind == "weekly" else 20
+    return {
+        "status": "fresh",
+        "is_stale_at_build": False,
+        "built_at": built_at,
+        "max_age_hours": max_age_hours,
+        "policy": "client marks stale when built_at exceeds max_age_hours",
+    }
 
 
 def ensure_static_assets(out_dir: Path) -> None:

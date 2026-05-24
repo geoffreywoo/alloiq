@@ -35,6 +35,18 @@ class SiteTests(unittest.TestCase):
             ],
             "macro": {"regime": "mixed macro tape"},
             "ideas": [],
+            "approval_tickets": [
+                {
+                    "ticket_id": "abc",
+                    "symbol": "NVDA",
+                    "current_weight": 0.1,
+                    "recommended_delta_weight": 0.01,
+                    "target_weight": 0.11,
+                    "estimated_notional": 1000,
+                    "estimated_shares": 2,
+                    "raw": {"account": "U123"},
+                }
+            ],
             "manager_radar": {
                 "focus_managers": [
                     {
@@ -95,6 +107,10 @@ class SiteTests(unittest.TestCase):
         )
         self.assertEqual(public["product"]["domain"], "alloiq.com")
         self.assertEqual(public["recommended_moves"][0]["action"], "Core position review")
+        self.assertNotIn("estimated_notional", public["approval_tickets"][0])
+        self.assertNotIn("estimated_shares", public["approval_tickets"][0])
+        self.assertNotIn("raw", public["approval_tickets"][0])
+        self.assertTrue(public["approval_tickets"][0]["approval_required"])
 
     def test_public_moves_call_out_put_heavy_names(self):
         moves = build_public_moves(
@@ -140,6 +156,38 @@ class SiteTests(unittest.TestCase):
 
         self.assertEqual(moves[0]["action"], "Hedge existing exposure")
         self.assertEqual(moves[0]["portfolio_weight"], 0.05)
+
+    def test_public_payload_sanitizes_weekly_research(self):
+        payload = {
+            "portfolio": {},
+            "manager_radar": {},
+            "portfolio_benchmark": {},
+            "decision_cards": [],
+            "macro": {},
+            "ideas": [],
+            "weekly_research": {
+                "title": "Weekly",
+                "market_value": 1000,
+                "ideas": [
+                    {
+                        "symbol": "NVDA",
+                        "setup": "Study.",
+                        "portfolio_value": 1000,
+                        "quantity": 12,
+                        "broker": "ibkr",
+                        "portfolio_weight": 0.1,
+                    }
+                ],
+            },
+        }
+
+        public = sanitize_payload(payload)
+
+        self.assertNotIn("market_value", public["weekly_research"])
+        self.assertNotIn("portfolio_value", public["weekly_research"]["ideas"][0])
+        self.assertNotIn("quantity", public["weekly_research"]["ideas"][0])
+        self.assertNotIn("broker", public["weekly_research"]["ideas"][0])
+        self.assertEqual(public["weekly_research"]["ideas"][0]["portfolio_weight"], 0.1)
 
 
 if __name__ == "__main__":

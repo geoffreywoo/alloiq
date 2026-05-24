@@ -21,6 +21,9 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Install Python package
+        run: python3 -m pip install -e .
+
       - name: Python tests
         run: python3 -m unittest discover -s tests
 
@@ -34,40 +37,4 @@ jobs:
         run: npm run build
 
       - name: Privacy scan public assets
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          targets = [
-              Path("web/data/latest.json"),
-              Path("web/data/reports.json"),
-              Path("web/index.html"),
-              Path("web/portfolio.html"),
-              Path("web/portfolio.js"),
-              Path("web/ai-thesis-core.html"),
-              Path("web/ai-thesis-core.js"),
-          ]
-          patterns = [
-              r'"quantity"',
-              r'"market_value"',
-              r'"cost_basis"',
-              r'"accounts"',
-              r'"brokers"',
-              r"vanguard" + r"-sleeve",
-              r"1443\.12",
-              r"IBKR_FLEX",
-              r"U[0-9]{4,}",
-              r'"shares"',
-              r'"value_usd"',
-          ]
-          failures = []
-          for target in targets:
-              text = target.read_text(encoding="utf-8")
-              for pattern in patterns:
-                  if re.search(pattern, text):
-                      failures.append(f"{target}: matched {pattern}")
-          if failures:
-              raise SystemExit("\n".join(failures))
-          print("public privacy scan passed")
-          PY
+        run: python3 -m invest privacy-scan

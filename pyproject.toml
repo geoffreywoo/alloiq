@@ -1,14 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "alloiq"
 version = "0.1.0"
 description = "Read-only AI-forward public markets intelligence CLI and static app for AlloIQ."
 requires-python = ">=3.11"
 authors = [{ name = "Local" }]
-dependencies = []
+dependencies = [
+  "pandas-market-calendars",
+  "psycopg[binary]",
+]
 
 [project.scripts]
 invest = "invest.cli:main"
 alloiq = "invest.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["invest*"]
 
 [tool.alloiq]
 test-command = "python3 -m unittest discover -s tests"

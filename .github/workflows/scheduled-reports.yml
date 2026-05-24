@@ -1,0 +1,135 @@
+name: Scheduled Reports
+
+on:
+  schedule:
+    - cron: "0 12,13 * * 1-5"
+    - cron: "30 20,21 * * 1-5"
+    - cron: "0 14 * * 0"
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: "Pipeline kind"
+        required: true
+        default: "premarket"
+        type: choice
+        options:
+          - premarket
+          - postmarket
+          - weekly
+      force:
+        description: "Bypass schedule and trading-day gating"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scheduled-reports-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine pipeline kind
+        id: pipeline
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "kind=${{ inputs.kind }}" >> "$GITHUB_OUTPUT"
+            echo "force=${{ inputs.force }}" >> "$GITHUB_OUTPUT"
+          else
+            case "${{ github.event.schedule }}" in
+              "0 12,13 * * 1-5")
+                echo "kind=premarket" >> "$GITHUB_OUTPUT"
+                ;;
+              "30 20,21 * * 1-5")
+                echo "kind=postmarket" >> "$GITHUB_OUTPUT"
+                ;;
+              "0 14 * * 0")
+                echo "kind=weekly" >> "$GITHUB_OUTPUT"
+                ;;
+              *)
+                echo "Unknown schedule: ${{ github.event.schedule }}" >&2
+                exit 2
+                ;;
+            esac
+            echo "force=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Python package
+        run: python3 -m pip install -e .
+
+      - name: Materialize private config
+        env:
+          ALLOIQ_CONFIG_TOML: ${{ secrets.ALLOIQ_CONFIG_TOML }}
+        shell: bash
+        run: |
+          if [[ -z "$ALLOIQ_CONFIG_TOML" ]]; then
+            echo "Missing ALLOIQ_CONFIG_TOML repository secret." >&2
+            exit 1
+          fi
+          mkdir -p config
+          printf '%s\n' "$ALLOIQ_CONFIG_TOML" > config/invest.toml
+
+      - name: Migrate private warehouse
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python3 -m invest warehouse migrate
+
+      - name: Python tests
+        run: python3 -m unittest discover -s tests
+
+      - name: JavaScript syntax
+        run: node --check web/app.js
+
+      - name: Build public site from committed snapshot
+        run: npm run build
+
+      - name: Run scheduled pipeline
+        env:
+          IBKR_FLEX_TOKEN: ${{ secrets.IBKR_FLEX_TOKEN }}
+          IBKR_FLEX_ACTIVITY_QUERY_ID: ${{ secrets.IBKR_FLEX_ACTIVITY_QUERY_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        shell: bash
+        run: |
+          force_arg=""
+          if [[ "${{ steps.pipeline.outputs.force }}" == "true" ]]; then
+            force_arg="--force"
+          fi
+          python3 -m invest pipeline \
+            --kind "${{ steps.pipeline.outputs.kind }}" \
+            --privacy public \
+            $force_arg
+
+      - name: Privacy scan public assets
+        run: python3 -m invest privacy-scan
+
+      - name: Commit public data snapshot
+        shell: bash
+        run: |
+          git add web/data/latest.json web/data/reports.json
+          if git diff --cached --quiet; then
+            echo "No public data changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update scheduled AlloIQ ${{ steps.pipeline.outputs.kind }} snapshot"
+          git push

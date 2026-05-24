@@ -168,6 +168,11 @@ input {
   text-align: right;
 }
 
+.refresh-error {
+  color: var(--red);
+  font-weight: 700;
+}
+
 .badge,
 .regime-badge {
   display: inline-flex;
@@ -307,6 +312,16 @@ h3 {
   border-left: 3px solid var(--electric);
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.stale-banner {
+  margin: -6px 0 18px;
+  padding: 10px 12px;
+  border: 1px solid rgba(181, 104, 30, 0.32);
+  border-radius: 6px;
+  background: rgba(181, 104, 30, 0.1);
+  color: var(--ink);
+  font-weight: 650;
 }
 
 .view {

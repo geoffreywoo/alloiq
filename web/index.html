@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0e151b">
     <meta
       name="description"
-      content="AlloIQ tracks hedge fund 13F filings, daily AI-market news, price movement, macro regimes, and recommended research moves."
+      content="AlloIQ turns public 13F filings, AI-market news, price moves, and macro signals into portfolio-weight research proposals."
     >
     <title>AlloIQ</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -34,6 +34,7 @@
         </a>
         <div class="topbar-meta">
           <span id="reportDate">Loading</span>
+          <span id="refreshStatus">Waiting for data</span>
           <span id="privacyBadge" class="badge">Public</span>
         </div>
       </header>
@@ -43,6 +44,8 @@
           <button class="rail-button active" data-view="dashboard" type="button" aria-current="page">Dashboard</button>
           <a class="rail-button rail-link" href="/portfolio">GW Portfolio</a>
           <button class="rail-button" data-view="moves" type="button">Moves</button>
+          <button class="rail-button" data-view="research" type="button">Research</button>
+          <button class="rail-button" data-view="earnings" type="button">Earnings</button>
           <button class="rail-button" data-view="managers" type="button">Managers</button>
           <a class="rail-button rail-link" href="/ai-thesis-core">AI Core</a>
           <button class="rail-button" data-view="macro" type="button">Macro</button>
@@ -53,18 +56,19 @@
           <div class="command-bar">
             <div>
               <p class="eyebrow">alloiq.com</p>
-              <h1>Hedge Fund 13F, News, And Moves</h1>
+              <h1>Today's AI Markets Portfolio Brief</h1>
             </div>
             <label class="search">
               <span>Search</span>
-              <input id="searchInput" type="search" placeholder="Symbol, manager, catalyst">
+              <input id="searchInput" type="search" placeholder="Ticker, manager, catalyst">
             </label>
           </div>
-          <p class="notice">Public research only. No order execution and no personalized financial advice.</p>
+          <p class="notice">Research proposals only. Portfolio data is shown as weights, not share counts, account values, or executed orders.</p>
+          <p id="staleBanner" class="stale-banner" hidden></p>
 
           <section class="view active" id="dashboard" aria-labelledby="dashboardTitle">
             <div class="section-head">
-              <h2 id="dashboardTitle">Dashboard</h2>
+              <h2 id="dashboardTitle">Today's Decision Stack</h2>
               <span id="regimeBadge" class="regime-badge">Macro regime loading</span>
             </div>
             <div id="kpiGrid" class="kpi-grid"></div>
@@ -72,8 +76,8 @@
             <div class="dashboard-grid">
               <section class="panel">
                 <div class="panel-head">
-                  <h3>Return Benchmarks</h3>
-                  <span id="benchmarkHorizon">multi-horizon proxy</span>
+                  <h3>Portfolio Return Proxies</h3>
+                  <span id="benchmarkHorizon">Current weights vs benchmarks</span>
                 </div>
                 <div id="returnCurve" class="return-curve"></div>
                 <div id="horizonList" class="horizon-list"></div>
@@ -81,7 +85,7 @@
               </section>
               <section class="panel priority-panel">
                 <div class="panel-head">
-                  <h3>Action Queue</h3>
+                  <h3>Recommended Weight Changes</h3>
                   <span id="actionCount">0 items</span>
                 </div>
                 <div id="portfolioActionList" class="list"></div>
@@ -90,8 +94,8 @@
             <div class="visual-grid">
               <section class="panel chart-panel">
                 <div class="panel-head">
-                  <h3>Signal Map</h3>
-                  <span>Score vs manager consensus</span>
+                  <h3>Signal Strength Map</h3>
+                  <span>Score vs number of managers</span>
                 </div>
                 <div class="canvas-wrap">
                   <canvas id="signalCanvas" role="img" aria-label="Signal score by consensus manager count"></canvas>
@@ -100,8 +104,8 @@
               </section>
               <section class="panel chart-panel">
                 <div class="panel-head">
-                  <h3>Action Sizing Map</h3>
-                  <span>Recommended portfolio-weight deltas</span>
+                  <h3>Add / Trim Sizing</h3>
+                  <span>Recommended change as portfolio weight</span>
                 </div>
                 <div id="actionSizingVisual" class="action-visual-list"></div>
               </section>
@@ -109,15 +113,15 @@
             <div class="visual-grid">
               <section class="panel chart-panel">
                 <div class="panel-head">
-                  <h3>Attribution Waterfall</h3>
-                  <span>5-day contribution drivers</span>
+                  <h3>Top Return Drivers</h3>
+                  <span>5-day lift and drag</span>
                 </div>
                 <div id="attributionWaterfall" class="waterfall-list"></div>
               </section>
               <section class="panel chart-panel">
                 <div class="panel-head">
-                  <h3>Peer Gap Chart</h3>
-                  <span>Current vs peer/target weights</span>
+                  <h3>Portfolio vs Peer Weights</h3>
+                  <span>Current, peer average, and target</span>
                 </div>
                 <div id="peerGapChart" class="peer-gap-list"></div>
               </section>
@@ -125,23 +129,39 @@
             <div class="split">
               <section class="panel">
                 <div class="panel-head">
-                  <h3>Exposure Gaps</h3>
-                  <span>Portfolio vs focus funds</span>
+                  <h3>Under/Overweight Gaps</h3>
+                  <span>Your weight vs focus funds</span>
                 </div>
                 <div id="exposureGapList" class="list"></div>
               </section>
               <section class="panel">
                 <div class="panel-head">
-                  <h3>Study Queue</h3>
-                  <span>Position evolution</span>
+                  <h3>Questions To Underwrite</h3>
+                  <span>Positions that need more evidence</span>
                 </div>
                 <div id="studyList" class="list"></div>
+              </section>
+            </div>
+            <div class="split">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Data Freshness</h3>
+                  <span>Source health for this run</span>
+                </div>
+                <div id="dataHealthList" class="list"></div>
+              </section>
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Risk Controls</h3>
+                  <span>Caps applied before proposals publish</span>
+                </div>
+                <div id="riskControlList" class="list"></div>
               </section>
             </div>
             <section class="panel context-panel">
               <div class="panel-head">
                 <h3>Geoffrey Woo Portfolio</h3>
-                <span>IBKR + Vanguard weights only</span>
+                <span>Weights only, no account values</span>
               </div>
               <div id="portfolioContext" class="portfolio-context"></div>
             </section>
@@ -149,16 +169,32 @@
 
           <section class="view" id="moves" aria-labelledby="movesTitle">
             <div class="section-head">
-              <h2 id="movesTitle">Recommended Moves</h2>
-              <span>Public-signal research actions</span>
+              <h2 id="movesTitle">Move Proposals</h2>
+              <span>Research actions sized as portfolio weights</span>
             </div>
             <div id="moveList" class="idea-grid"></div>
           </section>
 
+          <section class="view" id="research" aria-labelledby="researchTitle">
+            <div class="section-head">
+              <h2 id="researchTitle">Weekly Research</h2>
+              <span id="researchSummary">Thesis, trigger, and risk</span>
+            </div>
+            <div id="weeklyResearchList" class="idea-grid"></div>
+          </section>
+
+          <section class="view" id="earnings" aria-labelledby="earningsTitle">
+            <div class="section-head">
+              <h2 id="earningsTitle">Earnings & Catalysts</h2>
+              <span>Upcoming dates, result markers, and guidance signals</span>
+            </div>
+            <div id="earningsList" class="idea-grid"></div>
+          </section>
+
           <section class="view" id="managers" aria-labelledby="managersTitle">
             <div class="section-head">
-              <h2 id="managersTitle">Hedge Fund Radar</h2>
-              <span id="managerSummary">Loading filings</span>
+              <h2 id="managersTitle">Manager 13F Radar</h2>
+              <span id="managerSummary">Loading public filings</span>
             </div>
             <section class="panel focus-panel">
               <div class="panel-head">
@@ -170,15 +206,15 @@
             <div class="split">
               <section class="panel">
                 <div class="panel-head">
-                  <h3>Consensus Positions</h3>
-                  <span>Latest public 13F</span>
+                  <h3>Crowded Focus Positions</h3>
+                  <span>Most shared public 13F holdings</span>
                 </div>
                 <div id="consensusList" class="bar-list"></div>
               </section>
               <section class="panel">
                 <div class="panel-head">
-                  <h3>Manager Status</h3>
-                  <span>SEC filings</span>
+                  <h3>Filing Status</h3>
+                  <span>Latest public filing date</span>
                 </div>
                 <div id="managerList" class="list"></div>
               </section>
@@ -187,14 +223,14 @@
 
           <section class="view" id="macro" aria-labelledby="macroTitle">
             <div class="section-head">
-              <h2 id="macroTitle">Macro Tape</h2>
-              <span>Cross-asset regime</span>
+              <h2 id="macroTitle">Macro Regime</h2>
+              <span>Cross-asset signals that gate risk</span>
             </div>
             <div id="macroScores" class="kpi-grid"></div>
             <section class="panel">
               <div class="panel-head">
-                <h3>Market Map</h3>
-                <span>5-day move</span>
+                <h3>Cross-Asset Market Map</h3>
+                <span>5-day move by macro proxy</span>
               </div>
               <div id="macroTape" class="market-map"></div>
             </section>
@@ -202,15 +238,15 @@
 
           <section class="view" id="news" aria-labelledby="newsTitle">
             <div class="section-head">
-              <h2 id="newsTitle">News And Catalysts</h2>
-              <span>Linked sources</span>
+              <h2 id="newsTitle">News & Catalysts</h2>
+              <span>Linked sources by symbol and theme</span>
             </div>
             <div id="newsList" class="news-list"></div>
           </section>
         </section>
       </main>
       <footer class="site-footer">
-        <span>Public research only. Portfolio data is published as weights, not account values.</span>
+        <span>Public research. Portfolio data is weights only, not share counts, account values, or orders.</span>
         <a href="https://x.com/geoffreywoo" target="_blank" rel="noreferrer">Created by @geoffreywoo</a>
       </footer>
     </div>

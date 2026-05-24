@@ -11,14 +11,16 @@ from statistics import mean, median
 from typing import Any
 
 from .config import AppConfig
+from .earnings import build_earnings_events
 from .ideas import build_idea_book
 from .macro import DEFAULT_MACRO_SYMBOLS, build_macro_dashboard
 from .managers import build_manager_radar
 from .market import fetch_daily_prices, fetch_return_windows
 from .news import enrich_news_item, fetch_many
 from .portfolio import build_portfolio_exposure
+from .risk import apply_risk_controls
 from .thesis import build_decision_cards
-from .util import ensure_dir
+from .util import ensure_dir, stable_id
 
 
 NEWS_ALIASES = {
@@ -86,6 +88,7 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
     recent_news = [enrich_news_item(dict(row)) for row in latest_news(conn, limit=60)]
     news_counts = count_news_by_symbol(recent_news, config.watchlist_symbols)
     news_events = build_news_event_signals(recent_news, config.watchlist_symbols)
+    earnings_events = build_earnings_events(config, config.watchlist_symbols, as_of, news_events)
     macro_prices = fetch_daily_prices(macro_symbols[:30])
     macro = build_macro_dashboard(macro_prices)
     cards = build_decision_cards(
@@ -101,8 +104,33 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
     ideas = build_idea_book(cards, manager_radar, portfolio, macro)
     catalyst_signals = top_catalyst_signals(news_events)
     signal_synthesis = build_signal_synthesis(cards, macro, manager_radar, portfolio, catalyst_signals)
-    portfolio_benchmark = build_portfolio_benchmark(portfolio, cards, manager_radar, macro, prices, return_windows)
+    portfolio_benchmark = build_portfolio_benchmark(
+        portfolio,
+        cards,
+        manager_radar,
+        macro,
+        prices,
+        return_windows,
+        risk_limits=config.risk_limits,
+        earnings_events=earnings_events,
+    )
+    approval_tickets = build_approval_tickets(as_of, session, portfolio, portfolio_benchmark, cards)
+    weekly_research = (
+        build_weekly_research(as_of, ideas, cards, portfolio_benchmark, macro)
+        if session == "weekly"
+        else None
+    )
     stale_vanguard = vanguard_staleness(conn, config.stale_vanguard_days) if config.vanguard_enabled else None
+    data_health = build_data_health(
+        portfolio,
+        manager_radar,
+        recent_news,
+        prices,
+        earnings_events,
+        stale_vanguard,
+        filing_result_count=bool(latest_filing),
+        broker_result_count=portfolio.get("position_count", 0),
+    )
     payload = {
         "as_of": as_of.isoformat(),
         "session": session,
@@ -114,15 +142,20 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         "transactions": [dict(row) for row in recent_transactions],
         "news": [dict(row) for row in recent_news],
         "news_events": news_events,
+        "earnings_events": earnings_events,
         "catalyst_signals": catalyst_signals,
         "signal_synthesis": signal_synthesis,
         "portfolio_benchmark": portfolio_benchmark,
+        "approval_tickets": approval_tickets,
+        "data_health": data_health,
         "decision_cards": cards[:20],
         "ideas": ideas,
         "stale_vanguard": stale_vanguard,
         "disclaimer": "Research only. No order execution and no personalized financial advice.",
         "product": {"name": config.product_name, "domain": config.product_domain},
     }
+    if weekly_research:
+        payload["weekly_research"] = weekly_research
     md = render_markdown(payload, config)
     stem = f"{as_of.isoformat()}-{session}"
     md_path = config.reports_dir / f"{stem}.md"
@@ -145,6 +178,7 @@ def render_markdown(payload: dict[str, Any], config: AppConfig) -> str:
     if payload.get("stale_vanguard") and payload["stale_vanguard"]["is_stale"]:
         lines.append(f"> Vanguard import status: stale or missing. Last import: {payload['stale_vanguard']['last_import'] or 'never'}.")
         lines.append("")
+    render_data_health(lines, payload)
     render_portfolio_snapshot(lines, payload)
     render_portfolio_benchmark(lines, payload)
     render_macro_tape(lines, payload)
@@ -174,6 +208,10 @@ def render_markdown(payload: dict[str, Any], config: AppConfig) -> str:
     lines.append("")
     render_manager_radar(lines, payload, config)
     render_idea_book(lines, payload)
+    render_approval_tickets(lines, payload)
+    if payload.get("weekly_research"):
+        render_weekly_research(lines, payload)
+    render_earnings_events(lines, payload)
     lines.append("## Portfolio Activity")
     txs = payload["transactions"]
     if txs:
@@ -255,6 +293,24 @@ def render_portfolio_snapshot(lines: list[str], payload: dict[str, Any]) -> None
         lines.append(f"- Top positions: {top_text}.")
     if portfolio.get("unmapped_symbols"):
         lines.append(f"- Unmapped symbols to classify: {', '.join(portfolio['unmapped_symbols'][:12])}.")
+    lines.append("")
+
+
+def render_data_health(lines: list[str], payload: dict[str, Any]) -> None:
+    health = payload.get("data_health") or {}
+    sources = health.get("sources") or []
+    if not sources:
+        return
+    lines.append("## Data Health")
+    lines.append(
+        f"- Recommendation posture: **{health.get('recommendation_posture', 'normal')}**. "
+        f"{health.get('summary', '')}"
+    )
+    for source in sources:
+        lines.append(
+            f"- {source.get('label', source.get('source', 'Source'))}: "
+            f"{source.get('status', 'unknown')} - {source.get('detail', '')}"
+        )
     lines.append("")
 
 
@@ -411,6 +467,265 @@ def render_idea_book(lines: list[str], payload: dict[str, Any]) -> None:
         lines.append(f"  Trigger: {idea['trigger']}")
         lines.append(f"  Risk/falsifier: {idea['risk']} Falsifier: {idea['falsifier']}")
     lines.append("")
+
+
+def render_approval_tickets(lines: list[str], payload: dict[str, Any]) -> None:
+    tickets = payload.get("approval_tickets") or []
+    if not tickets:
+        return
+    lines.append("## Approval Tickets")
+    lines.append("- Approval-only research tickets. No broker order is placed by AlloIQ.")
+    for ticket in tickets[:10]:
+        lines.append(
+            f"- **{ticket.get('symbol', '')}** `{ticket.get('ticket_id', '')}`: "
+            f"{ticket.get('trade_action', 'study')} {ticket.get('recommended_delta_weight', 0):+,.2%}; "
+            f"target {ticket.get('target_weight', 0):.2%}; confidence {ticket.get('confidence', 0)}/100."
+        )
+        if ticket.get("constraint_notes"):
+            lines.append(f"  Constraints: {'; '.join(ticket['constraint_notes'][:3])}.")
+        lines.append(f"  Rationale: {ticket.get('rationale') or ticket.get('action') or ''}")
+    lines.append("")
+
+
+def render_weekly_research(lines: list[str], payload: dict[str, Any]) -> None:
+    research = payload.get("weekly_research") or {}
+    ideas = research.get("ideas", [])
+    if not ideas:
+        return
+    lines.append("## Weekly Idea Research")
+    lines.append(f"- Method: {research.get('method', 'Rank ideas by signal density and falsifiability')}.")
+    for idea in ideas[:10]:
+        lines.append(
+            f"- **{idea['symbol']}** ({idea.get('type', 'research')}, score {idea.get('score', 0):.2f}) - "
+            f"{idea.get('recommended_action', 'Refresh the thesis.')}"
+        )
+        lines.append(f"  Setup: {idea.get('setup', '')}")
+        lines.append(f"  Trigger: {idea.get('trigger', '')}")
+        lines.append(f"  Risk/falsifier: {idea.get('risk', '')} Falsifier: {idea.get('falsifier', '')}")
+        questions = idea.get("research_questions") or []
+        if questions:
+            lines.append("  Questions: " + " | ".join(questions[:3]))
+    lines.append("")
+
+
+def render_earnings_events(lines: list[str], payload: dict[str, Any]) -> None:
+    events = payload.get("earnings_events") or []
+    if not events:
+        return
+    lines.append("## Earnings And Filing Catalysts")
+    for event in events[:12]:
+        when = event.get("event_date") or "date unavailable"
+        days = event.get("days_until")
+        days_text = "today" if days == 0 else f"{days:+d} days" if days is not None else "timing unknown"
+        lines.append(
+            f"- **{event.get('symbol', '')}** {event.get('event_type', 'event')} on {when} "
+            f"({days_text}): {event.get('title', '')}"
+        )
+    lines.append("")
+
+
+def build_weekly_research(
+    as_of: date,
+    ideas: list[dict[str, Any]],
+    cards: list[dict[str, Any]],
+    portfolio_benchmark: dict[str, Any],
+    macro: dict[str, Any],
+) -> dict[str, Any]:
+    cards_by_symbol = {str(card.get("symbol", "")): card for card in cards}
+    actions_by_symbol = {
+        str(action.get("symbol", "")): action
+        for action in portfolio_benchmark.get("action_queue", [])
+        if action.get("symbol")
+    }
+    source = ideas or [
+        {
+            "symbol": card["symbol"],
+            "type": card.get("candidate", "research"),
+            "bucket": card.get("bucket", "unmapped"),
+            "score": card.get("score", 0),
+            "setup": "High-scoring watchlist signal needs a full weekly underwriting pass.",
+            "evidence": f"Score {card.get('score', 0):.2f}; {card.get('signal_family_count', 0)} signal families.",
+            "trigger": card.get("trigger", "Define a public catalyst and variant view."),
+            "risk": card.get("counterargument", ""),
+            "falsifier": card.get("falsifier", ""),
+            "signal_families": card.get("signal_families", []),
+            "event_types": card.get("top_event_types", []),
+        }
+        for card in sorted(cards, key=lambda row: row.get("score", 0), reverse=True)[:12]
+    ]
+    research_ideas = []
+    for rank, idea in enumerate(source[:15], start=1):
+        symbol = str(idea.get("symbol", ""))
+        card = cards_by_symbol.get(symbol, {})
+        action = actions_by_symbol.get(symbol, {})
+        research_ideas.append(
+            {
+                "rank": rank,
+                "symbol": symbol,
+                "type": idea.get("type", "research"),
+                "bucket": idea.get("bucket") or card.get("bucket", "unmapped"),
+                "score": round(float(idea.get("score") or card.get("score") or 0), 2),
+                "setup": idea.get("setup", ""),
+                "evidence": idea.get("evidence", ""),
+                "recommended_action": action.get("action", "Build or refresh the primary thesis before changing size."),
+                "trade_action": action.get("trade_action", "study"),
+                "portfolio_weight": action.get("portfolio_weight", 0),
+                "recommended_delta_weight": action.get("recommended_delta_weight", 0),
+                "target_weight": action.get("target_weight", action.get("post_action_weight", 0)),
+                "trigger": idea.get("trigger", ""),
+                "risk": idea.get("risk", ""),
+                "falsifier": idea.get("falsifier", ""),
+                "signal_families": idea.get("signal_families", card.get("signal_families", [])),
+                "event_types": idea.get("event_types", card.get("top_event_types", [])),
+                "research_questions": weekly_research_questions(card, macro),
+            }
+        )
+    return {
+        "as_of": as_of.isoformat(),
+        "title": "Weekly Idea Research",
+        "method": "Ranks ideas by signal density, manager overlap, catalysts, portfolio context, and falsifiability.",
+        "ideas": research_ideas,
+    }
+
+
+def build_approval_tickets(
+    as_of: date,
+    session: str,
+    portfolio: dict[str, Any],
+    portfolio_benchmark: dict[str, Any],
+    cards: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    cards_by_symbol = {str(card.get("symbol", "")).upper(): card for card in cards}
+    gross_exposure = float(portfolio.get("gross_exposure") or 0)
+    tickets: list[dict[str, Any]] = []
+    for action in portfolio_benchmark.get("action_queue", []):
+        symbol = str(action.get("symbol", "")).upper()
+        if not symbol:
+            continue
+        card = cards_by_symbol.get(symbol, {})
+        delta = float(action.get("recommended_delta_weight") or 0)
+        last_price = float(action.get("last_price") or card.get("last_price") or 0)
+        estimated_notional = gross_exposure * delta if gross_exposure else None
+        estimated_shares = estimated_notional / last_price if estimated_notional is not None and last_price else None
+        ticket = {
+            "ticket_id": stable_id([as_of.isoformat(), session, symbol, action.get("trade_action"), action.get("target_weight")]),
+            "status": "open",
+            "approval_required": True,
+            "order_execution": "none",
+            "as_of": as_of.isoformat(),
+            "session": session,
+            "symbol": symbol,
+            "bucket": action.get("bucket") or card.get("bucket", "unmapped"),
+            "trade_action": action.get("trade_action", "study"),
+            "current_weight": action.get("current_weight", action.get("portfolio_weight", 0)),
+            "recommended_delta_weight": action.get("recommended_delta_weight", 0),
+            "post_action_weight": action.get("post_action_weight", action.get("portfolio_weight", 0)),
+            "target_weight": action.get("target_weight", action.get("post_action_weight", 0)),
+            "confidence": action.get("confidence", 0),
+            "risk_flags": action.get("risk_flags", []),
+            "constraint_notes": action.get("constraint_notes", []),
+            "rationale": action.get("why") or action.get("action") or "",
+            "trigger": action.get("trigger") or card.get("trigger") or "",
+            "risk": action.get("risk") or card.get("counterargument") or "",
+            "falsifier": action.get("falsifier") or card.get("falsifier") or "",
+            "evidence": {
+                "score": action.get("score", card.get("score", 0)),
+                "signal_family_count": action.get("signal_family_count", card.get("signal_family_count", 0)),
+                "event_types": action.get("event_types", card.get("top_event_types", [])),
+                "manager_count": card.get("consensus_manager_count", action.get("manager_count", 0)),
+            },
+            "estimated_notional": round(estimated_notional, 2) if estimated_notional is not None else None,
+            "estimated_shares": round(estimated_shares, 4) if estimated_shares is not None else None,
+            "sizing_basis": action.get("sizing_basis", "portfolio-weight research proposal; approval required; no order execution"),
+        }
+        tickets.append(ticket)
+    return tickets
+
+
+def build_data_health(
+    portfolio: dict[str, Any],
+    manager_radar: dict[str, Any],
+    recent_news: list[dict[str, Any]],
+    prices: dict[str, dict[str, Decimal]],
+    earnings_events: list[dict[str, Any]],
+    stale_vanguard: dict[str, Any] | None,
+    filing_result_count: bool,
+    broker_result_count: int,
+) -> dict[str, Any]:
+    sources = [
+        {
+            "source": "broker_positions",
+            "label": "Broker positions",
+            "status": "ok" if broker_result_count else "missing",
+            "detail": f"{broker_result_count} current broker/account rows available" if broker_result_count else "No current position rows imported.",
+        },
+        {
+            "source": "manager_13f",
+            "label": "Manager 13F radar",
+            "status": "ok" if manager_radar.get("stored_latest_count") or filing_result_count else "missing",
+            "detail": f"{manager_radar.get('stored_latest_count', 0)}/{manager_radar.get('manager_count', 0)} managers have stored filings.",
+        },
+        {
+            "source": "news",
+            "label": "News catalysts",
+            "status": "ok" if recent_news else "missing",
+            "detail": f"{len(recent_news)} recent items classified." if recent_news else "No recent news items available.",
+        },
+        {
+            "source": "prices",
+            "label": "Market prices",
+            "status": "ok" if prices else "missing",
+            "detail": f"{len(prices)} symbols priced." if prices else "No price data returned.",
+        },
+        {
+            "source": "earnings",
+            "label": "Earnings calendar",
+            "status": "ok" if earnings_events else "limited",
+            "detail": f"{len(earnings_events)} events or filing markers." if earnings_events else "No manual or SEC earnings markers configured.",
+        },
+    ]
+    if stale_vanguard and stale_vanguard.get("is_stale"):
+        sources.append(
+            {
+                "source": "manual_broker_import",
+                "label": "Manual broker import",
+                "status": "stale",
+                "detail": "A manually imported broker source is stale or missing.",
+            }
+        )
+    weak_sources = [row for row in sources if row["status"] in {"missing", "stale"}]
+    posture = "reduced_confidence" if weak_sources else "normal"
+    if not portfolio.get("position_count"):
+        posture = "research_only_until_positions_refresh"
+    return {
+        "recommendation_posture": posture,
+        "summary": (
+            "Recommendations are constrained by data freshness and remain approval-only."
+            if posture != "normal"
+            else "Core scheduled sources are available for this run."
+        ),
+        "sources": sources,
+        "weak_source_count": len(weak_sources),
+    }
+
+
+def weekly_research_questions(card: dict[str, Any], macro: dict[str, Any]) -> list[str]:
+    symbol = card.get("symbol", "This name")
+    bucket = card.get("bucket", "")
+    questions = [
+        f"What has to be true for {symbol} to compound from here, and what public evidence would disprove it?",
+        "Is the next catalyst business-driven, financing-driven, macro-driven, or just positioning noise?",
+        f"Does the current macro regime ({macro.get('regime', 'mixed macro tape')}) improve or reduce the expected value?",
+    ]
+    if bucket == "neocloud_datacenters":
+        questions.append("Are utilization, customer concentration, financing terms, and GPU supply improving together?")
+    elif bucket == "power_grid_gas_nuclear":
+        questions.append("Are power contracts, interconnection milestones, fuel/input costs, and financing terms aligned?")
+    elif bucket == "semis_networking_hbm":
+        questions.append("Are backlog, hyperscaler capex, HBM/networking constraints, and margins confirming the thesis?")
+    elif bucket == "ai_software_winners":
+        questions.append("Is AI usage showing up in retention, pricing, workload expansion, or sales efficiency?")
+    return questions
 
 
 def portfolio_values_by_symbol(portfolio: dict[str, Any]) -> dict[str, Decimal]:
@@ -625,6 +940,8 @@ def build_portfolio_benchmark(
     macro: dict[str, Any],
     prices: dict[str, dict[str, Decimal]],
     return_windows: dict[str, dict[str, Decimal]] | None = None,
+    risk_limits: dict[str, Any] | None = None,
+    earnings_events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     window_data = return_windows or legacy_return_windows(prices, macro)
     portfolio_return, price_coverage, components = portfolio_return_components_for_window(
@@ -640,7 +957,13 @@ def build_portfolio_benchmark(
     peer_proxies = build_peer_proxies(manager_radar, window_data, primary["key"], primary_return)
     benchmarks = build_return_benchmarks(macro, peer_proxies, primary_return, window_data, primary["key"])
     gaps = build_exposure_gaps(cards, portfolio, peer_weights)
-    action_queue = build_action_queue(cards, components, gaps, peer_weights)
+    action_queue = apply_risk_controls(
+        build_action_queue(cards, components, gaps, peer_weights),
+        portfolio,
+        cards,
+        earnings_events or [],
+        risk_limits,
+    )
     study_queue = build_study_queue(components, gaps)
     return {
         "portfolio_return_5d": round(portfolio_return, 2),

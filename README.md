@@ -140,6 +140,52 @@ python3 -m invest site build --privacy public
 
 Use `postmarket` for the end-of-day report.
 
+## Scheduled Live Updates
+
+The GitHub Actions scheduler runs the private pipeline and commits only the
+sanitized public data snapshot in `web/data/`:
+
+```bash
+python3 -m invest pipeline --kind premarket --privacy public
+python3 -m invest pipeline --kind postmarket --privacy public
+python3 -m invest pipeline --kind weekly --privacy public
+```
+
+Schedules are defined in `.github/workflows/scheduled-reports.yml`:
+
+- Premarket: 8:00 AM ET on NYSE trading days.
+- Post-close: 4:30 PM ET on NYSE trading days.
+- Weekly idea research: Sunday morning ET.
+
+The workflow uses duplicate UTC cron windows for daylight saving time and lets
+the Python scheduler skip the non-matching duplicate. Manual runs can use
+`workflow_dispatch` with `force=true`.
+
+Required GitHub repository secrets:
+
+- `ALLOIQ_CONFIG_TOML`: full private `config/invest.toml`.
+- `IBKR_FLEX_TOKEN`
+- `IBKR_FLEX_ACTIVITY_QUERY_ID`
+- `DATABASE_URL`: Vercel-managed Neon Postgres connection string for private run history.
+
+The workflow never commits `.env`, `config/invest.toml`, `data/`, or `reports/`.
+It runs tests, builds the public site, scans for private fields, and commits only
+`web/data/latest.json` and `web/data/reports.json` when public output changes.
+
+Private warehouse commands:
+
+```bash
+python3 -m invest warehouse health
+python3 -m invest warehouse migrate
+python3 -m invest decisions list --status open
+python3 -m invest decisions record --ticket-id TICKET --decision approved --notes "Reviewed"
+python3 -m invest tickets export --format markdown
+```
+
+The warehouse stores private pipeline runs, position snapshots, signal snapshots,
+approval tickets, decision history, attribution, and earnings markers. Public
+site data remains sanitized weights-only research.
+
 ## Signal Stack
 
 Daily reports synthesize five independent signal families:
@@ -150,10 +196,17 @@ Daily reports synthesize five independent signal families:
 - Catalyst signal: classified news events such as capex signals, contract wins,
   financing risk, supply constraints, regulatory risk, and valuation resets.
 - Price action: 5-day move used for entry discipline, not as proof of thesis.
+- Earnings and filing window: manual earnings dates, SEC company filing markers,
+  and news-driven guidance/revision signals.
 
 Ideas are promoted when at least two independent families confirm, unless a risk
 override forces a hedge or sizing review. This keeps the report from treating a
 single headline, a stale 13F, or a price move as enough evidence by itself.
+
+Risk limits live under `[risk]` in `config/invest.toml`. They cap single-name
+weight, bucket weight, daily turnover, one-ticket delta, minimum signal-family
+count, earnings blackout windows, and no-add/watch-only symbols. AlloIQ only
+creates approval tickets; it does not place broker orders.
 
 The default news pull uses Google News RSS queries aimed at primary/company
 events, AI capex, data-center financing, power/grid catalysts, macro conditions,

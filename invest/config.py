@@ -71,6 +71,28 @@ class AppConfig:
         return [str(s).upper() for s in self.data.get("macro", {}).get("symbols", []) if str(s).strip()]
 
     @property
+    def risk_limits(self) -> dict[str, Any]:
+        risk = dict(self.data.get("risk", {}))
+        risk.setdefault("max_single_name_weight", 0.15)
+        risk.setdefault("max_bucket_weight", 0.45)
+        risk.setdefault("max_daily_turnover", 0.08)
+        risk.setdefault("max_one_ticket_delta", 0.03)
+        risk.setdefault("min_signal_family_count", 2)
+        risk.setdefault("earnings_blackout_days", 2)
+        risk.setdefault("earnings_risk_window_days", 7)
+        risk.setdefault("no_add_symbols", [])
+        risk.setdefault("watch_only_symbols", [])
+        return risk
+
+    @property
+    def manual_earnings_events(self) -> list[dict[str, Any]]:
+        return [dict(row) for row in self.data.get("earnings", {}).get("events", [])]
+
+    @property
+    def earnings_sec_companies(self) -> list[dict[str, Any]]:
+        return [dict(row) for row in self.data.get("earnings", {}).get("sec_companies", [])]
+
+    @property
     def manual_positions(self) -> list[dict[str, Any]]:
         positions = self.data.get("portfolio", {}).get("manual_positions", [])
         normalized: list[dict[str, Any]] = []

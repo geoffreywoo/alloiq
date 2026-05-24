@@ -40,7 +40,36 @@ def main(argv: list[str] | None = None) -> int:
     filings.add_argument("--backfill", action="store_true", help="Process every recent SEC filing in the submissions feed")
 
     brief = sub.add_parser("brief", help="Generate a research brief")
-    brief.add_argument("--session", choices=["premarket", "postmarket"], required=True)
+    brief.add_argument("--session", choices=["premarket", "postmarket", "weekly"], required=True)
+
+    pipeline = sub.add_parser("pipeline", help="Run the scheduled data, report, and public-site pipeline")
+    pipeline.add_argument("--kind", choices=["premarket", "postmarket", "weekly"], required=True)
+    pipeline.add_argument("--privacy", choices=["public", "private"], default="public")
+    pipeline.add_argument("--out-dir", default="web", help="Static output directory")
+    pipeline.add_argument("--force", action="store_true", help="Bypass schedule/trading-day gating")
+    pipeline.add_argument("--scheduled-at", default=None, help="UTC timestamp for schedule gating, defaults to now")
+
+    warehouse = sub.add_parser("warehouse", help="Manage the private Neon/Postgres warehouse")
+    warehouse_sub = warehouse.add_subparsers(dest="warehouse_command", required=True)
+    warehouse_sub.add_parser("migrate", help="Create or update private warehouse tables")
+    warehouse_sub.add_parser("health", help="Check private warehouse connectivity")
+
+    decisions = sub.add_parser("decisions", help="Record approval decisions for generated tickets")
+    decisions_sub = decisions.add_subparsers(dest="decisions_command", required=True)
+    decisions_list = decisions_sub.add_parser("list", help="List private approval tickets")
+    decisions_list.add_argument("--status", default="open", help="open, approved, rejected, watch, or a custom status")
+    decisions_list.add_argument("--limit", type=int, default=50)
+    decisions_record = decisions_sub.add_parser("record", help="Record an approval decision")
+    decisions_record.add_argument("--ticket-id", required=True)
+    decisions_record.add_argument("--decision", choices=["approved", "rejected", "watch"], required=True)
+    decisions_record.add_argument("--notes", default="")
+    decisions_record.add_argument("--rejection-reason", default="")
+    decisions_record.add_argument("--execution-status", default="not_executed")
+
+    tickets = sub.add_parser("tickets", help="Export approval-only research tickets")
+    tickets_sub = tickets.add_subparsers(dest="tickets_command", required=True)
+    tickets_export = tickets_sub.add_parser("export", help="Export latest approval tickets")
+    tickets_export.add_argument("--format", choices=["markdown", "json"], default="markdown")
 
     site = sub.add_parser("site", help="Build the AlloIQ static website")
     site_sub = site.add_subparsers(dest="site_command", required=True)
@@ -51,7 +80,19 @@ def main(argv: list[str] | None = None) -> int:
     backtest = sub.add_parser("backtest-signal", help="Run a simple stored-data signal diagnostic")
     backtest.add_argument("--signal", required=True)
 
+    privacy_scan = sub.add_parser("privacy-scan", help="Validate that public web assets contain no private broker data")
+    privacy_scan.add_argument("--web-dir", default="web", help="Static web directory to scan")
+
     args = parser.parse_args(argv)
+    if args.command == "privacy-scan":
+        from .privacy import assert_public_assets_safe
+
+        assert_public_assets_safe(Path(args.web_dir))
+        print("public privacy scan passed")
+        return 0
+    if args.command == "warehouse":
+        return command_warehouse(args)
+
     config_path = Path(args.config)
     if args.command == "init":
         created = init_config(config_path)
@@ -82,11 +123,82 @@ def main(argv: list[str] | None = None) -> int:
         result = build_site(config.reports_dir, Path(args.out_dir), privacy=args.privacy)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+    if args.command == "pipeline":
+        from .pipeline import run_pipeline
+
+        result = run_pipeline(
+            conn,
+            config,
+            args.kind,
+            privacy=args.privacy,
+            out_dir=Path(args.out_dir),
+            force=args.force,
+            scheduled_at=args.scheduled_at,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "decisions":
+        return command_decisions(args)
+    if args.command == "tickets":
+        return command_tickets(args, config)
     if args.command == "backtest-signal":
         result = backtest_signal(conn, args.signal)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["status"] in {"ok", "insufficient_data"} else 2
     return 2
+
+
+def command_warehouse(args) -> int:
+    from .warehouse import WarehouseDisabled, health, migrate
+
+    if args.warehouse_command == "health":
+        result = health()
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        return 0 if result["status"] in {"ok", "disabled"} else 2
+    if args.warehouse_command == "migrate":
+        try:
+            result = migrate()
+        except WarehouseDisabled as exc:
+            result = {"status": "disabled", "reason": str(exc)}
+            print(json.dumps(result, indent=2, sort_keys=True, default=str))
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        return 0
+    return 2
+
+
+def command_decisions(args) -> int:
+    from .warehouse import list_recommendations, record_decision
+
+    if args.decisions_command == "list":
+        rows = list_recommendations(status=args.status, limit=args.limit)
+        print(json.dumps(rows, indent=2, sort_keys=True, default=str))
+        return 0
+    if args.decisions_command == "record":
+        result = record_decision(
+            args.ticket_id,
+            args.decision,
+            notes=args.notes,
+            rejection_reason=args.rejection_reason,
+            execution_status=args.execution_status,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        return 0
+    return 2
+
+
+def command_tickets(args, config) -> int:
+    from .warehouse import WarehouseDisabled, export_latest_tickets_from_reports, format_tickets_markdown, list_recommendations
+
+    try:
+        tickets = list_recommendations(status="open", limit=100)
+    except WarehouseDisabled:
+        tickets = export_latest_tickets_from_reports(config.reports_dir)
+    if args.format == "json":
+        print(json.dumps(tickets, indent=2, sort_keys=True, default=str))
+    else:
+        print(format_tickets_markdown(tickets), end="")
+    return 0
 
 
 def command_sync(broker: str, config, conn) -> int:

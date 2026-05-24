@@ -32,6 +32,32 @@ stale_after_days = 7
 # description = "NVIDIA Corp"
 # quantity = 0
 
+[risk]
+max_single_name_weight = 0.15
+max_bucket_weight = 0.45
+max_daily_turnover = 0.08
+max_one_ticket_delta = 0.03
+min_signal_family_count = 2
+earnings_blackout_days = 2
+earnings_risk_window_days = 7
+no_add_symbols = []
+watch_only_symbols = []
+
+[earnings]
+# Optional manually maintained earnings dates. These are used as the reliable
+# baseline for earnings-window risk and publish only sanitized event metadata.
+# [[earnings.events]]
+# symbol = "NVDA"
+# event_date = "2026-05-27"
+# fiscal_period = "FY2027 Q1"
+# status = "confirmed"
+# source = "manual"
+
+# Optional SEC company submissions feed entries for 10-Q/10-K/8-K markers.
+# [[earnings.sec_companies]]
+# symbol = "NVDA"
+# cik = "0001045810"
+
 [[managers]]
 key = "situational-awareness"
 name = "Situational Awareness LP"

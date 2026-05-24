@@ -2,7 +2,7 @@ from pathlib import Path
 import unittest
 
 from invest.config import AppConfig
-from invest.reports import alias_matches, render_markdown
+from invest.reports import alias_matches, build_weekly_research, render_markdown
 
 
 class ReportTests(unittest.TestCase):
@@ -92,6 +92,53 @@ class ReportTests(unittest.TestCase):
         self.assertFalse(alias_matches("AI MOMENTUM BUILDS", "MU"))
         self.assertTrue(alias_matches("MICRON RALLIES ON HBM DEMAND", "MICRON"))
         self.assertTrue(alias_matches("COREWEAVE SIGNS AI DEAL", "COREWEAVE"))
+
+    def test_weekly_research_payload_contains_expanded_ideas(self):
+        from datetime import date
+
+        weekly = build_weekly_research(
+            date(2026, 5, 24),
+            [
+                {
+                    "symbol": "NVDA",
+                    "type": "owned add/trim review",
+                    "bucket": "semis_networking_hbm",
+                    "score": 50,
+                    "setup": "Owned leader needs review.",
+                    "evidence": "score 50; 3 signal families.",
+                    "trigger": "Backlog confirms.",
+                    "risk": "Valuation.",
+                    "falsifier": "Margins break.",
+                    "signal_families": ["manager", "news", "price"],
+                }
+            ],
+            [
+                {
+                    "symbol": "NVDA",
+                    "bucket": "semis_networking_hbm",
+                    "score": 50,
+                    "signal_families": ["manager", "news", "price"],
+                }
+            ],
+            {
+                "action_queue": [
+                    {
+                        "symbol": "NVDA",
+                        "action": "Add +1.0% on confirmation.",
+                        "trade_action": "add",
+                        "portfolio_weight": 0.05,
+                        "recommended_delta_weight": 0.01,
+                        "target_weight": 0.06,
+                    }
+                ]
+            },
+            {"regime": "mixed macro tape"},
+        )
+
+        self.assertEqual(weekly["title"], "Weekly Idea Research")
+        self.assertEqual(weekly["ideas"][0]["symbol"], "NVDA")
+        self.assertEqual(weekly["ideas"][0]["trade_action"], "add")
+        self.assertTrue(weekly["ideas"][0]["research_questions"])
 
 
 if __name__ == "__main__":

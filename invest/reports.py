@@ -865,7 +865,7 @@ def build_peer_proxies(
         weighted = 0.0
         covered = 0.0
         priced_symbols: list[str] = []
-        for position in manager.get("top_positions", []):
+        for position in manager_public_positions(manager):
             symbol = str(position.get("symbol") or "").upper()
             fund_weight = float(position.get("fund_weight") or 0)
             period_return = window_return(return_windows, symbol, horizon)
@@ -901,12 +901,16 @@ def peer_symbol_weights(manager_radar: dict[str, Any]) -> dict[str, float]:
     for manager in manager_radar.get("focus_managers", []):
         if manager.get("status") != "ok":
             continue
-        for position in manager.get("top_positions", []):
+        for position in manager_public_positions(manager):
             symbol = str(position.get("symbol") or "").upper()
             fund_weight = float(position.get("fund_weight") or 0)
             if symbol and fund_weight > 0:
                 weights.setdefault(symbol, []).append(fund_weight)
     return {symbol: mean(values) for symbol, values in weights.items() if values}
+
+
+def manager_public_positions(manager: dict[str, Any]) -> list[dict[str, Any]]:
+    return manager.get("positions") or manager.get("top_positions") or []
 
 
 def build_exposure_gaps(

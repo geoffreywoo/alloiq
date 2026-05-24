@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0e151b">
+    <meta
+      name="description"
+      content="Full public 13F position weights for the AlloIQ AI Thesis Core: Situational Awareness, Altimeter, and Dragoneer."
+    >
+    <title>AI Thesis Core Positions | AlloIQ</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    >
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="AlloIQ home">
+          <span class="brand-mark">
+            <span>A</span>
+            <span>IQ</span>
+          </span>
+          <span>
+            <strong class="brand-wordmark"><span>Allo</span><span class="brand-iq">IQ</span></strong>
+            <small class="brand-system">AI markets intelligence</small>
+          </span>
+        </a>
+        <div class="topbar-meta">
+          <span id="coreDate">Loading</span>
+          <span class="badge">Public 13F</span>
+          <a class="topbar-link" href="/">Investor OS</a>
+        </div>
+      </header>
+
+      <main class="core-page">
+        <section class="core-hero">
+          <div>
+            <p class="eyebrow">alloiq.com / ai thesis core</p>
+            <h1>AI Thesis Core Positions</h1>
+            <p>
+              Full public 13F common-stock position weights for Situational Awareness,
+              Altimeter, and Dragoneer, benchmarked against the Geoffrey Woo Portfolio.
+            </p>
+          </div>
+          <div class="portfolio-hero-actions">
+            <button id="copyCoreButton" class="primary-button" type="button">Copy core CSV</button>
+            <a class="secondary-button" href="/portfolio">GW Portfolio</a>
+          </div>
+        </section>
+
+        <p class="notice">
+          Public research only. Filings are delayed 13F snapshots and omit non-13F assets, shorts,
+          private marks, and intraday trading. Fund holdings are published as weights only.
+        </p>
+
+        <section id="coreSummary" class="portfolio-summary-grid" aria-label="AI Thesis Core summary"></section>
+
+        <section class="panel core-overlap-panel">
+          <div class="panel-head">
+            <h3>Three-Fund Overlap Map</h3>
+            <span>Shared symbols and Geoffrey Woo Portfolio context</span>
+          </div>
+          <div id="coreOverlapList" class="core-overlap-list"></div>
+        </section>
+
+        <section id="coreManagerList" class="core-manager-list" aria-label="Full AI Thesis Core positions"></section>
+      </main>
+
+      <footer class="site-footer">
+        <span>Public research. Manager positions are delayed 13F weights, not live trades or private records.</span>
+        <a href="https://x.com/geoffreywoo" target="_blank" rel="noreferrer">Created by @geoffreywoo</a>
+      </footer>
+    </div>
+
+    <script src="/ai-thesis-core.js" type="module"></script>
+  </body>
+</html>

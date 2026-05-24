@@ -46,12 +46,25 @@ class SiteTests(unittest.TestCase):
                         "symbol_coverage_pct": 100,
                         "top_positions": [
                             {
+                                "rank": 1,
                                 "symbol": "NVDA",
                                 "issuer": "NVIDIA CORP",
                                 "bucket": "semis_networking_hbm",
                                 "fund_weight": 1.0,
                                 "portfolio_weight": 1.0,
                                 "value": 1000000,
+                            }
+                        ],
+                        "positions": [
+                            {
+                                "rank": 1,
+                                "symbol": "NVDA",
+                                "issuer": "NVIDIA CORP",
+                                "bucket": "semis_networking_hbm",
+                                "fund_weight": 1.0,
+                                "portfolio_weight": 1.0,
+                                "value": 1000000,
+                                "shares": 10,
                             }
                         ],
                     }
@@ -72,6 +85,9 @@ class SiteTests(unittest.TestCase):
         self.assertEqual(public["decision_cards"][0]["portfolio_weight"], 1.0)
         self.assertNotIn("total_common_value", public["manager_radar"]["focus_managers"][0])
         self.assertNotIn("value", public["manager_radar"]["focus_managers"][0]["top_positions"][0])
+        self.assertEqual(public["manager_radar"]["focus_managers"][0]["positions"][0]["rank"], 1)
+        self.assertNotIn("value", public["manager_radar"]["focus_managers"][0]["positions"][0])
+        self.assertNotIn("shares", public["manager_radar"]["focus_managers"][0]["positions"][0])
         self.assertEqual(public["manager_radar"]["focus_manager_groups"][0]["key"], "tier_1")
         self.assertNotIn(
             "value",

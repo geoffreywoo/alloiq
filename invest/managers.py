@@ -124,6 +124,7 @@ def build_focus_manager_tracking(
                     "default_portfolio_overlap_pct": 0.0,
                     "top10_concentration_pct": 0.0,
                     "top_positions": [],
+                    "positions": [],
                 }
             )
             continue
@@ -194,18 +195,9 @@ def render_focus_manager(
     )
     sorted_positions = sorted(by_position.values(), key=lambda row: row["value"], reverse=True)
     top10_value = sum((row["value"] for row in sorted_positions[:10]), Decimal("0"))
-    top_positions = [
-        {
-            "symbol": row["symbol"],
-            "issuer": row["issuer"],
-            "bucket": row["bucket"],
-            "fund_weight": round(decimal_ratio(row["value"], total), 6),
-            "portfolio_weight": round(float(portfolio_weights_by_symbol.get(row["symbol"], 0.0)), 6)
-            if row["symbol"]
-            else 0.0,
-            "value": float(row["value"]),
-        }
-        for row in sorted_positions[:10]
+    positions = [
+        render_focus_position(index, row, total, portfolio_weights_by_symbol)
+        for index, row in enumerate(sorted_positions, start=1)
     ]
     tier = manager_tier(manager_key, manager, tier_map)
     return {
@@ -227,7 +219,26 @@ def render_focus_manager(
         "bucket_classified_pct": round(decimal_pct(bucket_value, total), 2),
         "default_portfolio_overlap_pct": round(decimal_pct(portfolio_overlap_value, total), 2),
         "top10_concentration_pct": round(decimal_pct(top10_value, total), 2),
-        "top_positions": top_positions,
+        "top_positions": positions[:10],
+        "positions": positions,
+    }
+
+
+def render_focus_position(
+    rank: int,
+    row: dict[str, Any],
+    total: Decimal,
+    portfolio_weights_by_symbol: dict[str, float],
+) -> dict[str, Any]:
+    symbol = str(row["symbol"] or "").upper()
+    return {
+        "rank": rank,
+        "symbol": symbol,
+        "issuer": row["issuer"],
+        "bucket": row["bucket"],
+        "fund_weight": round(decimal_ratio(row["value"], total), 6),
+        "portfolio_weight": round(float(portfolio_weights_by_symbol.get(symbol, 0.0)), 6) if symbol else 0.0,
+        "value": float(row["value"]),
     }
 
 

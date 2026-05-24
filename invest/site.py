@@ -172,16 +172,28 @@ def sanitize_focus_manager(row: dict[str, Any]) -> dict[str, Any]:
     clean = normalize_focus_manager_label(row)
     clean.pop("total_common_value", None)
     clean["top_positions"] = [
-        {
-            "symbol": position.get("symbol", ""),
-            "issuer": position.get("issuer", ""),
-            "bucket": position.get("bucket", "unmapped"),
-            "fund_weight": round(float(position.get("fund_weight") or 0), 6),
-            "portfolio_weight": round(float(position.get("portfolio_weight") or 0), 6),
-        }
+        sanitize_manager_position(position)
         for position in clean.get("top_positions", [])
     ]
+    if clean.get("manager_tier") == "tier_1":
+        clean["positions"] = [
+            sanitize_manager_position(position)
+            for position in clean.get("positions", clean.get("top_positions", []))
+        ]
+    else:
+        clean.pop("positions", None)
     return clean
+
+
+def sanitize_manager_position(position: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "rank": int(position.get("rank") or 0),
+        "symbol": position.get("symbol", ""),
+        "issuer": position.get("issuer", ""),
+        "bucket": position.get("bucket", "unmapped"),
+        "fund_weight": round(float(position.get("fund_weight") or 0), 6),
+        "portfolio_weight": round(float(position.get("portfolio_weight") or 0), 6),
+    }
 
 
 def build_public_focus_manager_groups(focus_managers: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -378,7 +390,20 @@ def ensure_static_assets(out_dir: Path) -> None:
     source_dir = DEFAULT_WEB_DIR
     if out_dir.resolve() == source_dir.resolve():
         return
-    for name in ("index.html", "portfolio.html", "styles.css", "app.js", "portfolio.js", "favicon.svg", "logo.svg", "manifest.webmanifest", "robots.txt", "sitemap.xml"):
+    for name in (
+        "index.html",
+        "portfolio.html",
+        "ai-thesis-core.html",
+        "styles.css",
+        "app.js",
+        "portfolio.js",
+        "ai-thesis-core.js",
+        "favicon.svg",
+        "logo.svg",
+        "manifest.webmanifest",
+        "robots.txt",
+        "sitemap.xml",
+    ):
         source = source_dir / name
         if source.exists():
             shutil.copyfile(source, out_dir / name)

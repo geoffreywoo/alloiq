@@ -469,6 +469,18 @@ h3 {
   letter-spacing: 0;
 }
 
+.panel-link {
+  color: var(--blue);
+  font-size: 0.88rem;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.panel-link:hover {
+  text-decoration: underline;
+}
+
 .context-panel {
   margin-top: 16px;
 }
@@ -1171,7 +1183,8 @@ h3 {
   padding: clamp(18px, 3vw, 36px);
 }
 
-.portfolio-hero {
+.portfolio-hero,
+.core-hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 24px;
@@ -1179,11 +1192,13 @@ h3 {
   padding: 22px 0 6px;
 }
 
-.portfolio-hero h1 {
+.portfolio-hero h1,
+.core-hero h1 {
   max-width: 780px;
 }
 
-.portfolio-hero p {
+.portfolio-hero p,
+.core-hero p {
   max-width: 760px;
   margin: 10px 0 0;
   color: var(--muted);
@@ -1429,6 +1444,171 @@ h3 {
   line-height: 1.35;
 }
 
+.core-page {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding: clamp(18px, 3vw, 36px);
+}
+
+.core-overlap-list,
+.core-manager-list {
+  display: grid;
+  gap: 12px;
+}
+
+.core-overlap-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.8fr) minmax(220px, 1.3fr) minmax(120px, 0.55fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-alt);
+}
+
+.core-overlap-symbol strong,
+.core-overlap-symbol span,
+.core-overlap-metrics span,
+.core-overlap-metrics strong,
+.core-overlap-metrics small {
+  display: block;
+}
+
+.core-overlap-symbol span,
+.core-overlap-bar small,
+.core-overlap-metrics span,
+.core-overlap-metrics small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.core-overlap-bar {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.core-overlap-metrics {
+  text-align: right;
+}
+
+.core-manager-panel {
+  overflow: hidden;
+}
+
+.core-manager-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, auto);
+  gap: 18px;
+  align-items: start;
+  margin-bottom: 14px;
+}
+
+.core-manager-head h2 {
+  margin-bottom: 8px;
+}
+
+.core-manager-head p {
+  margin-bottom: 0;
+  color: var(--muted);
+}
+
+.core-manager-meta {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+.core-manager-meta a {
+  color: var(--blue);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.core-manager-meta a:hover {
+  text-decoration: underline;
+}
+
+.core-manager-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.core-manager-metrics article {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-alt);
+}
+
+.core-manager-metrics span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.core-manager-metrics strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 1.08rem;
+}
+
+.core-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.core-position-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.core-position-table th,
+.core-position-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.core-position-table th {
+  background: var(--surface-alt);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.core-position-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.core-position-table td:first-child {
+  color: var(--muted);
+  font-family: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.78rem;
+}
+
+.core-position-table td span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .empty {
   padding: 18px;
   border: 1px dashed var(--line);
@@ -1495,12 +1675,18 @@ h3 {
     grid-template-columns: 1fr;
   }
 
-  .portfolio-hero {
+  .portfolio-hero,
+  .core-hero,
+  .core-manager-head {
     grid-template-columns: 1fr;
   }
 
   .portfolio-hero-actions {
     justify-content: flex-start;
+  }
+
+  .core-manager-meta {
+    text-align: left;
   }
 
 }
@@ -1550,6 +1736,15 @@ h3 {
 
   .portfolio-weight-row {
     grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .core-overlap-row,
+  .core-manager-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .core-overlap-metrics {
+    text-align: left;
   }
 
   .portfolio-weight-visual,

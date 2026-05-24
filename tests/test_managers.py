@@ -90,6 +90,10 @@ class ManagerRadarTests(unittest.TestCase):
         self.assertEqual(focus["top10_concentration_pct"], 100.0)
         self.assertEqual(focus["top_positions"][0]["symbol"], "NVDA")
         self.assertEqual(focus["top_positions"][0]["portfolio_weight"], 0.25)
+        self.assertEqual(len(focus["positions"]), 2)
+        self.assertEqual(focus["positions"][0]["rank"], 1)
+        self.assertEqual(focus["positions"][0]["value"], 60.0)
+        self.assertEqual(focus["positions"][1]["issuer"], "Unresolved Private Mapping")
         self.assertEqual(radar["focus_manager_groups"][0]["key"], "tier_1")
         self.assertEqual(radar["focus_manager_groups"][0]["managers"][0]["manager_key"], "altimeter")
 

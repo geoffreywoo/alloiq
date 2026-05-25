@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .managers import manager_group_label
+from .symbols import equivalent_symbols
 from .util import ensure_dir
 
 
@@ -20,8 +21,11 @@ BENCHMARK_NAME_MAP = {
 ANTI_FUND_GROWTH_I = {
     "name": "Anti Fund Growth I, LP",
     "as_of": "May 24, 2026",
-    "basis": "active_growth_book_weight",
-    "description": "Private-growth company weights, normalized to the active Growth I book. Sizes, shares, PPS, account records, and raw LP model fields are excluded.",
+    "basis": "affiliated_private_growth_book_weight",
+    "category": "affiliated_private_fund",
+    "marketing_url": "https://antifund.com",
+    "relationship": "Geoffrey Woo's affiliated private tech crossover fund.",
+    "description": "Geoffrey Woo's affiliated private tech crossover fund, shown below the public-stock portfolio weights. The Anti Fund link is marketing context; Growth I is not a public-stock fund. Sizes, shares, PPS, account records, and raw LP model fields are excluded.",
     "positions": [
         {"company": "OpenAI", "weight": 0.393107},
         {"company": "Cognition", "weight": 0.179038},
@@ -121,11 +125,24 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
     public_payload["portfolio_benchmark"] = sanitize_portfolio_benchmark(
         public_payload.get("portfolio_benchmark") or {}
     )
+    public_payload["feature_matrix"] = sanitize_public_section(public_payload.get("feature_matrix") or {})
+    public_payload["company_underwriting"] = sanitize_public_section(public_payload.get("company_underwriting") or {})
+    public_payload["sector_underwriting"] = sanitize_public_section(public_payload.get("sector_underwriting") or {})
+    public_payload["research_book"] = sanitize_public_section(public_payload.get("research_book") or {})
+    public_payload["outcome_diagnostics"] = sanitize_public_section(public_payload.get("outcome_diagnostics") or {})
+    public_payload["backtest"] = sanitize_public_section(public_payload.get("backtest") or {})
+    public_payload["external_signals"] = sanitize_public_section(
+        public_payload.get("external_signals") or default_external_signals(public_payload)
+    )
+    public_payload["instrumentation_audit"] = sanitize_public_section(public_payload.get("instrumentation_audit") or {})
+    public_payload.pop("recommendation_training_examples", None)
     public_payload["decision_cards"] = [
         sanitize_card(card, portfolio_weights) for card in public_payload.get("decision_cards", [])
     ]
     public_payload["ideas"] = [sanitize_idea(idea) for idea in public_payload.get("ideas", [])]
     public_payload["approval_tickets"] = sanitize_approval_tickets(public_payload.get("approval_tickets", []))
+    public_payload["recommendation_explanations"] = sanitize_public_section(public_payload.get("recommendation_explanations") or [])
+    public_payload["review_queue"] = sanitize_public_section(public_payload.get("review_queue") or [])
     public_payload["earnings_events"] = sanitize_earnings_events(public_payload.get("earnings_events", []))
     public_payload["data_health"] = sanitize_data_health(
         public_payload.get("data_health") or default_data_health(public_payload)
@@ -158,12 +175,25 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
 
 
 def sanitize_portfolio(portfolio: dict[str, Any]) -> dict[str, Any]:
+    cash_weight = round(float(portfolio.get("cash_weight") or 0), 6)
+    equity_weight = round(float(portfolio.get("equity_weight", 1.0 - cash_weight) or 0), 6)
     return {
         "display_name": PORTFOLIO_DISPLAY_NAME,
         "private_redacted": True,
         "value_basis": "weights_only",
+        "weight_basis": portfolio.get("weight_basis", "total_portfolio_including_cash"),
         "position_count": portfolio.get("position_count", 0),
         "symbol_count": portfolio.get("symbol_count", 0),
+        "security_symbol_count": portfolio.get("security_symbol_count", portfolio.get("symbol_count", 0)),
+        "cash_weight": cash_weight,
+        "equity_weight": equity_weight,
+        "cash_reserves": {
+            "symbol": "CASH",
+            "bucket": "cash_reserves",
+            "asset_class": "cash",
+            "weight": cash_weight,
+            "policy": "available_for_capped_high_conviction_adds",
+        },
         "by_bucket": [
             {
                 "bucket": row.get("bucket", "unmapped"),
@@ -175,6 +205,8 @@ def sanitize_portfolio(portfolio: dict[str, Any]) -> dict[str, Any]:
             {
                 "symbol": row.get("symbol", ""),
                 "bucket": row.get("bucket", "unmapped"),
+                "asset_class": row.get("asset_class", "cash" if row.get("is_cash") else "equity"),
+                "is_cash": bool(row.get("is_cash", False)),
                 "weight": round(float(row.get("weight") or 0), 6),
             }
             for row in portfolio.get("by_symbol", [])
@@ -225,7 +257,7 @@ def normalize_manager_radar_labels(radar: dict[str, Any]) -> dict[str, Any]:
 def normalize_focus_manager_label(row: dict[str, Any]) -> dict[str, Any]:
     clean = dict(row)
     if clean.get("manager_key") == "d1-capital":
-        clean["manager_tier"] = "tier_1"
+        clean["manager_tier"] = "tier_2"
     clean["manager_group"] = manager_group_label(str(clean.get("manager_tier") or "tier_2"))
     return clean
 
@@ -281,7 +313,7 @@ def build_public_focus_manager_groups(focus_managers: list[dict[str, Any]]) -> l
         {
             "key": "tier_1",
             "label": manager_group_label("tier_1"),
-            "description": "Situational Awareness / Leopold, Altimeter, Dragoneer, and D1.",
+            "description": "Situational Awareness / Leopold, Altimeter, and Dragoneer.",
             "managers": [row for row in focus_managers if row.get("manager_tier") == "tier_1"],
         },
         {
@@ -295,11 +327,15 @@ def build_public_focus_manager_groups(focus_managers: list[dict[str, Any]]) -> l
 
 
 def portfolio_weight_by_symbol(portfolio: dict[str, Any]) -> dict[str, float]:
-    return {
-        str(row.get("symbol", "")).upper(): float(row.get("weight") or 0)
-        for row in portfolio.get("by_symbol", [])
-        if row.get("symbol")
-    }
+    weights: dict[str, float] = {}
+    for row in portfolio.get("by_symbol", []):
+        symbol = str(row.get("symbol", "")).upper()
+        if not symbol:
+            continue
+        weight = float(row.get("weight") or 0)
+        for candidate in equivalent_symbols(symbol):
+            weights[candidate] = weights.get(candidate, 0.0) + weight
+    return weights
 
 
 def portfolio_weight_by_bucket(portfolio: dict[str, Any]) -> dict[str, float]:
@@ -493,7 +529,7 @@ def default_methodology(payload: dict[str, Any]) -> dict[str, Any]:
                 {"key": "broker_sync", "label": "Private position sync", "source": "Private read-only position feed plus optional manual sleeves"},
                 {"key": "news", "label": "Catalyst classification", "source": "Configured RSS/news queries and event rules"},
                 {"key": "prices", "label": "Price and return windows", "source": "Public chart data for watchlist and macro symbols"},
-                {"key": "earnings", "label": "Earnings and filing windows", "source": "Manual dates, SEC company submissions, and news-derived guidance signals"},
+                {"key": "earnings", "label": "Earnings and filing windows", "source": "Manual dates, company IR feeds, Alpha Vantage/Nasdaq expected-date providers, SEC company submissions, and news-derived guidance signals"},
                 {"key": "risk", "label": "Risk and sizing controls", "source": "Configured portfolio limits before publishing tickets"},
                 {"key": "privacy", "label": "Public sanitizer", "source": "Weights-only JSON and privacy scan"},
                 {"key": "warehouse", "label": "Private warehouse sync", "source": "Neon Postgres run history and decision ledger"},
@@ -556,7 +592,7 @@ def default_calendars(payload: dict[str, Any]) -> dict[str, Any]:
             "events": events,
             "event_count": len(events),
             "source_quality": "ok" if events else "limited",
-            "policy": "Manual dates are canonical; SEC/result markers and news-derived events enrich risk windows.",
+            "policy": "Manual and company IR dates are canonical; Alpha Vantage and Nasdaq provide estimated forward dates; SEC/result markers and news-derived events enrich risk windows.",
         },
         "filings_13f": {
             "rule": "Form 13F is due within 45 days after each calendar quarter end; weekend/holiday deadlines move to the next NYSE business day.",
@@ -639,6 +675,21 @@ def default_audit(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def default_external_signals(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "version": "derived-from-public-snapshot",
+        "as_of": payload.get("as_of", ""),
+        "status": "limited",
+        "summary": "No external signal provider snapshot was bundled with this public report.",
+        "provider_count": 0,
+        "signal_count": 0,
+        "source_statuses": [],
+        "top_signals": [],
+        "by_symbol": {},
+        "global": {},
+    }
+
+
 def default_data_health(payload: dict[str, Any]) -> dict[str, Any]:
     portfolio = payload.get("portfolio") or {}
     manager_radar = payload.get("manager_radar") or {}
@@ -689,6 +740,8 @@ def strip_private_keys(value: Any) -> Any:
         "market_value",
         "notional",
         "portfolio_value",
+        "private_note",
+        "private_notes",
         "positions",
         "quantity",
         "raw",
@@ -865,11 +918,17 @@ def ensure_static_assets(out_dir: Path) -> None:
         "index.html",
         "dashboard.html",
         "portfolio.html",
+        "research.html",
+        "optimizer.html",
+        "backtest.html",
         "ai-thesis-core.html",
         "styles.css",
         "home.js",
         "app.js",
         "portfolio.js",
+        "research.js",
+        "optimizer.js",
+        "backtest.js",
         "ai-thesis-core.js",
         "favicon.svg",
         "logo.svg",

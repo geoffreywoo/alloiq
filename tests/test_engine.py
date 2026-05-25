@@ -1,7 +1,7 @@
 from datetime import date
 import unittest
 
-from invest.engine import build_engine_snapshot, build_learning_state
+from invest.engine import ENGINE_POLICY_VERSION, build_engine_snapshot, build_learning_state
 
 
 class EngineTests(unittest.TestCase):
@@ -37,7 +37,7 @@ class EngineTests(unittest.TestCase):
             {"max_single_name_weight": 0.15},
         )
 
-        self.assertEqual(engine["version"], "2026-05-equity-max-return-v1")
+        self.assertEqual(engine["version"], ENGINE_POLICY_VERSION)
         self.assertEqual(engine["ranked_candidates"][0]["symbol"], "NVDA")
         self.assertEqual(engine["optimizer"]["allocations"][0]["recommended_delta_weight"], 0.01)
         self.assertEqual(engine["live_order_execution"], "disabled")
@@ -47,6 +47,18 @@ class EngineTests(unittest.TestCase):
 
         self.assertEqual(learning["status"], "baseline_fallback")
         self.assertEqual(learning["minimum_required"], 20)
+
+    def test_learning_tracks_but_does_not_train_on_five_day_labels(self):
+        learning = build_learning_state(
+            [
+                {"horizon": "5d", "forward_return_pct": 10, "expected_return_score": 40, "signal_families": ["manager"]}
+                for _ in range(25)
+            ]
+        )
+
+        self.assertEqual(learning["status"], "baseline_fallback")
+        self.assertEqual(learning["outcome_count"], 0)
+        self.assertEqual(learning["short_horizon_outcome_count"], 25)
 
 
 if __name__ == "__main__":

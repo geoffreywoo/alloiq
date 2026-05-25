@@ -63,10 +63,12 @@ def schedule_health(session: str) -> dict[str, Any]:
 def calendar_health(calendars: dict[str, Any]) -> dict[str, Any]:
     earnings = calendars.get("earnings") or {}
     filings = calendars.get("filings_13f") or {}
+    earnings_quality = earnings.get("source_quality", "unknown")
+    earnings_ok = earnings.get("event_count") and earnings_quality in {"ok", "estimated"}
     return {
-        "status": "ok" if earnings.get("event_count") and filings.get("manager_count") else "limited",
+        "status": "ok" if earnings_ok and filings.get("manager_count") else "limited",
         "earnings_event_count": earnings.get("event_count", 0),
-        "earnings_source_quality": earnings.get("source_quality", "unknown"),
+        "earnings_source_quality": earnings_quality,
         "filing_cycle": (filings.get("current_cycle") or {}).get("label", ""),
         "filing_deadline": (filings.get("current_cycle") or {}).get("deadline", ""),
         "filing_late_count": filings.get("late_count", 0),
@@ -93,8 +95,11 @@ def data_gaps(data_health: dict[str, Any], calendars: dict[str, Any], engine: di
     for source in data_health.get("sources", []):
         if source.get("status") in {"missing", "stale", "limited"}:
             gaps.append({"area": "source", "label": source.get("label", ""), "status": source.get("status", ""), "detail": source.get("detail", "")})
-    if not (calendars.get("earnings") or {}).get("event_count"):
+    earnings = calendars.get("earnings") or {}
+    if not earnings.get("event_count"):
         gaps.append({"area": "calendar", "label": "Earnings calendar", "status": "limited", "detail": "No earnings events available."})
+    elif earnings.get("source_quality") == "limited":
+        gaps.append({"area": "calendar", "label": "Earnings calendar", "status": "limited", "detail": "Only catalyst/result markers are available; no forward earnings-date provider matched."})
     if (engine.get("learning") or {}).get("status") == "baseline_fallback":
         gaps.append({"area": "engine", "label": "Learning reranker", "status": "baseline_fallback", "detail": (engine.get("learning") or {}).get("message", "")})
     return gaps

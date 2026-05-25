@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+from .symbols import proxied_lookup, proxy_index
 from .util import stable_id
 
 
@@ -17,8 +18,8 @@ def build_paper_portfolio(
     cards: list[dict[str, Any]],
     outcome_history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    card_by_symbol = {str(card.get("symbol") or "").upper(): card for card in cards}
-    trades = [paper_trade_from_ticket(as_of, session, ticket, card_by_symbol.get(str(ticket.get("symbol") or "").upper(), {})) for ticket in approval_tickets]
+    card_by_symbol = proxy_index(cards)
+    trades = [paper_trade_from_ticket(as_of, session, ticket, proxied_lookup(card_by_symbol, ticket.get("symbol"), {})) for ticket in approval_tickets]
     snapshots = paper_weight_snapshots(portfolio, trades)
     return {
         "version": PAPER_POLICY_VERSION,

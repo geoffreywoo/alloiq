@@ -17,16 +17,19 @@ class BrokerParserTests(unittest.TestCase):
         self.assertEqual(transactions[0].symbol, "NVDA")
         self.assertEqual(transactions[1].action, "SELL")
         self.assertEqual(transactions[2].action, "DIVIDEND")
-        self.assertEqual(len(positions), 1)
+        self.assertEqual(len(positions), 2)
         self.assertEqual(positions[0].symbol, "NVDA")
+        self.assertEqual(positions[1].symbol, "CASH")
+        self.assertEqual(str(positions[1].market_value), "900")
 
     def test_ibkr_flex_summary_is_safe_for_status_output(self):
         summary = summarize_flex_xml(FIXTURES / "ibkr_flex.xml")
 
         self.assertEqual(summary["accounts"], ["SIM-ACCOUNT"])
         self.assertEqual(summary["transaction_count"], 3)
-        self.assertEqual(summary["position_count"], 1)
+        self.assertEqual(summary["position_count"], 2)
         self.assertIn("NVDA", summary["symbols"])
+        self.assertIn("CASH", summary["symbols"])
 
     def test_ibkr_action_text_wins_over_quantity_sign(self):
         self.assertEqual(normalize_ibkr_action({"buySell": "SELL", "quantity": "10"}), "SELL")

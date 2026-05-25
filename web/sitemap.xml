@@ -10,6 +10,15 @@
     <loc>https://alloiq.com/dashboard</loc>
   </url>
   <url>
+    <loc>https://alloiq.com/research</loc>
+  </url>
+  <url>
+    <loc>https://alloiq.com/optimizer</loc>
+  </url>
+  <url>
+    <loc>https://alloiq.com/backtest</loc>
+  </url>
+  <url>
     <loc>https://alloiq.com/ai-thesis-core</loc>
   </url>
 </urlset>

@@ -41,21 +41,31 @@
       </header>
 
       <main class="layout">
-        <nav class="rail" aria-label="Primary views">
-          <a class="rail-button rail-link" href="/">Home</a>
-          <button class="rail-button active" data-view="dashboard" type="button" aria-current="page">Today</button>
-          <a class="rail-button rail-link" href="/portfolio">GW Portfolio</a>
-          <button class="rail-button" data-view="moves" type="button">Trade Feed</button>
-          <button class="rail-button" data-view="research" type="button">Study Queue</button>
-          <button class="rail-button" data-view="earnings" type="button">Catalysts</button>
-          <button class="rail-button" data-view="managers" type="button">Managers</button>
-          <a class="rail-button rail-link" href="/ai-thesis-core">AI Core</a>
-          <button class="rail-button" data-view="macro" type="button">Macro</button>
-          <button class="rail-button" data-view="news" type="button">News</button>
-          <button class="rail-button" data-view="method" type="button">Method</button>
-          <button class="rail-button" data-view="audit" type="button">Audit</button>
-          <button class="rail-button" data-view="calendar" type="button">Calendar</button>
-          <button class="rail-button" data-view="engine" type="button">Engine</button>
+        <nav class="rail" aria-label="Primary navigation">
+          <div class="rail-section">
+            <span class="rail-section-label">Pages</span>
+            <a class="rail-button rail-link" href="/">Home</a>
+            <a class="rail-button rail-link rail-parent-active" href="/dashboard">Trade OS</a>
+            <a class="rail-button rail-link" href="/portfolio">GW Portfolio</a>
+            <a class="rail-button rail-link" href="/research">Research Book</a>
+            <a class="rail-button rail-link" href="/optimizer">Optimizer</a>
+            <a class="rail-button rail-link" href="/backtest">Backtest</a>
+            <a class="rail-button rail-link" href="/ai-thesis-core">AI Core</a>
+          </div>
+          <div class="rail-section">
+            <span class="rail-section-label">Trade OS</span>
+            <a class="rail-button rail-subbutton active" href="/dashboard#dashboard" data-view="dashboard" aria-current="page">Today</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#moves" data-view="moves">Trade Feed</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#research" data-view="research">Study Queue</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#earnings" data-view="earnings">Catalysts</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#managers" data-view="managers">Managers</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#macro" data-view="macro">Macro</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#news" data-view="news">News</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#method" data-view="method">Method</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#audit" data-view="audit">Audit</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#calendar" data-view="calendar">Calendar</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#engine" data-view="engine">Engine</a>
+          </div>
         </nav>
 
         <section class="content">
@@ -204,17 +214,27 @@
             </div>
             <section class="panel focus-panel">
               <div class="panel-head">
-                <h3>Anti Fund Growth I, LP</h3>
-                <span id="antiFundGrowthSummary">Private-growth weights</span>
-              </div>
-              <div id="antiFundGrowthWeights" class="private-weight-grid"></div>
-            </section>
-            <section class="panel focus-panel">
-              <div class="panel-head">
                 <h3>Focus Fund Tracking %</h3>
                 <a class="panel-link" href="/ai-thesis-core">Full AI Thesis Core positions</a>
               </div>
               <div id="focusManagerGrid" class="focus-grid"></div>
+            </section>
+            <section class="panel focus-panel affiliated-fund-panel" aria-labelledby="antiFundGrowthTitle">
+              <div class="panel-head affiliated-fund-head">
+                <div>
+                  <span class="section-kicker">Affiliated fund</span>
+                  <h3 id="antiFundGrowthTitle">Anti Fund Growth I, LP</h3>
+                </div>
+                <a id="antiFundGrowthLink" class="panel-link" href="https://antifund.com" target="_blank" rel="noreferrer">antifund.com</a>
+              </div>
+              <p id="antiFundGrowthDescription" class="affiliated-fund-copy">
+                Geoffrey Woo's affiliated private tech crossover fund. Growth I is not a public-stock fund or 13F manager.
+              </p>
+              <div class="affiliated-fund-meta">
+                <span id="antiFundGrowthSummary">Private-growth weights</span>
+                <span>Secondary to public positions</span>
+              </div>
+              <div id="antiFundGrowthWeights" class="private-weight-grid"></div>
             </section>
             <div class="split">
               <section class="panel">
@@ -255,6 +275,14 @@
               <span>Linked sources by symbol and theme</span>
             </div>
             <div id="newsList" class="news-list"></div>
+            <section class="panel">
+              <div class="panel-head">
+                <h3>External Signal Feeds</h3>
+                <span>Alpha Vantage, GDELT, SEC, EIA, FINRA, and CFTC</span>
+              </div>
+              <div id="externalSourceList" class="list"></div>
+              <div id="externalSignalList" class="list"></div>
+            </section>
           </section>
 
           <section class="view" id="method" aria-labelledby="methodTitle">

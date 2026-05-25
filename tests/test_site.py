@@ -59,6 +59,22 @@ class SiteTests(unittest.TestCase):
                 "ranked_candidates": [{"symbol": "NVDA", "raw_json": {"account": "U123"}, "expected_return_rank_score": 55}],
                 "optimizer": {"allocations": [{"symbol": "NVDA", "estimated_notional": 1000}]},
             },
+            "feature_matrix": {
+                "rows": [{"symbol": "NVDA", "current_weight": 0.1, "raw": {"account": "U123"}, "private_notes": "secret"}],
+            },
+            "research_book": {
+                "items": [{"symbol": "NVDA", "risk_adjusted_expected_return": 20, "private_notes": "secret"}],
+            },
+            "outcome_diagnostics": {
+                "current_training_example_count": 1,
+                "raw": {"account": "U123"},
+            },
+            "backtest": {
+                "trial_count": 1,
+                "raw": {"account": "U123"},
+                "outcomes": [{"symbol": "NVDA", "estimated_shares": 2, "decision_forward_return_pct": 10}],
+            },
+            "recommendation_training_examples": [{"symbol": "NVDA", "current_weight": 0.1}],
             "paper_portfolio": {
                 "paper_trades": [{"symbol": "NVDA", "estimated_shares": 2, "target_weight": 0.11}],
             },
@@ -118,7 +134,36 @@ class SiteTests(unittest.TestCase):
                                 "valuation_confidence": "low",
                             }
                         ],
-                    }
+                    },
+                    {
+                        "manager_key": "d1-capital",
+                        "manager_name": "D1 Capital Partners L.P.",
+                        "manager_tier": "tier_1",
+                        "manager_group": "AI Thesis Core",
+                        "top_positions": [
+                            {
+                                "rank": 1,
+                                "symbol": "META",
+                                "issuer": "META PLATFORMS INC",
+                                "bucket": "frontier_ai_platforms",
+                                "fund_weight": 1.0,
+                                "portfolio_weight": 0.0,
+                                "value": 1000000,
+                            }
+                        ],
+                        "positions": [
+                            {
+                                "rank": 1,
+                                "symbol": "META",
+                                "issuer": "META PLATFORMS INC",
+                                "bucket": "frontier_ai_platforms",
+                                "fund_weight": 1.0,
+                                "portfolio_weight": 0.0,
+                                "value": 1000000,
+                                "shares": 10,
+                            }
+                        ],
+                    },
                 ]
             },
         }
@@ -140,11 +185,19 @@ class SiteTests(unittest.TestCase):
         self.assertNotIn("value", public["manager_radar"]["focus_managers"][0]["positions"][0])
         self.assertNotIn("shares", public["manager_radar"]["focus_managers"][0]["positions"][0])
         self.assertEqual(public["manager_radar"]["focus_manager_groups"][0]["key"], "tier_1")
+        d1 = next(row for row in public["manager_radar"]["focus_managers"] if row["manager_key"] == "d1-capital")
+        self.assertEqual(d1["manager_tier"], "tier_2")
+        self.assertEqual(d1["manager_group"], "Manager Context Bench")
+        self.assertNotIn("positions", d1)
+        self.assertNotIn("D1", public["manager_radar"]["focus_manager_groups"][0]["description"])
         self.assertNotIn(
             "value",
             public["manager_radar"]["focus_manager_groups"][0]["managers"][0]["top_positions"][0],
         )
         self.assertEqual(public["product"]["domain"], "alloiq.com")
+        self.assertEqual(public["anti_fund_growth"]["category"], "affiliated_private_fund")
+        self.assertEqual(public["anti_fund_growth"]["marketing_url"], "https://antifund.com")
+        self.assertIn("not a public-stock fund", public["anti_fund_growth"]["description"])
         self.assertEqual(public["recommended_moves"][0]["action"], "Core position review")
         self.assertNotIn("estimated_notional", public["approval_tickets"][0])
         self.assertNotIn("estimated_shares", public["approval_tickets"][0])
@@ -160,6 +213,11 @@ class SiteTests(unittest.TestCase):
         self.assertNotIn("raw", json.dumps(public["audit"]))
         self.assertNotIn("account", json.dumps(public["calendars"]))
         self.assertNotIn("raw_json", json.dumps(public["engine"]))
+        self.assertNotIn("private_notes", json.dumps(public["feature_matrix"]))
+        self.assertNotIn("private_notes", json.dumps(public["research_book"]))
+        self.assertNotIn("estimated_shares", json.dumps(public["backtest"]))
+        self.assertNotIn("account", json.dumps(public["backtest"]))
+        self.assertNotIn("recommendation_training_examples", public)
         self.assertNotIn("estimated_shares", json.dumps(public["paper_portfolio"]))
         self.assertNotIn("portfolio_valuation_private", public)
         self.assertEqual(

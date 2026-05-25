@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 from .config import AppConfig
+from .symbols import equivalent_symbols, sum_equivalent_values
 
 
 def configured_manager_keys(config: AppConfig) -> list[str]:
@@ -177,8 +178,17 @@ def render_focus_manager(
             position["bucket"] = bucket
 
     total = sum((row["value"] for row in by_position.values()), Decimal("0"))
-    watchlist = set(config.watchlist_symbols)
-    portfolio_symbols = {symbol.upper() for symbol, weight in portfolio_weights_by_symbol.items() if weight}
+    watchlist = {
+        candidate
+        for symbol in config.watchlist_symbols
+        for candidate in equivalent_symbols(symbol)
+    }
+    portfolio_symbols = {
+        candidate
+        for symbol, weight in portfolio_weights_by_symbol.items()
+        if weight
+        for candidate in equivalent_symbols(symbol)
+    }
     resolved_value = sum((row["value"] for row in by_position.values() if row["symbol"]), Decimal("0"))
     watchlist_value = sum((row["value"] for row in by_position.values() if row["symbol"] in watchlist), Decimal("0"))
     bucket_value = sum(
@@ -237,7 +247,7 @@ def render_focus_position(
         "issuer": row["issuer"],
         "bucket": row["bucket"],
         "fund_weight": round(decimal_ratio(row["value"], total), 6),
-        "portfolio_weight": round(float(portfolio_weights_by_symbol.get(symbol, 0.0)), 6) if symbol else 0.0,
+        "portfolio_weight": round(float(sum_equivalent_values(portfolio_weights_by_symbol, symbol, 0.0)), 6) if symbol else 0.0,
         "value": float(row["value"]),
     }
 
@@ -257,7 +267,7 @@ def build_focus_manager_groups(focus_managers: list[dict[str, Any]]) -> list[dic
         {
             "key": "tier_1",
             "label": manager_group_label("tier_1"),
-            "description": "Situational Awareness / Leopold, Altimeter, Dragoneer, and D1.",
+            "description": "Situational Awareness / Leopold, Altimeter, and Dragoneer.",
             "managers": [row for row in focus_managers if row.get("manager_tier") == "tier_1"],
         },
         {

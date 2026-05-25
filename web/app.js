@@ -44,6 +44,7 @@ const bucketColors = {
   ai_software_winners: brandColors.plum,
   ai_enabled_financials: brandColors.olive,
   disrupted_incumbents: brandColors.red,
+  cash_reserves: "#8a8173",
   unmapped: brandColors.muted,
 };
 
@@ -78,7 +79,8 @@ async function loadLatestData({ silent = false } = {}) {
 
 function wireNavigation() {
   document.querySelectorAll(".rail-button[data-view]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
       activateView(button.dataset.view, { updateHash: true });
     });
   });
@@ -96,7 +98,7 @@ function viewFromHash() {
 function activateView(viewId, { updateHash = false } = {}) {
   const target = document.getElementById(viewId);
   if (!target?.classList.contains("view")) return;
-  document.querySelectorAll(".rail-button").forEach((item) => {
+  document.querySelectorAll(".rail-button[data-view]").forEach((item) => {
     item.classList.remove("active");
     item.removeAttribute("aria-current");
   });
@@ -246,6 +248,7 @@ function renderKpis() {
   const macro = payload.macro || {};
   const portfolio = payload.portfolio || {};
   const benchmark = payload.portfolio_benchmark || {};
+  const backtest = payload.backtest || {};
   const dataHealth = payload.data_health || {};
   const dataPosture = dataHealth.recommendation_posture === "research_only_until_positions_refresh"
     ? "Position Refresh Needed"
@@ -278,6 +281,16 @@ function renderKpis() {
       label: "Today's trades",
       value: String(actions.length || 0),
       detail: actions[0] ? `Top trade: ${actions[0].symbol} ${displayActionText(actions[0].action)}` : "No urgent portfolio-weight changes",
+    },
+    {
+      label: "Cash reserve",
+      value: formatWeight(portfolio.cash_weight || 0),
+      detail: `Equity sleeve ${formatWeight(portfolio.equity_weight ?? 1)}; queue can draw ${(benchmark.sizing_plan?.rebalance_budget?.cash_deployed_weight || 0) ? formatWeight(benchmark.sizing_plan.rebalance_budget.cash_deployed_weight) : "0%"} cash today`,
+    },
+    {
+      label: "Backtest confidence",
+      value: labelize(backtest.status || "awaiting_matured_outcomes"),
+      detail: `${backtest.completed_outcome_count || 0} completed labels / ${backtest.pending_outcome_count || 0} pending`,
     },
     {
       label: "Macro risk gate",
@@ -509,10 +522,17 @@ function actionTemplate(item) {
         </div>
       </div>
       <p><strong>${escapeHtml(tradeLabel)}:</strong> ${escapeHtml(displayActionText(item.action) || "")}</p>
-      <p>${escapeHtml(item.why || "")}</p>
+      <p>${escapeHtml(item.company_reason || item.why || "")}</p>
+      ${item.sector_reason ? `<p>${escapeHtml(item.sector_reason)}</p>` : ""}
       <div class="tags">
         <span class="tag">Current weight ${escapeHtml(formatWeight(item.portfolio_weight))}</span>
-        <span class="tag">Target ${escapeHtml(formatWeight(item.target_weight ?? item.post_action_weight ?? item.portfolio_weight))}</span>
+        <span class="tag">Model target ${escapeHtml(formatWeight(item.model_target_weight ?? item.target_weight ?? item.post_action_weight ?? item.portfolio_weight))}</span>
+        ${item.risk_adjusted_expected_return != null ? `<span class="tag">Expected ${escapeHtml(formatPct(item.risk_adjusted_expected_return))}</span>` : ""}
+        ${item.company_underwriting_score != null ? `<span class="tag">Company ${escapeHtml(number.format(item.company_underwriting_score))}/100</span>` : ""}
+        ${item.sector_setup_score != null ? `<span class="tag">Sector ${escapeHtml(number.format(item.sector_setup_score))}/100</span>` : ""}
+        ${item.funding_source ? `<span class="tag">${escapeHtml(labelize(item.funding_source))}</span>` : ""}
+        ${item.review_required ? `<span class="tag">Review ${escapeHtml(labelize(item.review_status || "required"))}</span>` : ""}
+        ${item.catalyst_clock ? `<span class="tag">${escapeHtml(item.catalyst_clock)}</span>` : ""}
         <span class="tag">Peer avg ${escapeHtml(formatWeight(item.peer_avg_weight))}</span>
         <span class="tag">5D price ${escapeHtml(formatPct(item.five_day_pct))}</span>
         <span class="tag">Return contribution ${escapeHtml(formatPp(item.contribution_pct))}</span>
@@ -520,6 +540,7 @@ function actionTemplate(item) {
         ${item.confidence ? `<span class="tag">Confidence ${escapeHtml(item.confidence)}/100</span>` : ""}
         <span class="tag">${escapeHtml(sourceText)}</span>
         ${timestamp ? `<span class="tag">As of ${escapeHtml(dateOnly(timestamp))}</span>` : ""}
+        ${(item.active_constraints || []).slice(0, 3).map((flag) => `<span class="tag">${escapeHtml(labelize(flag))}</span>`).join("")}
         ${(item.risk_flags || []).slice(0, 3).map((flag) => `<span class="tag">${escapeHtml(labelize(flag))}</span>`).join("")}
       </div>
     </article>
@@ -597,21 +618,21 @@ function attributionWaterfallTemplate(benchmark) {
 
 function peerGapTemplate(items) {
   const rows = (items || [])
-    .filter((row) => row.symbol && (row.peer_avg_weight != null || row.target_weight != null))
+    .filter((row) => row.symbol && (row.peer_avg_weight != null || row.model_target_weight != null || row.target_weight != null))
     .slice(0, 8);
   if (!rows.length) return empty("No peer weight comparison available for these symbols.");
   const maxWeight = Math.max(
     ...rows.flatMap((row) => [
       Number(row.portfolio_weight || 0),
       Number(row.peer_avg_weight || 0),
-      Number(row.target_weight || row.post_action_weight || 0),
+      Number(row.model_target_weight ?? row.target_weight ?? row.post_action_weight ?? 0),
     ]),
     0.05,
   );
   return rows.map((row) => {
     const current = Number(row.portfolio_weight || 0);
     const peer = Number(row.peer_avg_weight || 0);
-    const target = Number(row.target_weight ?? row.post_action_weight ?? current);
+    const target = Number(row.model_target_weight ?? row.target_weight ?? row.post_action_weight ?? current);
     const currentWidth = Math.min(100, (current / maxWeight) * 100);
     const peerWidth = Math.min(100, (peer / maxWeight) * 100);
     const targetLeft = Math.min(100, (target / maxWeight) * 100);
@@ -695,7 +716,10 @@ function decisionTemplate(card) {
 function renderPortfolioContext() {
   const portfolio = state.payload.portfolio || {};
   const buckets = portfolio.by_bucket || [];
-  const symbols = portfolio.by_symbol || [];
+  const symbols = (portfolio.by_symbol || []).slice().sort((a, b) => {
+    if (Boolean(a.is_cash) !== Boolean(b.is_cash)) return a.is_cash ? 1 : -1;
+    return Number(b.weight || 0) - Number(a.weight || 0);
+  });
   const container = document.getElementById("portfolioContext");
   if (!container) return;
   if (!buckets.length && !symbols.length) {
@@ -912,18 +936,31 @@ function renderManagers() {
 
 function renderAntiFundGrowth() {
   const growth = state.payload.anti_fund_growth || {};
+  const title = document.getElementById("antiFundGrowthTitle");
+  const description = document.getElementById("antiFundGrowthDescription");
+  const link = document.getElementById("antiFundGrowthLink");
   const summary = document.getElementById("antiFundGrowthSummary");
   const target = document.getElementById("antiFundGrowthWeights");
   if (!target) return;
   const positions = filterItems(growth.positions || []);
+  if (title) {
+    title.textContent = growth.name || "Anti Fund Growth I, LP";
+  }
+  if (description) {
+    description.textContent = growth.description
+      || "Geoffrey Woo's affiliated private tech crossover fund. Growth I is not a public-stock fund or 13F manager.";
+  }
+  if (link) {
+    link.href = growth.marketing_url || "https://antifund.com";
+  }
   if (summary) {
     summary.textContent = growth.as_of
-      ? `${growth.as_of} | weights only`
-      : "Weights only";
+      ? `${growth.as_of} | affiliated private fund | weights only`
+      : "Affiliated private fund | weights only";
   }
   target.innerHTML = positions.length
     ? positions.map((row, index) => privateWeightTemplate(row, index)).join("")
-    : empty("No Anti Fund Growth I weights in this snapshot.");
+    : empty("No affiliated private-fund weights in this snapshot.");
 }
 
 function privateWeightTemplate(row, index) {
@@ -936,7 +973,7 @@ function privateWeightTemplate(row, index) {
         <span>${escapeHtml(formatWeight(row.weight))}</span>
       </div>
       <div class="bar-track"><div class="bar-fill" style="width:${barWidth(row.weight)}%;background:${color}"></div></div>
-      <small>Anti Fund Growth I active book weight</small>
+      <small>Affiliated private-growth book weight</small>
     </article>
   `;
 }
@@ -970,6 +1007,7 @@ function focusManagerGroupTemplate(group) {
 
 function focusManagerTemplate(row) {
   const positions = row.top_positions || [];
+  const proxy = managerReturnProxy(row);
   const positionHtml = positions.slice(0, 5).map((position) => {
     const label = position.symbol || position.issuer || "Unresolved";
     const portfolio = Number(position.portfolio_weight || 0) > 0
@@ -984,6 +1022,7 @@ function focusManagerTemplate(row) {
     `;
   }).join("");
   const status = row.status === "ok" ? `Latest filing ${dateOnly(row.latest_filing_date)}` : "No current 13F on file";
+  const proxyNote = managerReturnProxyNote(proxy);
   return `
     <article class="focus-card searchable" data-search="${searchAttribute(row)}">
       <div class="focus-title">
@@ -994,21 +1033,47 @@ function focusManagerTemplate(row) {
         <span class="tag">${escapeHtml(managerGroupLabel(row))}</span>
       </div>
       <div class="focus-metrics">
+        ${focusMetricTemplate("Est. return", proxy?.proxy_return, { signed: true, className: "focus-return-metric" })}
         ${focusMetricTemplate("13F coverage", row.symbol_coverage_pct)}
         ${focusMetricTemplate("Watchlist overlap", row.alloiq_watchlist_pct)}
         ${focusMetricTemplate("Portfolio overlap", row.default_portfolio_overlap_pct)}
         ${focusMetricTemplate("Top-10 concentration", row.top10_concentration_pct)}
       </div>
+      <p class="focus-return-note">${escapeHtml(proxyNote)}</p>
       <div class="mini-positions">${positionHtml || empty("No resolved top holdings for this manager.")}</div>
     </article>
   `;
 }
 
-function focusMetricTemplate(label, value) {
+function managerReturnProxy(row = {}) {
+  const managerKey = String(row.manager_key || "");
+  if (!managerKey) return null;
+  return (state.payload.portfolio_benchmark?.peer_proxies || [])
+    .find((proxy) => String(proxy.manager_key || "") === managerKey) || null;
+}
+
+function managerReturnProxyNote(proxy) {
+  if (!proxy) {
+    return "Return proxy unavailable for this manager's priced disclosed common positions.";
+  }
+  const horizon = horizonLabel(proxy.horizon);
+  const priced = formatPlainPct(proxy.priced_top_weight_pct);
+  const symbols = (proxy.priced_symbols || []).slice(0, 5).join(", ");
+  const symbolText = symbols ? `: ${symbols}` : "";
+  return `${horizon} 13F long-book proxy from priced disclosed top positions${symbolText}. ${priced} of top disclosed weight priced; excludes shorts, private marks, and post-report trades.`;
+}
+
+function focusMetricTemplate(label, value, options = {}) {
+  const numeric = Number(value);
+  const tone = options.signed && !Number.isNaN(numeric)
+    ? (numeric >= 0 ? "positive" : "negative")
+    : "";
+  const metricClass = options.className ? ` class="${escapeAttribute(options.className)}"` : "";
+  const formatted = options.signed ? formatPct(value) : formatPlainPct(value);
   return `
-    <div>
+    <div${metricClass}>
       <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(formatPlainPct(value))}</strong>
+      <strong class="${tone}">${escapeHtml(formatted)}</strong>
     </div>
   `;
 }
@@ -1025,13 +1090,18 @@ function consensusTemplate(row, maxValue) {
 }
 
 function managerTemplate(row) {
+  const proxy = managerReturnProxy(row);
+  const proxyTone = proxy ? (Number(proxy.proxy_return || 0) >= 0 ? "positive" : "negative") : "";
+  const proxyText = proxy ? `${horizonLabel(proxy.horizon)} proxy ${formatPct(proxy.proxy_return)}` : "";
+  const proxyDetail = proxy ? ` Estimated return uses ${formatPlainPct(proxy.priced_top_weight_pct)} priced top disclosed weight.` : "";
+  const filingDetail = `${row.form || "13F"} filed ${row.filing_date || "date unavailable"}`;
   return `
     <article class="row searchable" data-search="${searchAttribute(row)}">
       <div class="row-main">
         <div class="symbol">${escapeHtml(row.manager_name || row.manager_key)}</div>
-        <div class="metric">${escapeHtml(row.form || "")} | ${escapeHtml(row.filing_date || "")}</div>
+        <div class="metric ${proxyTone}">${escapeHtml(proxyText || `${row.form || ""} | ${row.filing_date || ""}`)}</div>
       </div>
-      <p>Public filing covers positions as of ${escapeHtml(row.report_date || "n/a")}.</p>
+      <p>${escapeHtml(filingDetail)}; positions as of ${escapeHtml(row.report_date || "n/a")}.${escapeHtml(proxyDetail)}</p>
     </article>
   `;
 }
@@ -1070,6 +1140,21 @@ function renderNews() {
   const items = filterItems(state.payload.news || []);
   document.getElementById("newsList").innerHTML =
     items.length === 0 ? empty("No linked news or catalysts match this search.") : items.slice(0, 30).map(newsTemplate).join("");
+  const external = state.payload.external_signals || {};
+  const sourceList = document.getElementById("externalSourceList");
+  if (sourceList) {
+    const sources = filterItems(external.source_statuses || []);
+    sourceList.innerHTML = sources.length
+      ? sources.map(dataHealthTemplate).join("")
+      : empty("No external feed health in this snapshot.");
+  }
+  const signalList = document.getElementById("externalSignalList");
+  if (signalList) {
+    const signals = filterItems(external.top_signals || []);
+    signalList.innerHTML = signals.length
+      ? signals.slice(0, 18).map(externalSignalTemplate).join("")
+      : empty("No normalized external signals in this snapshot.");
+  }
 }
 
 function newsTemplate(item) {
@@ -1077,6 +1162,24 @@ function newsTemplate(item) {
     <article class="news-item searchable" data-search="${searchAttribute(item)}">
       <a href="${escapeAttribute(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.title || "Source")}</a>
       <p>${escapeHtml(item.source || "Source")} | ${escapeHtml(dateOnly(item.published_at))} | ${escapeHtml(item.event_label || "General news")} | ${escapeHtml(item.source_tier || "general")}</p>
+    </article>
+  `;
+}
+
+function externalSignalTemplate(row) {
+  return `
+    <article class="row searchable" data-search="${searchAttribute(row)}">
+      <div class="row-main">
+        <div class="symbol">${escapeHtml(row.symbol || "Global")}</div>
+        <div class="metric">${escapeHtml(formatSignedNumber(row.score || 0))}</div>
+      </div>
+      <p>${row.url ? `<a href="${escapeAttribute(row.url)}" target="_blank" rel="noreferrer">${escapeHtml(row.label || row.signal_type || "External signal")}</a>` : escapeHtml(row.label || row.signal_type || "External signal")}</p>
+      <div class="tag-row">
+        <span class="tag">${escapeHtml(labelize(row.source || "source"))}</span>
+        <span class="tag">${escapeHtml(labelize(row.signal_family || row.signal_type || "signal"))}</span>
+        <span class="tag">${escapeHtml(`${number.format((row.confidence || 0) * 100)}% confidence`)}</span>
+        ${row.event_date ? `<span class="tag">${escapeHtml(dateOnly(row.event_date))}</span>` : ""}
+      </div>
     </article>
   `;
 }
@@ -1224,6 +1327,7 @@ function methodRiskTemplate(risk, privacy) {
 
 function renderAudit() {
   const audit = state.payload.audit || {};
+  const instrumentation = state.payload.instrumentation_audit || audit.instrumentation_health || {};
   const engineHealth = audit.engine_health || {};
   const calendarHealth = audit.calendar_health || {};
   const summary = document.getElementById("auditSummary");
@@ -1253,6 +1357,11 @@ function renderAudit() {
         value: String(engineHealth.paper_trade_count || 0),
         detail: "Tracked with next-close proxy",
       },
+      {
+        label: "Number wiring",
+        value: labelize(instrumentation.status || "unknown"),
+        detail: `${instrumentation.check_count || 0} checks, ${instrumentation.failure_count || 0} failures`,
+      },
     ].map(kpiTemplate).join("");
   }
   const sources = document.getElementById("auditSourceList");
@@ -1262,7 +1371,13 @@ function renderAudit() {
   }
   const gaps = document.getElementById("auditGapList");
   if (gaps) {
-    const rows = filterItems(audit.data_gaps || []);
+    const instrumentationFailures = (state.payload.instrumentation_audit?.failures || []).map((row) => ({
+      area: "instrumentation",
+      label: row.name,
+      status: row.status,
+      detail: `Observed ${row.observed ?? "n/a"} expected ${row.expected ?? row.expected_max ?? "n/a"}`,
+    }));
+    const rows = filterItems([...(audit.data_gaps || []), ...instrumentationFailures]);
     gaps.innerHTML = rows.length ? rows.map(auditGapTemplate).join("") : empty("No current data gaps.");
   }
 }
@@ -1336,6 +1451,7 @@ function calendarEarningsTemplate(event) {
       <div class="tag-row">
         <span class="tag">${escapeHtml(labelize(event.risk_window || "unknown"))}</span>
         <span class="tag">${escapeHtml(labelize(event.confirmed_or_estimated || "estimated"))}</span>
+        <span class="tag">${escapeHtml(labelize(event.source || "source"))}</span>
         <span class="tag">${escapeHtml(`${number.format((event.confidence || 0) * 100)}% confidence`)}</span>
       </div>
     </article>
@@ -1357,6 +1473,7 @@ function calendarFilingTemplate(row) {
 function renderEngine() {
   const engine = state.payload.engine || {};
   const paper = state.payload.paper_portfolio || {};
+  const backtest = state.payload.backtest || {};
   const optimizer = engine.optimizer || {};
   const learning = engine.learning || {};
   const metrics = paper.metrics || {};
@@ -1376,6 +1493,11 @@ function renderEngine() {
         label: "Learning",
         value: labelize(learning.status || "unknown"),
         detail: `${learning.outcome_count || 0}/${learning.minimum_required || 20} outcomes`,
+      },
+      {
+        label: "Backtest",
+        value: String(backtest.completed_outcome_count || 0),
+        detail: `${backtest.trial_count || 0} recommendation trials`,
       },
       {
         label: "Optimizer",
@@ -1411,7 +1533,11 @@ function engineRankTemplate(row) {
       <p>${escapeHtml(labelize(row.bucket || "unmapped"))} | ${escapeHtml((row.signal_families || []).map(labelize).join(", "))}</p>
       <div class="tag-row">
         <span class="tag">Current ${escapeHtml(formatWeight(row.current_weight || 0))}</span>
+        ${row.risk_adjusted_expected_return != null ? `<span class="tag">Expected ${escapeHtml(formatPct(row.risk_adjusted_expected_return))}</span>` : ""}
+        ${row.probability_weighted_return != null ? `<span class="tag">PW return ${escapeHtml(formatPct(row.probability_weighted_return))}</span>` : ""}
         <span class="tag">${escapeHtml(row.manager_count || 0)} managers</span>
+        <span class="tag">Evidence ${escapeHtml(number.format(row.evidence_quality || 0))}</span>
+        <span class="tag">Drawdown ${escapeHtml(number.format(row.drawdown_risk || 0))}</span>
         <span class="tag">Event ${escapeHtml(number.format(row.event_score || 0))}</span>
       </div>
     </article>
@@ -1582,6 +1708,17 @@ function formatPp(value) {
   if (value == null || Number.isNaN(Number(value))) return "n/a";
   const prefix = Number(value) > 0 ? "+" : "";
   return `${prefix}${number.format(value)} pp`;
+}
+
+function formatSignedNumber(value) {
+  if (value == null || Number.isNaN(Number(value))) return "n/a";
+  const prefix = Number(value) > 0 ? "+" : "";
+  return `${prefix}${number.format(value)}`;
+}
+
+function horizonLabel(value) {
+  const label = String(value || "").trim();
+  return label ? label.toUpperCase() : "Current";
 }
 
 function formatSignedWeight(value) {

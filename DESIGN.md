@@ -17,6 +17,9 @@ Not a generic finance dashboard. Not a SaaS landing page. Not a vibe board for "
 The product earns trust by being specific:
 
 - It shows portfolio weights, not private dollar amounts.
+- Cash reserves are part of the total portfolio denominator and appear as a
+  sleeve weight, not as account size. The trade queue can draw from cash, but
+  the draw must be explicit and capped.
 - It makes recommendations as explicit percentage deltas.
 - It separates AI Thesis Core manager signal from Manager Context Bench comparison signal.
 - It labels 13F data as delayed public filings.

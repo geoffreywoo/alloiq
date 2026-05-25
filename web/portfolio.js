@@ -8,6 +8,7 @@ const bucketColors = {
   ai_software_winners: "#66518d",
   ai_enabled_financials: "#69752d",
   disrupted_incumbents: "#b04449",
+  cash_reserves: "#8a8173",
   unmapped: "#5a6673",
 };
 
@@ -19,6 +20,7 @@ const bucketThesis = {
   neocloud_datacenters: "Own AI infrastructure and data-center capacity when utilization, customer quality, and financing terms are attractive.",
   ai_enabled_financials: "Own financials where AI improves underwriting, distribution, fraud, or operating efficiency.",
   disrupted_incumbents: "Track vulnerable incumbents where AI may compress margins or break legacy distribution.",
+  cash_reserves: "Hold dry powder as part of the total portfolio denominator; deploy only when explicit add targets are funded.",
   unmapped: "Positions that still need a cleaner thesis bucket before they deserve more size.",
 };
 
@@ -30,6 +32,7 @@ const bucketLabels = {
   neocloud_datacenters: "Neocloud / Datacenters",
   ai_enabled_financials: "AI-enabled Financials",
   disrupted_incumbents: "Disrupted Incumbents",
+  cash_reserves: "Cash Reserves",
   unmapped: "Unmapped",
 };
 
@@ -68,6 +71,7 @@ function renderSummary() {
   const topFive = sumWeights(symbols.slice(0, 5));
   const topTen = sumWeights(symbols.slice(0, 10));
   const topBucket = buckets[0] || {};
+  const cashWeight = Number(portfolio.cash_weight || 0);
   const aiPeer = (benchmark.benchmarks || []).find((row) => row.name === "AI Thesis Core median proxy")
     || (benchmark.benchmarks || [])[0];
   const summary = [
@@ -86,6 +90,11 @@ function renderSummary() {
       value: labelize(topBucket.bucket || "n/a"),
       detail: `${formatWeight(topBucket.weight)} of public weights.`,
     },
+    {
+      label: "Cash reserve",
+      value: formatWeight(cashWeight),
+      detail: cashWeight > 0 ? "Included in total portfolio weights." : "No cash sleeve in this snapshot.",
+    },
     ...["3M", "YTD", "1Y"].map((label) => returnWindowCard(benchmark, label)),
     {
       label: "Vs AI peer proxy",
@@ -103,7 +112,7 @@ function renderWeightTable() {
     ? rows.map((row, index) => {
         const action = actionsBySymbol[row.symbol] || {};
         const delta = Number(action.recommended_delta_weight || 0);
-        const actionLabel = action.trade_action ? labelize(action.trade_action) : "Hold / study";
+        const actionLabel = row.is_cash ? "Reserve" : action.trade_action ? labelize(action.trade_action) : "Hold / study";
         return `
           <article class="portfolio-weight-row">
             <div class="portfolio-rank">${index + 1}</div>
@@ -161,15 +170,30 @@ function renderConcentrationMap() {
 function renderAntiFundGrowth() {
   const growth = payload.anti_fund_growth || {};
   const positions = growth.positions || [];
+  const title = document.getElementById("portfolioAntiFundTitle");
+  const description = document.getElementById("portfolioAntiFundDescription");
+  const link = document.getElementById("portfolioAntiFundLink");
   const summary = document.getElementById("portfolioAntiFundSummary");
   const target = document.getElementById("portfolioAntiFundWeights");
   if (!target) return;
+  if (title) {
+    title.textContent = growth.name || "Anti Fund Growth I, LP";
+  }
+  if (description) {
+    description.textContent = growth.description
+      || "Geoffrey Woo's affiliated private tech crossover fund. Growth I is not a public-stock fund and is not included in the public position weights above.";
+  }
+  if (link) {
+    link.href = growth.marketing_url || "https://antifund.com";
+  }
   if (summary) {
-    summary.textContent = growth.as_of ? `${growth.as_of} | weights only` : "Weights only";
+    summary.textContent = growth.as_of
+      ? `${growth.as_of} | affiliated private fund | weights only`
+      : "Affiliated private fund | weights only";
   }
   target.innerHTML = positions.length
     ? positions.map((row, index) => privateWeightTemplate(row, index)).join("")
-    : empty("No Anti Fund Growth I weights in this snapshot.");
+    : empty("No affiliated private-fund weights in this snapshot.");
 }
 
 function privateWeightTemplate(row, index) {
@@ -182,7 +206,7 @@ function privateWeightTemplate(row, index) {
         <span>${escapeHtml(formatWeight(row.weight))}</span>
       </div>
       <div class="bar-track"><div class="bar-fill" style="width:${barWidth(row.weight)}%;background:${color}"></div></div>
-      <small>Anti Fund Growth I active book weight</small>
+      <small>Affiliated private-growth book weight</small>
     </article>
   `;
 }
@@ -274,7 +298,10 @@ function setCopyStatus(message) {
 }
 
 function sortedSymbols() {
-  return [...(payload?.portfolio?.by_symbol || [])].sort((a, b) => Number(b.weight || 0) - Number(a.weight || 0));
+  return [...(payload?.portfolio?.by_symbol || [])].sort((a, b) => {
+    if (Boolean(a.is_cash) !== Boolean(b.is_cash)) return a.is_cash ? 1 : -1;
+    return Number(b.weight || 0) - Number(a.weight || 0);
+  });
 }
 
 function sortedBuckets() {

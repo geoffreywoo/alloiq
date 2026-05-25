@@ -38,8 +38,36 @@
         </div>
       </header>
 
-      <main class="home-page">
-        <section class="home-hero">
+      <main class="layout">
+        <nav class="rail" aria-label="Primary navigation">
+          <div class="rail-section">
+            <span class="rail-section-label">Pages</span>
+            <a class="rail-button rail-link active" href="/" aria-current="page">Home</a>
+            <a class="rail-button rail-link" href="/dashboard">Trade OS</a>
+            <a class="rail-button rail-link" href="/portfolio">GW Portfolio</a>
+            <a class="rail-button rail-link" href="/research">Research Book</a>
+            <a class="rail-button rail-link" href="/optimizer">Optimizer</a>
+            <a class="rail-button rail-link" href="/backtest">Backtest</a>
+            <a class="rail-button rail-link" href="/ai-thesis-core">AI Core</a>
+          </div>
+          <div class="rail-section">
+            <span class="rail-section-label">Trade OS</span>
+            <a class="rail-button rail-subbutton" href="/dashboard#dashboard">Today</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#moves">Trade Feed</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#research">Study Queue</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#earnings">Catalysts</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#managers">Managers</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#macro">Macro</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#news">News</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#method">Method</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#audit">Audit</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#calendar">Calendar</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#engine">Engine</a>
+          </div>
+        </nav>
+
+        <section class="home-page">
+          <section class="home-hero">
           <p class="eyebrow">alloiq.com / geoffrey woo portfolio</p>
           <h1>Geoffrey Woo's AI-maxxi public markets portfolio</h1>
           <p>
@@ -52,9 +80,9 @@
             <a class="primary-button" href="/portfolio">View GW Portfolio</a>
             <a class="secondary-button" href="/dashboard">Open Trade OS</a>
           </div>
-        </section>
+          </section>
 
-        <section class="home-decision-band" aria-label="Live AlloIQ snapshot">
+          <section class="home-decision-band" aria-label="Live AlloIQ snapshot">
           <article>
             <span>Portfolio</span>
             <strong id="homeSnapshot">Loading</strong>
@@ -75,9 +103,9 @@
             <strong id="homeFreshness">Loading</strong>
             <small id="homeFreshnessDetail">Checking build status</small>
           </article>
-        </section>
+          </section>
 
-        <section class="home-section home-thesis-section">
+          <section class="home-section home-thesis-section">
           <div>
             <p class="eyebrow">AI-maxxi bias</p>
             <h2>The book is built around one core assumption: AI acceleration matters more than consensus expects.</h2>
@@ -93,12 +121,12 @@
             </article>
             <article>
               <strong>Elite signal overlay</strong>
-              <p>Benchmark GW weights against Situational Awareness / Leopold, Altimeter, Dragoneer, D1, and the broader manager bench.</p>
+              <p>Benchmark GW weights against Situational Awareness / Leopold, Altimeter, Dragoneer, and the broader manager bench.</p>
             </article>
           </div>
-        </section>
+          </section>
 
-        <section class="home-live-grid" aria-label="Live portfolio visualizations">
+          <section class="home-live-grid" aria-label="Live portfolio visualizations">
           <section class="panel">
             <div class="panel-head">
               <h3>Top Weights</h3>
@@ -113,9 +141,16 @@
             </div>
             <div id="homeBucketMix" class="bar-list"></div>
           </section>
-        </section>
+          <section class="panel home-return-panel">
+            <div class="panel-head">
+              <h3>Return Analytics</h3>
+              <span>Total portfolio vs invested sleeve excluding cash</span>
+            </div>
+            <div id="homeReturnAnalytics" class="horizon-list"></div>
+          </section>
+          </section>
 
-        <section class="home-section">
+          <section class="home-section">
           <div>
             <p class="eyebrow">how alloiq thinks</p>
             <h2>Daily trades come from comparing the GW Portfolio against managers, catalysts, macro, price action, and current concentration.</h2>
@@ -127,9 +162,9 @@
             <span>Macro regime</span>
             <span>Trade targets</span>
           </div>
-        </section>
+          </section>
 
-        <section class="home-link-grid" aria-label="AlloIQ sections">
+          <section class="home-link-grid" aria-label="AlloIQ sections">
           <a href="/portfolio">
             <strong>GW Portfolio</strong>
             <span>Copy the current public-equity weights by percentage.</span>
@@ -137,6 +172,18 @@
           <a href="/dashboard">
             <strong>Trade OS</strong>
             <span>Read today's add, trim, hold, target, and study queue.</span>
+          </a>
+          <a href="/research">
+            <strong>Research Book</strong>
+            <span>Rank stocks by expected return, catalyst timing, evidence, and risk.</span>
+          </a>
+          <a href="/optimizer">
+            <strong>Optimizer</strong>
+            <span>Compare current weights with model targets and explicit add/trim deltas.</span>
+          </a>
+          <a href="/backtest">
+            <strong>Backtest</strong>
+            <span>Track hit rates, forward returns, and calibration as daily calls mature.</span>
           </a>
           <a href="/ai-thesis-core">
             <strong>AI Thesis Core</strong>
@@ -146,6 +193,7 @@
             <strong>Manager + Macro Signals</strong>
             <span>Track peer gaps, AI momentum, catalysts, and regime shifts.</span>
           </a>
+          </section>
         </section>
       </main>
 

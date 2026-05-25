@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from .symbols import equivalent_symbols, proxied_lookup, proxy_index
+
 
 DEFAULT_LIMITS = {
     "max_single_name_weight": 0.15,
     "max_bucket_weight": 0.45,
     "max_daily_turnover": 0.08,
     "max_one_ticket_delta": 0.03,
+    "max_cash_deploy_weight": 0.02,
     "min_signal_family_count": 2,
     "earnings_blackout_days": 2,
     "earnings_risk_window_days": 7,
@@ -24,7 +27,7 @@ def apply_risk_controls(
     limits: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     limits = normalize_limits(limits)
-    cards_by_symbol = {str(card.get("symbol", "")).upper(): card for card in cards}
+    cards_by_symbol = proxy_index(cards)
     bucket_weights = {
         str(row.get("bucket", "unmapped")): float(row.get("weight") or 0)
         for row in portfolio.get("by_bucket", [])
@@ -35,9 +38,9 @@ def apply_risk_controls(
     for action in actions:
         adjusted = apply_action_limits(
             dict(action),
-            cards_by_symbol.get(str(action.get("symbol", "")).upper(), {}),
+            proxied_lookup(cards_by_symbol, action.get("symbol"), {}),
             bucket_weights,
-            event_by_symbol.get(str(action.get("symbol", "")).upper()),
+            proxied_lookup(event_by_symbol, action.get("symbol")),
             limits,
             remaining_turnover,
         )
@@ -124,30 +127,58 @@ def apply_action_limits(
         flags.append("daily_turnover_cap")
         notes.append("Proposal capped by remaining daily turnover budget.")
 
+    if abs(delta) <= 0.000001:
+        delta = 0.0
+        target = current
+        if action.get("trade_action") in {"add", "trim"}:
+            action["trade_action"] = "hold" if current else "watch"
+    post_action = round_weight(max(0.0, current + delta))
     action["current_weight"] = round_weight(current)
     action["portfolio_weight"] = round_weight(current)
     action["recommended_delta_weight"] = round_weight(delta)
-    action["post_action_weight"] = round_weight(max(0.0, current + delta))
-    action["target_weight"] = round_weight(max(0.0, target))
+    action["post_action_weight"] = post_action
+    action["trade_target_weight"] = post_action
+    action["target_weight"] = post_action
     action["risk_flags"] = sorted(set(flags))
     action["constraint_notes"] = notes
     action["confidence"] = confidence_score(action, card)
+    if delta == 0:
+        action["funding_source"] = "no_trade"
+        action["funding_counterpart_symbols"] = []
     action["approval_required"] = True
     action["order_execution"] = "none"
-    action["sizing_basis"] = "portfolio-weight research proposal; approval required; no order execution"
-    if original_delta != delta and delta == 0 and action.get("trade_action") == "add":
+    action["sizing_basis"] = "trim-and-cash-funded portfolio-weight target delta for the trade feed"
+    action["action"] = sizing_summary(action.get("trade_action", "watch"), delta, post_action, float(action.get("model_target_weight", target) or 0))
+    action["sizing_summary"] = action["action"]
+    if abs(delta) <= 0.000001 and action.get("trade_action") == "watch" and original_delta > 0:
         action["trade_action"] = "watch"
         action["action"] = "Watch only; risk controls blocked the add until constraints clear."
         action["sizing_summary"] = action["action"]
     return action
 
 
+def sizing_summary(action: str, delta: float, post_action: float, model_target: float) -> str:
+    if action == "add":
+        return f"Add {signed_weight_label(delta)} to {weight_label(post_action)}; model target {weight_label(model_target)}."
+    if action == "trim":
+        return f"Trim {weight_label(abs(delta))} to {weight_label(post_action)}; model target {weight_label(model_target)}."
+    if action == "hold":
+        return f"Hold at {weight_label(post_action)}; model target {weight_label(model_target)}."
+    if action == "avoid":
+        return "Avoid; no immediate target weight."
+    return f"Watch; model target {weight_label(model_target)}."
+
+
 def confidence_score(action: dict[str, Any], card: dict[str, Any]) -> int:
     signal_count = int(action.get("signal_family_count") or card.get("signal_family_count") or 0)
     score = float(action.get("score") or card.get("score") or 0)
     priority = float(action.get("priority") or 0)
+    company = float(action.get("company_underwriting_score") or 0)
+    sector = float(action.get("sector_setup_score") or 0)
     risk_penalty = min(25, len(action.get("risk_flags") or []) * 6)
-    confidence = int(min(95, signal_count * 16 + score * 0.45 + priority * 0.22) - risk_penalty)
+    confidence = int(min(95, signal_count * 10 + score * 0.25 + priority * 0.15 + company * 0.32 + sector * 0.12) - risk_penalty)
+    if action.get("review_required"):
+        confidence -= 8
     return max(5, confidence)
 
 
@@ -159,7 +190,8 @@ def nearest_earnings_by_symbol(events: list[dict[str, Any]]) -> dict[str, dict[s
             continue
         current = by_symbol.get(symbol)
         if current is None or abs(int(event["days_until"])) < abs(int(current["days_until"])):
-            by_symbol[symbol] = event
+            for candidate in equivalent_symbols(symbol):
+                by_symbol[candidate] = event
     return by_symbol
 
 
@@ -167,9 +199,22 @@ def normalize_limits(limits: dict[str, Any] | None) -> dict[str, Any]:
     merged = dict(DEFAULT_LIMITS)
     merged.update(limits or {})
     for key in ("no_add_symbols", "watch_only_symbols"):
-        merged[key] = {str(symbol).upper().strip() for symbol in merged.get(key, []) if str(symbol).strip()}
+        merged[key] = {
+            candidate
+            for symbol in merged.get(key, [])
+            if str(symbol).strip()
+            for candidate in equivalent_symbols(symbol)
+        }
     return merged
 
 
 def round_weight(value: float) -> float:
     return round(float(value or 0), 6)
+
+
+def weight_label(value: float) -> str:
+    return f"{value * 100:.1f}%"
+
+
+def signed_weight_label(value: float) -> str:
+    return f"{value * 100:+.1f}%"

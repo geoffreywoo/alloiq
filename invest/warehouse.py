@@ -74,6 +74,55 @@ CREATE TABLE IF NOT EXISTS signal_snapshots (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS research_snapshots (
+    research_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    as_of DATE NOT NULL,
+    symbol TEXT NOT NULL,
+    bucket TEXT NOT NULL DEFAULT 'unmapped',
+    model_policy_version TEXT NOT NULL DEFAULT '',
+    verdict TEXT NOT NULL DEFAULT 'study',
+    risk_adjusted_expected_return NUMERIC,
+    probability_weighted_return NUMERIC,
+    evidence_quality NUMERIC,
+    drawdown_risk NUMERIC,
+    timing_score NUMERIC,
+    current_weight NUMERIC,
+    peer_avg_weight NUMERIC,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS company_underwriting_snapshots (
+    underwriting_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    as_of DATE NOT NULL,
+    symbol TEXT NOT NULL,
+    bucket TEXT NOT NULL DEFAULT 'unmapped',
+    company_underwriting_score NUMERIC,
+    evidence_quality NUMERIC,
+    data_quality NUMERIC,
+    source_quality NUMERIC,
+    review_status TEXT NOT NULL DEFAULT '',
+    add_eligible BOOLEAN NOT NULL DEFAULT false,
+    trim_signal BOOLEAN NOT NULL DEFAULT false,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS sector_underwriting_snapshots (
+    underwriting_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    as_of DATE NOT NULL,
+    bucket TEXT NOT NULL DEFAULT 'unmapped',
+    sector_setup_score NUMERIC,
+    target_weight_modifier NUMERIC,
+    sector_headwind BOOLEAN NOT NULL DEFAULT false,
+    sector_tailwind BOOLEAN NOT NULL DEFAULT false,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS trade_recommendations (
     ticket_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
@@ -240,6 +289,68 @@ CREATE TABLE IF NOT EXISTS recommendation_outcomes (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS backtest_runs (
+    backtest_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    as_of DATE NOT NULL,
+    version TEXT NOT NULL DEFAULT '',
+    model_policy_version TEXT NOT NULL DEFAULT '',
+    source_report_count INTEGER NOT NULL DEFAULT 0,
+    trial_count INTEGER NOT NULL DEFAULT 0,
+    completed_outcome_count INTEGER NOT NULL DEFAULT 0,
+    pending_outcome_count INTEGER NOT NULL DEFAULT 0,
+    calibration JSONB NOT NULL DEFAULT '{}'::jsonb,
+    horizon_summary JSONB NOT NULL DEFAULT '[]'::jsonb,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS backtest_outcomes (
+    outcome_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    backtest_id TEXT NOT NULL DEFAULT '',
+    trial_id TEXT NOT NULL DEFAULT '',
+    as_of DATE NOT NULL,
+    session TEXT NOT NULL DEFAULT '',
+    symbol TEXT NOT NULL,
+    bucket TEXT NOT NULL DEFAULT 'unmapped',
+    trade_action TEXT NOT NULL DEFAULT '',
+    horizon TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT '',
+    direction INTEGER NOT NULL DEFAULT 0,
+    entry_date DATE,
+    exit_date DATE,
+    entry_price NUMERIC,
+    exit_price NUMERIC,
+    raw_forward_return_pct NUMERIC,
+    decision_forward_return_pct NUMERIC,
+    risk_adjusted_expected_return NUMERIC,
+    expected_vs_realized_error NUMERIC,
+    signal_families JSONB NOT NULL DEFAULT '[]'::jsonb,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS recommendation_training_examples (
+    example_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    ticket_id TEXT NOT NULL DEFAULT '',
+    as_of DATE NOT NULL,
+    session TEXT NOT NULL DEFAULT '',
+    symbol TEXT NOT NULL,
+    bucket TEXT NOT NULL DEFAULT 'unmapped',
+    model_policy_version TEXT NOT NULL DEFAULT '',
+    trade_action TEXT NOT NULL DEFAULT 'study',
+    current_weight NUMERIC,
+    recommended_delta_weight NUMERIC,
+    target_weight NUMERIC,
+    risk_adjusted_expected_return NUMERIC,
+    forward_return_labels JSONB NOT NULL DEFAULT '{}'::jsonb,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS model_policy_versions (
     policy_version TEXT PRIMARY KEY,
     objective TEXT NOT NULL DEFAULT '',
@@ -364,6 +475,9 @@ def upsert_report_payload(conn, payload: dict[str, Any], pipeline_result: dict[s
             "portfolio_snapshots": 0,
             "position_snapshots": 0,
             "signal_snapshots": 0,
+            "research_snapshots": 0,
+            "company_underwriting_snapshots": 0,
+            "sector_underwriting_snapshots": 0,
             "trade_recommendations": 0,
             "performance_attribution": 0,
             "earnings_events": 0,
@@ -373,6 +487,9 @@ def upsert_report_payload(conn, payload: dict[str, Any], pipeline_result: dict[s
             "engine_predictions": 0,
             "paper_trades": 0,
             "paper_portfolio_snapshots": 0,
+            "backtest_runs": 0,
+            "backtest_outcomes": 0,
+            "recommendation_training_examples": 0,
             "model_policy_versions": 0,
         }
 
@@ -381,6 +498,9 @@ def upsert_report_payload(conn, payload: dict[str, Any], pipeline_result: dict[s
         "portfolio_snapshots": upsert_portfolio_snapshot(conn, run_id, payload),
         "position_snapshots": replace_position_snapshots(conn, run_id, payload),
         "signal_snapshots": replace_signal_snapshots(conn, run_id, payload),
+        "research_snapshots": replace_research_snapshots(conn, run_id, payload),
+        "company_underwriting_snapshots": replace_company_underwriting_snapshots(conn, run_id, payload),
+        "sector_underwriting_snapshots": replace_sector_underwriting_snapshots(conn, run_id, payload),
         "trade_recommendations": replace_trade_recommendations(conn, run_id, payload),
         "performance_attribution": replace_performance_attribution(conn, run_id, payload),
         "earnings_events": replace_earnings_events(conn, run_id, payload),
@@ -390,6 +510,9 @@ def upsert_report_payload(conn, payload: dict[str, Any], pipeline_result: dict[s
         "engine_predictions": replace_engine_predictions(conn, run_id, payload),
         "paper_trades": replace_paper_trades(conn, run_id, payload),
         "paper_portfolio_snapshots": replace_paper_portfolio_snapshots(conn, run_id, payload),
+        "backtest_runs": replace_backtest_run(conn, run_id, payload),
+        "backtest_outcomes": replace_backtest_outcomes(conn, run_id, payload),
+        "recommendation_training_examples": replace_recommendation_training_examples(conn, run_id, payload),
         "model_policy_versions": upsert_model_policy_version(conn, payload),
     }
     return counts
@@ -493,6 +616,106 @@ def replace_signal_snapshots(conn, run_id: str, payload: dict[str, Any]) -> int:
                     macro_regime,
                     json_param(row.get("signal_families") or []),
                     json_param(row.get("top_event_types") or []),
+                    json_param(row),
+                ),
+            )
+    return len(rows)
+
+
+def replace_research_snapshots(conn, run_id: str, payload: dict[str, Any]) -> int:
+    rows = (payload.get("research_book") or {}).get("items", [])
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM research_snapshots WHERE run_id = %s", (run_id,))
+        for row in rows:
+            symbol = str(row.get("symbol") or "").upper()
+            if not symbol:
+                continue
+            cur.execute(
+                """
+                INSERT INTO research_snapshots
+                (research_id, run_id, as_of, symbol, bucket, model_policy_version, verdict,
+                 risk_adjusted_expected_return, probability_weighted_return, evidence_quality,
+                 drawdown_risk, timing_score, current_weight, peer_avg_weight, raw)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                """,
+                (
+                    stable_id([run_id, row.get("research_id") or "research", symbol]),
+                    run_id,
+                    payload.get("as_of"),
+                    symbol,
+                    row.get("bucket", "unmapped"),
+                    row.get("model_policy_version") or "",
+                    row.get("verdict") or "study",
+                    numeric(row.get("risk_adjusted_expected_return")),
+                    numeric(row.get("probability_weighted_return")),
+                    numeric(row.get("evidence_quality")),
+                    numeric(row.get("drawdown_risk")),
+                    numeric(row.get("timing_score")),
+                    numeric(row.get("current_weight")),
+                    numeric(row.get("peer_avg_weight")),
+                    json_param(row),
+                ),
+            )
+    return len(rows)
+
+
+def replace_company_underwriting_snapshots(conn, run_id: str, payload: dict[str, Any]) -> int:
+    rows = (payload.get("company_underwriting") or {}).get("items", [])
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM company_underwriting_snapshots WHERE run_id = %s", (run_id,))
+        for row in rows:
+            symbol = str(row.get("symbol") or "").upper()
+            if not symbol:
+                continue
+            cur.execute(
+                """
+                INSERT INTO company_underwriting_snapshots
+                (underwriting_id, run_id, as_of, symbol, bucket, company_underwriting_score,
+                 evidence_quality, data_quality, source_quality, review_status, add_eligible,
+                 trim_signal, raw)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                """,
+                (
+                    stable_id([run_id, row.get("underwriting_id") or "company", symbol]),
+                    run_id,
+                    payload.get("as_of"),
+                    symbol,
+                    row.get("bucket", "unmapped"),
+                    numeric(row.get("company_underwriting_score")),
+                    numeric(row.get("evidence_quality")),
+                    numeric(row.get("data_quality")),
+                    numeric(row.get("source_quality")),
+                    row.get("review_status") or "",
+                    bool(row.get("add_eligible", False)),
+                    bool(row.get("trim_signal", False)),
+                    json_param(row),
+                ),
+            )
+    return len(rows)
+
+
+def replace_sector_underwriting_snapshots(conn, run_id: str, payload: dict[str, Any]) -> int:
+    rows = (payload.get("sector_underwriting") or {}).get("items", [])
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM sector_underwriting_snapshots WHERE run_id = %s", (run_id,))
+        for row in rows:
+            bucket = str(row.get("bucket") or "unmapped")
+            cur.execute(
+                """
+                INSERT INTO sector_underwriting_snapshots
+                (underwriting_id, run_id, as_of, bucket, sector_setup_score,
+                 target_weight_modifier, sector_headwind, sector_tailwind, raw)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                """,
+                (
+                    stable_id([run_id, row.get("underwriting_id") or "sector", bucket]),
+                    run_id,
+                    payload.get("as_of"),
+                    bucket,
+                    numeric(row.get("sector_setup_score")),
+                    numeric(row.get("target_weight_modifier")),
+                    bool(row.get("sector_headwind", False)),
+                    bool(row.get("sector_tailwind", False)),
                     json_param(row),
                 ),
             )
@@ -816,6 +1039,136 @@ def replace_paper_portfolio_snapshots(conn, run_id: str, payload: dict[str, Any]
     return len(rows)
 
 
+def replace_backtest_run(conn, run_id: str, payload: dict[str, Any]) -> int:
+    backtest = payload.get("backtest") or {}
+    if not backtest:
+        return 0
+    backtest_id = stable_id([run_id, "backtest", backtest.get("version") or ""])
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO backtest_runs
+            (backtest_id, run_id, as_of, version, model_policy_version, source_report_count,
+             trial_count, completed_outcome_count, pending_outcome_count, calibration,
+             horizon_summary, raw, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, now())
+            ON CONFLICT (backtest_id) DO UPDATE SET
+              run_id = EXCLUDED.run_id,
+              as_of = EXCLUDED.as_of,
+              version = EXCLUDED.version,
+              model_policy_version = EXCLUDED.model_policy_version,
+              source_report_count = EXCLUDED.source_report_count,
+              trial_count = EXCLUDED.trial_count,
+              completed_outcome_count = EXCLUDED.completed_outcome_count,
+              pending_outcome_count = EXCLUDED.pending_outcome_count,
+              calibration = EXCLUDED.calibration,
+              horizon_summary = EXCLUDED.horizon_summary,
+              raw = EXCLUDED.raw,
+              updated_at = now()
+            """,
+            (
+                backtest_id,
+                run_id,
+                backtest.get("as_of") or payload.get("as_of"),
+                backtest.get("version") or "",
+                backtest.get("model_policy_version") or "",
+                int(backtest.get("source_report_count") or 0),
+                int(backtest.get("trial_count") or 0),
+                int(backtest.get("completed_outcome_count") or 0),
+                int(backtest.get("pending_outcome_count") or 0),
+                json_param(backtest.get("calibration") or {}),
+                json_param(backtest.get("horizons") or []),
+                json_param(backtest),
+            ),
+        )
+    return 1
+
+
+def replace_backtest_outcomes(conn, run_id: str, payload: dict[str, Any]) -> int:
+    backtest = payload.get("backtest") or {}
+    rows = backtest.get("outcomes") or []
+    backtest_id = stable_id([run_id, "backtest", backtest.get("version") or ""])
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM backtest_outcomes WHERE run_id = %s", (run_id,))
+        for row in rows:
+            symbol = str(row.get("symbol") or "").upper()
+            if not symbol:
+                continue
+            cur.execute(
+                """
+                INSERT INTO backtest_outcomes
+                (outcome_id, run_id, backtest_id, trial_id, as_of, session, symbol, bucket,
+                 trade_action, horizon, status, direction, entry_date, exit_date, entry_price,
+                 exit_price, raw_forward_return_pct, decision_forward_return_pct,
+                 risk_adjusted_expected_return, expected_vs_realized_error, signal_families, raw)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                """,
+                (
+                    row.get("outcome_id") or stable_id([run_id, "backtest_outcome", symbol, row.get("horizon")]),
+                    run_id,
+                    backtest_id,
+                    row.get("trial_id") or "",
+                    row.get("as_of") or payload.get("as_of"),
+                    row.get("session") or payload.get("session") or "",
+                    symbol,
+                    row.get("bucket", "unmapped"),
+                    row.get("trade_action") or "",
+                    row.get("horizon") or "",
+                    row.get("status") or "",
+                    int(row.get("direction") or 0),
+                    row.get("entry_date") or None,
+                    row.get("exit_date") or None,
+                    numeric(row.get("entry_price")),
+                    numeric(row.get("exit_price")),
+                    numeric(row.get("raw_forward_return_pct")),
+                    numeric(row.get("decision_forward_return_pct")),
+                    numeric(row.get("risk_adjusted_expected_return")),
+                    numeric(row.get("expected_vs_realized_error")),
+                    json_param(row.get("signal_families") or []),
+                    json_param(row),
+                ),
+            )
+    return len(rows)
+
+
+def replace_recommendation_training_examples(conn, run_id: str, payload: dict[str, Any]) -> int:
+    rows = payload.get("recommendation_training_examples") or []
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM recommendation_training_examples WHERE run_id = %s", (run_id,))
+        for row in rows:
+            symbol = str(row.get("symbol") or "").upper()
+            if not symbol:
+                continue
+            cur.execute(
+                """
+                INSERT INTO recommendation_training_examples
+                (example_id, run_id, ticket_id, as_of, session, symbol, bucket, model_policy_version,
+                 trade_action, current_weight, recommended_delta_weight, target_weight,
+                 risk_adjusted_expected_return, forward_return_labels, raw)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                """,
+                (
+                    row.get("example_id") or stable_id([run_id, "training", symbol, row.get("ticket_id")]),
+                    run_id,
+                    row.get("ticket_id") or "",
+                    row.get("as_of") or payload.get("as_of"),
+                    row.get("session") or payload.get("session") or "",
+                    symbol,
+                    row.get("bucket", "unmapped"),
+                    row.get("model_policy_version") or "",
+                    row.get("trade_action") or "study",
+                    numeric(row.get("current_weight")),
+                    numeric(row.get("recommended_delta_weight")),
+                    numeric(row.get("target_weight")),
+                    numeric(row.get("risk_adjusted_expected_return")),
+                    json_param(row.get("forward_return_labels") or {}),
+                    json_param(row),
+                ),
+            )
+    return len(rows)
+
+
 def upsert_model_policy_version(conn, payload: dict[str, Any]) -> int:
     engine = payload.get("engine") or {}
     version = engine.get("version")
@@ -972,6 +1325,9 @@ def warehouse_tables() -> list[str]:
         "portfolio_snapshots",
         "position_snapshots",
         "signal_snapshots",
+        "research_snapshots",
+        "company_underwriting_snapshots",
+        "sector_underwriting_snapshots",
         "trade_recommendations",
         "decision_ledger",
         "performance_attribution",
@@ -983,6 +1339,9 @@ def warehouse_tables() -> list[str]:
         "paper_trades",
         "paper_portfolio_snapshots",
         "recommendation_outcomes",
+        "backtest_runs",
+        "backtest_outcomes",
+        "recommendation_training_examples",
         "model_policy_versions",
     ]
 

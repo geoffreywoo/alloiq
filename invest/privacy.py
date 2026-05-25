@@ -44,6 +44,12 @@ def public_asset_paths(web_dir: Path = Path("web")) -> list[Path]:
         web_dir / "app.js",
         web_dir / "portfolio.html",
         web_dir / "portfolio.js",
+        web_dir / "research.html",
+        web_dir / "research.js",
+        web_dir / "optimizer.html",
+        web_dir / "optimizer.js",
+        web_dir / "backtest.html",
+        web_dir / "backtest.js",
         web_dir / "ai-thesis-core.html",
         web_dir / "ai-thesis-core.js",
     ]

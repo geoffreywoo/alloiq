@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from .backtest import backtest_signal
+from .backtest import build_backtest_summary, backtest_signal
 from .brokers.ibkr import FlexError, fetch_flex_statement, parse_flex_xml, summarize_flex_xml
 from .brokers.vanguard import parse_vanguard_file, parse_vanguard_positions_file
 from .config import DEFAULT_CONFIG_PATH, init_config, load_config
@@ -69,6 +69,10 @@ def main(argv: list[str] | None = None) -> int:
     paper_sub = paper.add_subparsers(dest="paper_command", required=True)
     paper_sub.add_parser("update", help="Print the latest paper portfolio payload")
 
+    sources = sub.add_parser("sources", help="Inspect configured external signal feeds")
+    sources_sub = sources.add_subparsers(dest="sources_command", required=True)
+    sources_sub.add_parser("check", help="Fetch and print the external signal provider snapshot")
+
     valuation = sub.add_parser("valuation", help="Estimate 13F and private portfolio entry/current values")
     valuation_sub = valuation.add_subparsers(dest="valuation_command", required=True)
     valuation_report = valuation_sub.add_parser("report", help="Build a best-effort valuation report")
@@ -104,6 +108,12 @@ def main(argv: list[str] | None = None) -> int:
     site_build = site_sub.add_parser("build", help="Build web/data from report JSON")
     site_build.add_argument("--out-dir", default="web", help="Static output directory")
     site_build.add_argument("--privacy", choices=["public", "private"], default="public")
+
+    backtest = sub.add_parser("backtest", help="Run recommendation outcome backtests from saved reports")
+    backtest_sub = backtest.add_subparsers(dest="backtest_command", required=True)
+    backtest_run = backtest_sub.add_parser("run", help="Label saved recommendations against forward price returns")
+    backtest_run.add_argument("--out", default="", help="Optional JSON output path")
+    backtest_run.add_argument("--format", choices=["json", "summary"], default="summary")
 
     backtest = sub.add_parser("backtest-signal", help="Run a simple stored-data signal diagnostic")
     backtest.add_argument("--signal", required=True)
@@ -151,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
         result = build_site(config.reports_dir, Path(args.out_dir), privacy=args.privacy)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+    if args.command == "backtest":
+        return command_backtest(args, config)
     if args.command == "pipeline":
         from .pipeline import run_pipeline
 
@@ -173,6 +185,8 @@ def main(argv: list[str] | None = None) -> int:
         return command_engine(args, config)
     if args.command == "paper":
         return command_paper(args, config)
+    if args.command == "sources":
+        return command_sources(args, config)
     if args.command == "valuation":
         return command_valuation(args, config, conn)
     if args.command == "decisions":
@@ -247,6 +261,52 @@ def command_paper(args, config) -> int:
     return 0
 
 
+def command_sources(args, config) -> int:
+    from datetime import date
+
+    from .external_signals import build_external_signal_snapshot
+
+    if args.sources_command == "check":
+        snapshot = build_external_signal_snapshot(config, date.today(), config.watchlist_symbols)
+        print(json.dumps(snapshot, indent=2, sort_keys=True, default=str))
+        return 0
+    return 2
+
+
+def command_backtest(args, config) -> int:
+    result = build_backtest_summary(config.reports_dir)
+    if args.out:
+        path = Path(args.out)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")
+        print(f"Wrote {path}")
+        return 0
+    if args.format == "json":
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        return 0
+    print(format_backtest_summary(result), end="")
+    return 0
+
+
+def format_backtest_summary(result: dict) -> str:
+    lines = [
+        "# AlloIQ Recommendation Backtest",
+        "",
+        f"- Status: {result.get('status', 'unknown')}",
+        f"- Trials: {result.get('trial_count', 0)}",
+        f"- Completed labels: {result.get('completed_outcome_count', 0)}",
+        f"- Pending labels: {result.get('pending_outcome_count', 0)}",
+        "",
+    ]
+    for row in result.get("horizons", []):
+        lines.append(
+            f"- {row.get('horizon')}: completed {row.get('completed_count', 0)}, "
+            f"hit rate {row.get('hit_rate')}, avg return {row.get('average_decision_return')}"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def command_valuation(args, config, conn) -> int:
     from datetime import date
 
@@ -303,7 +363,7 @@ def valuation_manager_keys(manager_set: str, config) -> list[str]:
         tier_map = config.focus_manager_tier_map
         return [
             key for key in config.focus_manager_keys
-            if tier_map.get(key) == "tier_1" or key in {"situational-awareness", "altimeter", "dragoneer", "d1-capital"}
+            if tier_map.get(key) == "tier_1" or key in {"situational-awareness", "altimeter", "dragoneer"}
         ]
     return config.focus_manager_keys
 

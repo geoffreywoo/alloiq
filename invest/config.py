@@ -71,12 +71,21 @@ class AppConfig:
         return [str(s).upper() for s in self.data.get("macro", {}).get("symbols", []) if str(s).strip()]
 
     @property
+    def macro_fred_settings(self) -> dict[str, Any]:
+        return dict(self.data.get("macro", {}).get("fred", {}))
+
+    @property
+    def external_signal_settings(self) -> dict[str, Any]:
+        return dict(self.data.get("external_signals", {}))
+
+    @property
     def risk_limits(self) -> dict[str, Any]:
         risk = dict(self.data.get("risk", {}))
         risk.setdefault("max_single_name_weight", 0.15)
         risk.setdefault("max_bucket_weight", 0.45)
         risk.setdefault("max_daily_turnover", 0.08)
         risk.setdefault("max_one_ticket_delta", 0.03)
+        risk.setdefault("max_cash_deploy_weight", 0.02)
         risk.setdefault("min_signal_family_count", 2)
         risk.setdefault("earnings_blackout_days", 2)
         risk.setdefault("earnings_risk_window_days", 7)
@@ -91,6 +100,14 @@ class AppConfig:
     @property
     def earnings_sec_companies(self) -> list[dict[str, Any]]:
         return [dict(row) for row in self.data.get("earnings", {}).get("sec_companies", [])]
+
+    @property
+    def earnings_provider_settings(self) -> dict[str, Any]:
+        return dict(self.data.get("earnings", {}).get("providers", {}))
+
+    @property
+    def earnings_ir_feeds(self) -> list[dict[str, Any]]:
+        return [dict(row) for row in self.data.get("earnings", {}).get("ir_feeds", [])]
 
     @property
     def manual_positions(self) -> list[dict[str, Any]]:
@@ -111,6 +128,40 @@ class AppConfig:
                     "currency": str(row.get("currency", "USD")).strip() or "USD",
                     "price": row.get("price", row.get("last_price", 0)),
                     "market_value": row.get("market_value", 0),
+                }
+            )
+        return normalized
+
+    @property
+    def cash_reserves(self) -> list[dict[str, Any]]:
+        portfolio = self.data.get("portfolio", {})
+        reserves = portfolio.get("cash_reserves", [])
+        if isinstance(reserves, dict):
+            reserves = [reserves]
+        for legacy_key in ("cash_reserve", "cash"):
+            legacy = portfolio.get(legacy_key)
+            if isinstance(legacy, dict):
+                reserves = [*reserves, legacy]
+        normalized: list[dict[str, Any]] = []
+        for index, row in enumerate(reserves):
+            if not isinstance(row, dict) or row.get("enabled", True) is False:
+                continue
+            currency = str(row.get("currency", "USD")).upper().strip() or "USD"
+            symbol = str(row.get("symbol") or ("CASH" if currency == "USD" else f"CASH_{currency}")).upper().strip()
+            amount = row.get("market_value", row.get("amount", row.get("value", 0)))
+            weight = row.get("weight", row.get("target_weight", row.get("cash_weight", 0)))
+            if not amount and not weight:
+                continue
+            normalized.append(
+                {
+                    "broker": str(row.get("broker", "manual")).strip() or "manual",
+                    "account": str(row.get("account", "cash-reserve")).strip() or "cash-reserve",
+                    "symbol": symbol,
+                    "description": str(row.get("description", f"{currency} cash reserves")).strip(),
+                    "currency": currency,
+                    "market_value": amount,
+                    "weight": weight,
+                    "sort_index": index,
                 }
             )
         return normalized

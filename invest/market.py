@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -10,22 +11,51 @@ from typing import Any
 from .util import decimal_or_zero
 
 
-def fetch_daily_prices(symbols: list[str], range_: str = "5d", interval: str = "1d") -> dict[str, dict[str, Decimal]]:
+def fetch_daily_prices(symbols: list[str], range_: str = "5d", interval: str = "1d", max_workers: int = 8) -> dict[str, dict[str, Decimal]]:
     prices: dict[str, dict[str, Decimal]] = {}
-    for symbol in symbols:
-        quote = fetch_chart(symbol, range_=range_, interval=interval)
-        if quote:
-            prices[symbol] = quote
+    unique = unique_symbols(symbols)
+    if not unique:
+        return prices
+    with ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(unique)))) as pool:
+        futures = {pool.submit(fetch_chart, symbol, range_, interval): symbol for symbol in unique}
+        for future in as_completed(futures):
+            symbol = futures[future]
+            try:
+                quote = future.result()
+            except Exception:
+                quote = {}
+            if quote:
+                prices[symbol] = quote
     return prices
 
 
-def fetch_return_windows(symbols: list[str], range_: str = "1y", interval: str = "1d") -> dict[str, dict[str, Decimal]]:
+def fetch_return_windows(symbols: list[str], range_: str = "1y", interval: str = "1d", max_workers: int = 8) -> dict[str, dict[str, Decimal]]:
     windows: dict[str, dict[str, Decimal]] = {}
-    for symbol in symbols:
-        history = fetch_chart_history(symbol, range_=range_, interval=interval)
-        if history:
-            windows[symbol] = return_windows_for_history(history)
+    unique = unique_symbols(symbols)
+    if not unique:
+        return windows
+    with ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(unique)))) as pool:
+        futures = {pool.submit(fetch_chart_history, symbol, range_, interval): symbol for symbol in unique}
+        for future in as_completed(futures):
+            symbol = futures[future]
+            try:
+                history = future.result()
+            except Exception:
+                history = []
+            if history:
+                windows[symbol] = return_windows_for_history(history)
     return windows
+
+
+def unique_symbols(symbols: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for symbol in symbols:
+        normalized = str(symbol).upper().strip()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            ordered.append(normalized)
+    return ordered
 
 
 def fetch_chart(symbol: str, range_: str = "5d", interval: str = "1d") -> dict[str, Decimal]:

@@ -6,9 +6,9 @@
     <meta name="theme-color" content="#0e151b">
     <meta
       name="description"
-      content="Full public 13F position weights for the AlloIQ AI Thesis Core: Situational Awareness, Altimeter, and Dragoneer."
+      content="AlloIQ Research Book ranks AI-max public stocks by scenario return, evidence quality, timing, and sizing."
     >
-    <title>AI Thesis Core Positions | AlloIQ</title>
+    <title>Research Book | AlloIQ</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -33,12 +33,11 @@
           </span>
         </a>
         <div class="topbar-meta">
-          <span id="coreDate">Loading</span>
-          <span class="badge">Public 13F</span>
-          <a class="topbar-link" href="/">Home</a>
+          <span id="researchDate">Loading</span>
           <a class="topbar-link" href="/dashboard">Trade OS</a>
-          <a class="topbar-link" href="/research">Research</a>
+          <a class="topbar-link" href="/optimizer">Optimizer</a>
           <a class="topbar-link" href="/backtest">Backtest</a>
+          <a class="topbar-link" href="/portfolio">GW Portfolio</a>
         </div>
       </header>
 
@@ -49,10 +48,10 @@
             <a class="rail-button rail-link" href="/">Home</a>
             <a class="rail-button rail-link" href="/dashboard">Trade OS</a>
             <a class="rail-button rail-link" href="/portfolio">GW Portfolio</a>
-            <a class="rail-button rail-link" href="/research">Research Book</a>
+            <a class="rail-button rail-link active" href="/research" aria-current="page">Research Book</a>
             <a class="rail-button rail-link" href="/optimizer">Optimizer</a>
             <a class="rail-button rail-link" href="/backtest">Backtest</a>
-            <a class="rail-button rail-link active" href="/ai-thesis-core" aria-current="page">AI Core</a>
+            <a class="rail-button rail-link" href="/ai-thesis-core">AI Core</a>
           </div>
           <div class="rail-section">
             <span class="rail-section-label">Trade OS</span>
@@ -70,47 +69,50 @@
           </div>
         </nav>
 
-        <section class="core-page">
-          <section class="core-hero">
+        <section class="research-page">
+          <section class="research-hero">
           <div>
-            <p class="eyebrow">alloiq.com / ai thesis core</p>
-            <h1>AI Thesis Core Positions</h1>
+            <p class="eyebrow">research book / 3-12m alpha</p>
+            <h1>Ranked stock research and expected return</h1>
             <p>
-              Full public 13F common-stock position weights for Situational Awareness,
-              Altimeter, and Dragoneer, benchmarked against the Geoffrey Woo Portfolio.
+              A deterministic research book for AI-max public equities: scenario returns,
+              evidence quality, catalyst timing, drawdown risk, manager signal, and sizing verdict.
             </p>
           </div>
-          <div class="portfolio-hero-actions">
-            <button id="copyCoreButton" class="primary-button" type="button">Copy core CSV</button>
-            <a class="secondary-button" href="/portfolio">GW Portfolio</a>
-          </div>
+          <label class="search research-search">
+            <span>Search</span>
+            <input id="researchSearch" type="search" placeholder="Ticker, bucket, verdict">
+          </label>
           </section>
 
-          <p class="notice">
-          Filings are delayed 13F snapshots and omit non-13F assets, shorts, private marks,
-          and intraday trading. Fund holdings are published as weights only.
-          </p>
+          <section id="researchSummary" class="portfolio-summary-grid" aria-label="Research summary"></section>
 
-          <section id="coreSummary" class="portfolio-summary-grid" aria-label="AI Thesis Core summary"></section>
-
-          <section class="panel core-overlap-panel">
-          <div class="panel-head">
-            <h3>Three-Fund Overlap Map</h3>
-            <span>Shared symbols and Geoffrey Woo Portfolio context</span>
-          </div>
-          <div id="coreOverlapList" class="core-overlap-list"></div>
+          <section class="research-layout">
+          <section class="panel research-rank-panel">
+            <div class="panel-head">
+              <h3>Expected-Return Ranks</h3>
+              <span id="researchCount">Loading</span>
+            </div>
+            <div id="researchRankList" class="research-rank-list"></div>
           </section>
 
-          <section id="coreManagerList" class="core-manager-list" aria-label="Full AI Thesis Core positions"></section>
+          <section class="panel research-detail-panel">
+            <div class="panel-head">
+              <h3 id="researchDetailTitle">Ticker Deep Dive</h3>
+              <span id="researchDetailMeta">Select a ticker</span>
+            </div>
+            <div id="researchDetail" class="research-detail"></div>
+          </section>
+          </section>
         </section>
       </main>
 
       <footer class="site-footer">
-        <span>Public weights, public filings, daily AI markets signals. Approval-only; no live order execution.</span>
+        <span>Public weights, public filings, daily AI markets signals.</span>
         <a href="https://x.com/geoffreywoo" target="_blank" rel="noreferrer">Created by @geoffreywoo</a>
       </footer>
     </div>
 
-    <script src="/ai-thesis-core.js" type="module"></script>
+    <script src="/research.js" type="module"></script>
   </body>
 </html>

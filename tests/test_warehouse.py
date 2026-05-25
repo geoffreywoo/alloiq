@@ -60,6 +60,24 @@ class WarehouseTests(unittest.TestCase):
                 ],
             },
             "decision_cards": [{"symbol": "NVDA", "score": 50, "signal_family_count": 3}],
+            "research_book": {
+                "items": [
+                    {
+                        "research_id": "research-1",
+                        "symbol": "NVDA",
+                        "bucket": "semis_networking_hbm",
+                        "model_policy_version": "2026-05-scenario-sizing-v1",
+                        "verdict": "buy_more",
+                        "risk_adjusted_expected_return": 22,
+                        "probability_weighted_return": 25,
+                        "evidence_quality": 80,
+                        "drawdown_risk": 35,
+                        "timing_score": 70,
+                        "current_weight": 0.1,
+                        "peer_avg_weight": 0.12,
+                    }
+                ]
+            },
             "portfolio_benchmark": {
                 "primary_horizon": "5d",
                 "top_contributors": [{"symbol": "NVDA", "weight": 0.1, "five_day_pct": 5, "contribution_pct": 0.5}],
@@ -91,6 +109,57 @@ class WarehouseTests(unittest.TestCase):
                 "paper_trades": [{"paper_trade_id": "paper-1", "ticket_id": "ticket-1", "symbol": "NVDA", "trade_action": "add", "status": "planned", "current_weight": 0.1, "recommended_delta_weight": 0.01, "target_weight": 0.11, "proxy_fill_price": 120}],
                 "snapshots": [{"symbol": "NVDA", "current_weight": 0.1, "paper_target_weight": 0.11, "paper_delta_weight": 0.01}],
             },
+            "backtest": {
+                "version": "2026-05-recommendation-backtest-v1",
+                "model_policy_version": "2026-05-scenario-sizing-v1",
+                "as_of": "2026-05-24",
+                "source_report_count": 1,
+                "trial_count": 1,
+                "completed_outcome_count": 1,
+                "pending_outcome_count": 3,
+                "calibration": {"status": "available", "mean_error": 2},
+                "horizons": [{"horizon": "1m", "completed_count": 1}],
+                "outcomes": [
+                    {
+                        "outcome_id": "outcome-1",
+                        "trial_id": "example-1",
+                        "as_of": "2026-05-24",
+                        "session": "premarket",
+                        "symbol": "NVDA",
+                        "bucket": "semis_networking_hbm",
+                        "trade_action": "add",
+                        "horizon": "1m",
+                        "status": "complete",
+                        "direction": 1,
+                        "entry_date": "2026-05-24",
+                        "exit_date": "2026-06-24",
+                        "entry_price": 120,
+                        "exit_price": 132,
+                        "raw_forward_return_pct": 10,
+                        "decision_forward_return_pct": 10,
+                        "risk_adjusted_expected_return": 8,
+                        "expected_vs_realized_error": 2,
+                        "signal_families": ["manager"],
+                    }
+                ],
+            },
+            "recommendation_training_examples": [
+                {
+                    "example_id": "example-1",
+                    "ticket_id": "ticket-1",
+                    "as_of": "2026-05-24",
+                    "session": "premarket",
+                    "symbol": "NVDA",
+                    "bucket": "semis_networking_hbm",
+                    "model_policy_version": "2026-05-scenario-sizing-v1",
+                    "trade_action": "add",
+                    "current_weight": 0.1,
+                    "recommended_delta_weight": 0.01,
+                    "target_weight": 0.11,
+                    "risk_adjusted_expected_return": 22,
+                    "forward_return_labels": {"3m": None},
+                }
+            ],
         }
 
         counts = warehouse.upsert_report_payload(
@@ -102,6 +171,7 @@ class WarehouseTests(unittest.TestCase):
         self.assertEqual(counts["pipeline_runs"], 1)
         self.assertEqual(counts["portfolio_snapshots"], 1)
         self.assertEqual(counts["position_snapshots"], 1)
+        self.assertEqual(counts["research_snapshots"], 1)
         self.assertEqual(counts["trade_recommendations"], 1)
         self.assertEqual(counts["calendar_events"], 1)
         self.assertEqual(counts["manager_filing_calendar"], 1)
@@ -109,6 +179,9 @@ class WarehouseTests(unittest.TestCase):
         self.assertEqual(counts["engine_predictions"], 1)
         self.assertEqual(counts["paper_trades"], 1)
         self.assertEqual(counts["paper_portfolio_snapshots"], 1)
+        self.assertEqual(counts["backtest_runs"], 1)
+        self.assertEqual(counts["backtest_outcomes"], 1)
+        self.assertEqual(counts["recommendation_training_examples"], 1)
         self.assertEqual(counts["model_policy_versions"], 1)
         self.assertTrue(any("INSERT INTO trade_recommendations" in sql for sql, _ in conn.executed))
 

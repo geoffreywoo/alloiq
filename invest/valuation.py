@@ -9,6 +9,7 @@ from typing import Any
 
 from .config import AppConfig
 from .market import fetch_daily_prices
+from .symbols import proxied_lookup
 from .util import decimal_or_zero
 
 
@@ -421,7 +422,7 @@ def write_valuation_report(snapshot: dict[str, Any], path: Path, format_: str) -
 
 
 def price_for_symbol(prices: dict[str, dict[str, Decimal]], symbol: str) -> Decimal | None:
-    row = prices.get(symbol) or prices.get(symbol.upper())
+    row = proxied_lookup(prices, symbol)
     if not row:
         return None
     value = decimal_or_zero(row.get("last"))

@@ -6,9 +6,9 @@
     <meta name="theme-color" content="#0e151b">
     <meta
       name="description"
-      content="Full public 13F position weights for the AlloIQ AI Thesis Core: Situational Awareness, Altimeter, and Dragoneer."
+      content="AlloIQ backtests daily trade recommendations against forward returns and calibration."
     >
-    <title>AI Thesis Core Positions | AlloIQ</title>
+    <title>Backtest | AlloIQ</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -33,12 +33,11 @@
           </span>
         </a>
         <div class="topbar-meta">
-          <span id="coreDate">Loading</span>
-          <span class="badge">Public 13F</span>
-          <a class="topbar-link" href="/">Home</a>
+          <span id="backtestDate">Loading</span>
           <a class="topbar-link" href="/dashboard">Trade OS</a>
           <a class="topbar-link" href="/research">Research</a>
-          <a class="topbar-link" href="/backtest">Backtest</a>
+          <a class="topbar-link" href="/optimizer">Optimizer</a>
+          <a class="topbar-link" href="/portfolio">GW Portfolio</a>
         </div>
       </header>
 
@@ -51,8 +50,8 @@
             <a class="rail-button rail-link" href="/portfolio">GW Portfolio</a>
             <a class="rail-button rail-link" href="/research">Research Book</a>
             <a class="rail-button rail-link" href="/optimizer">Optimizer</a>
-            <a class="rail-button rail-link" href="/backtest">Backtest</a>
-            <a class="rail-button rail-link active" href="/ai-thesis-core" aria-current="page">AI Core</a>
+            <a class="rail-button rail-link active" href="/backtest" aria-current="page">Backtest</a>
+            <a class="rail-button rail-link" href="/ai-thesis-core">AI Core</a>
           </div>
           <div class="rail-section">
             <span class="rail-section-label">Trade OS</span>
@@ -70,47 +69,84 @@
           </div>
         </nav>
 
-        <section class="core-page">
-          <section class="core-hero">
+        <section class="backtest-page">
+          <section class="research-hero">
           <div>
-            <p class="eyebrow">alloiq.com / ai thesis core</p>
-            <h1>AI Thesis Core Positions</h1>
+            <p class="eyebrow">backtest / engine confidence</p>
+            <h1>Recommendation outcomes and calibration</h1>
             <p>
-              Full public 13F common-stock position weights for Situational Awareness,
-              Altimeter, and Dragoneer, benchmarked against the Geoffrey Woo Portfolio.
+              Every daily add, trim, hold, and watch call becomes a trial. The system
+              labels 1M, 3M, 6M, and 12M forward outcomes as they mature, then checks
+              whether expected return, evidence, timing, and sizing actually worked.
             </p>
           </div>
-          <div class="portfolio-hero-actions">
-            <button id="copyCoreButton" class="primary-button" type="button">Copy core CSV</button>
-            <a class="secondary-button" href="/portfolio">GW Portfolio</a>
-          </div>
+          <a class="primary-button" href="/research">Open Research Book</a>
           </section>
 
-          <p class="notice">
-          Filings are delayed 13F snapshots and omit non-13F assets, shorts, private marks,
-          and intraday trading. Fund holdings are published as weights only.
-          </p>
+          <section id="backtestSummary" class="portfolio-summary-grid" aria-label="Backtest summary"></section>
 
-          <section id="coreSummary" class="portfolio-summary-grid" aria-label="AI Thesis Core summary"></section>
-
-          <section class="panel core-overlap-panel">
-          <div class="panel-head">
-            <h3>Three-Fund Overlap Map</h3>
-            <span>Shared symbols and Geoffrey Woo Portfolio context</span>
-          </div>
-          <div id="coreOverlapList" class="core-overlap-list"></div>
+          <section class="backtest-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Horizon Scoreboard</h3>
+              <span>1M / 3M / 6M / 12M</span>
+            </div>
+            <div id="horizonScoreboard" class="backtest-scoreboard"></div>
           </section>
 
-          <section id="coreManagerList" class="core-manager-list" aria-label="Full AI Thesis Core positions"></section>
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Calibration</h3>
+              <span>Expected vs realized</span>
+            </div>
+            <div id="calibrationPanel" class="calibration-panel"></div>
+          </section>
+          </section>
+
+          <section class="backtest-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Signal Families</h3>
+              <span>What is working</span>
+            </div>
+            <div id="signalFamilyTable" class="mini-table"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Thesis Buckets</h3>
+              <span>Alpha by exposure</span>
+            </div>
+            <div id="bucketTable" class="mini-table"></div>
+          </section>
+          </section>
+
+          <section class="backtest-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Top Wins</h3>
+              <span>Decision return</span>
+            </div>
+            <div id="topWins" class="outcome-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Open Labels</h3>
+              <span>Not mature yet</span>
+            </div>
+            <div id="pendingOutcomes" class="outcome-list"></div>
+          </section>
+          </section>
         </section>
       </main>
 
       <footer class="site-footer">
-        <span>Public weights, public filings, daily AI markets signals. Approval-only; no live order execution.</span>
+        <span>Public weights, public filings, daily AI markets signals.</span>
         <a href="https://x.com/geoffreywoo" target="_blank" rel="noreferrer">Created by @geoffreywoo</a>
       </footer>
     </div>
 
-    <script src="/ai-thesis-core.js" type="module"></script>
+    <script src="/backtest.js" type="module"></script>
   </body>
 </html>

@@ -3,6 +3,8 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from .symbols import equivalent_symbols, proxied_lookup, sum_equivalent_values
+
 
 def build_decision_cards(
     watchlist: list[str],
@@ -18,17 +20,18 @@ def build_decision_cards(
     news_events_by_symbol = news_events_by_symbol or {}
     cards: list[dict[str, Any]] = []
     for symbol in watchlist:
-        filing_value = filing_values_by_symbol.get(symbol, Decimal("0"))
-        portfolio_value = holdings_by_symbol.get(symbol, Decimal("0"))
-        consensus = manager_consensus_by_symbol.get(symbol, {})
+        filing_value = sum_equivalent_values(filing_values_by_symbol, symbol, Decimal("0"))
+        portfolio_value = sum_equivalent_values(holdings_by_symbol, symbol, Decimal("0"))
+        consensus = consensus_for_symbol(manager_consensus_by_symbol, symbol)
         consensus_value = Decimal(str(consensus.get("common_value", 0)))
         manager_count = int(consensus.get("common_manager_count", 0))
         put_value = Decimal(str(consensus.get("put_value", 0)))
         call_value = Decimal(str(consensus.get("call_value", 0)))
-        news_count = news_counts_by_symbol.get(symbol, 0)
-        news_event = news_events_by_symbol.get(symbol, {})
-        quote = prices.get(symbol, {})
+        news_count = int(proxied_lookup(news_counts_by_symbol, symbol, 0) or 0)
+        news_event = proxied_lookup(news_events_by_symbol, symbol, {})
+        quote = proxied_lookup(prices, symbol, {})
         momentum = quote.get("five_day_pct", Decimal("0"))
+        bucket = str(proxied_lookup(bucket_map, symbol, "unmapped"))
         components = score_components(
             portfolio_value,
             filing_value,
@@ -50,11 +53,11 @@ def build_decision_cards(
         )
         event_types = list(news_event.get("event_types", []))
         source_tiers = list(news_event.get("source_tiers", []))
-        risk = classify_risk(symbol, bucket_map.get(symbol, ""), momentum, filing_value)
+        risk = classify_risk(symbol, bucket, momentum, filing_value)
         cards.append(
             {
                 "symbol": symbol,
-                "bucket": bucket_map.get(symbol, "unmapped"),
+                "bucket": bucket,
                 "score": float(round(score, 2)),
                 "portfolio_value": float(portfolio_value),
                 "filing_value": float(filing_value),
@@ -73,13 +76,48 @@ def build_decision_cards(
                 "last_price": float(quote.get("last", Decimal("0"))) if quote else None,
                 "five_day_pct": float(round(momentum, 2)) if quote else None,
                 "candidate": candidate_label(score, portfolio_value, filing_value, momentum, manager_count),
-                "counterargument": counterargument(symbol, bucket_map.get(symbol, ""), risk),
-                "falsifier": falsifier(bucket_map.get(symbol, "")),
+                "counterargument": counterargument(symbol, bucket, risk),
+                "falsifier": falsifier(bucket),
                 "risk": risk,
             }
         )
     cards.sort(key=lambda row: row["score"], reverse=True)
     return cards
+
+
+def consensus_for_symbol(rows: dict[str, dict[str, Any]], symbol: str) -> dict[str, Any]:
+    exact = proxied_lookup(rows, symbol)
+    if not exact:
+        return {}
+    matched = [rows[candidate] for candidate in equivalent_symbols(symbol) if candidate in rows]
+    common_managers: set[str] = set()
+    call_managers: set[str] = set()
+    put_managers: set[str] = set()
+    issuers: set[str] = set()
+    for row in matched:
+        common_managers.update(str(value) for value in row.get("common_managers", []) if value)
+        call_managers.update(str(value) for value in row.get("call_managers", []) if value)
+        put_managers.update(str(value) for value in row.get("put_managers", []) if value)
+        issuers.update(str(value) for value in row.get("issuers", []) if value)
+    common_count = len(common_managers) if common_managers else max(int(row.get("common_manager_count") or 0) for row in matched)
+    call_count = len(call_managers) if call_managers else max(int(row.get("call_manager_count") or 0) for row in matched)
+    put_count = len(put_managers) if put_managers else max(int(row.get("put_manager_count") or 0) for row in matched)
+    primary = dict(exact)
+    primary.update(
+        {
+            "common_value": sum(float(row.get("common_value") or 0) for row in matched),
+            "call_value": sum(float(row.get("call_value") or 0) for row in matched),
+            "put_value": sum(float(row.get("put_value") or 0) for row in matched),
+            "common_manager_count": common_count,
+            "call_manager_count": call_count,
+            "put_manager_count": put_count,
+            "common_managers": sorted(common_managers),
+            "call_managers": sorted(call_managers),
+            "put_managers": sorted(put_managers),
+            "issuers": sorted(issuers),
+        }
+    )
+    return primary
 
 
 def score_components(

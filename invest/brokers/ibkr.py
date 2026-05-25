@@ -197,6 +197,7 @@ def parse_flex_xml(path: Path) -> tuple[list[Transaction], list[Position]]:
                 )
             )
 
+    positions.extend(parse_cash_balance_positions(root))
     return transactions, positions
 
 
@@ -225,3 +226,68 @@ def normalize_cash_action(value: str) -> str:
     if "WITHDRAW" in text:
         return "WITHDRAWAL"
     return "CASH"
+
+
+def parse_cash_balance_positions(root: ET.Element) -> list[Position]:
+    positions: list[Position] = []
+    for statement in root.findall(".//FlexStatement"):
+        statement_attrs = dict(statement.attrib)
+        default_account = statement_attrs.get("accountId") or statement_attrs.get("account") or "IBKR"
+        default_date = parse_date(
+            statement_attrs.get("toDate")
+            or statement_attrs.get("periodTo")
+            or statement_attrs.get("reportDate")
+            or statement_attrs.get("date")
+        ) or date.today()
+        for elem in statement.iter():
+            tag = strip_namespace(elem.tag)
+            if tag not in {"CashReport", "CashBalance", "CashSummary"}:
+                continue
+            attrs = dict(elem.attrib)
+            currency = (attrs.get("currency") or attrs.get("currencyCode") or "USD").upper()
+            amount = first_decimal(attrs, [
+                "endingCash",
+                "endingSettledCash",
+                "settledCash",
+                "totalCash",
+                "cash",
+                "cashBalance",
+                "endingCashBalance",
+                "endingBalance",
+                "balance",
+                "marketValue",
+                "value",
+                "total",
+            ])
+            if amount == 0:
+                continue
+            account = attrs.get("accountId") or attrs.get("account") or default_account
+            as_of = parse_date(attrs.get("reportDate") or attrs.get("date")) or default_date
+            positions.append(
+                Position(
+                    broker="ibkr",
+                    account=account,
+                    as_of=as_of,
+                    symbol=cash_symbol(currency),
+                    description=f"{currency} cash reserves",
+                    quantity=amount,
+                    cost_basis=decimal_or_zero(attrs.get("costBasis")),
+                    market_value=amount,
+                    currency=currency,
+                    raw=attrs,
+                )
+            )
+    return positions
+
+
+def first_decimal(attrs: dict[str, str], keys: list[str]):
+    for key in keys:
+        value = decimal_or_zero(attrs.get(key))
+        if value != 0:
+            return value
+    return decimal_or_zero(0)
+
+
+def cash_symbol(currency: str) -> str:
+    currency = currency.upper().strip() or "USD"
+    return "CASH" if currency == "USD" else f"CASH_{currency}"

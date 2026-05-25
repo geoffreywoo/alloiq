@@ -31,12 +31,13 @@ class CalendarTests(unittest.TestCase):
             config,
             date(2026, 5, 24),
             {},
-            [{"symbol": "NVDA", "event_date": "2026-05-27", "source": "manual", "days_until": 3}],
+            [{"symbol": "NVDA", "event_date": "2026-05-27", "event_type": "earnings", "source": "manual", "days_until": 3}],
         )
 
         event = snapshot["earnings"]["events"][0]
         self.assertEqual(event["confidence"], 1.0)
         self.assertEqual(event["risk_window"], "risk_window")
+        self.assertEqual(snapshot["earnings"]["source_quality"], "ok")
         self.assertEqual(snapshot["filings_13f"]["rule_source"], "https://www.sec.gov/divisions/investment/13ffaq.htm")
 
 

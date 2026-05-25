@@ -63,6 +63,47 @@ class PortfolioTests(unittest.TestCase):
         self.assertAlmostEqual(by_broker["ibkr"]["market_value"], 1000.0)
         self.assertAlmostEqual(by_symbol["AMZN"]["weight"], 1250.0 / 1700.0)
 
+    def test_cash_reserve_weight_changes_total_portfolio_denominator(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        init_db(conn)
+        insert_positions(
+            conn,
+            [
+                Position(
+                    broker="ibkr",
+                    account="taxable",
+                    as_of=date(2026, 5, 23),
+                    symbol="NVDA",
+                    quantity=Decimal("10"),
+                    market_value=Decimal("800"),
+                )
+            ],
+        )
+        config = AppConfig(
+            path=Path("config/invest.toml"),
+            data={
+                "portfolio": {
+                    "cash_reserves": [
+                        {"currency": "USD", "weight": 0.20, "description": "Cash reserves"},
+                    ]
+                },
+                "thesis_buckets": [
+                    {"key": "semis_networking_hbm", "symbols": ["NVDA"]},
+                ],
+            },
+        )
+
+        portfolio = build_portfolio_exposure(conn, config, prices={}, as_of=date(2026, 5, 24))
+        by_symbol = {row["symbol"]: row for row in portfolio["by_symbol"]}
+
+        self.assertAlmostEqual(portfolio["equity_weight"], 0.8)
+        self.assertAlmostEqual(portfolio["cash_weight"], 0.2)
+        self.assertAlmostEqual(by_symbol["NVDA"]["weight"], 0.8)
+        self.assertAlmostEqual(by_symbol["CASH"]["weight"], 0.2)
+        self.assertTrue(by_symbol["CASH"]["is_cash"])
+        self.assertEqual(by_symbol["CASH"]["bucket"], "cash_reserves")
+
 
 if __name__ == "__main__":
     unittest.main()

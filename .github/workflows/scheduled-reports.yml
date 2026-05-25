@@ -114,6 +114,10 @@ jobs:
           IBKR_FLEX_TOKEN: ${{ secrets.IBKR_FLEX_TOKEN }}
           IBKR_FLEX_ACTIVITY_QUERY_ID: ${{ secrets.IBKR_FLEX_ACTIVITY_QUERY_ID }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+          EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
+          FINRA_API_TOKEN: ${{ secrets.FINRA_API_TOKEN }}
+          CFTC_APP_TOKEN: ${{ secrets.CFTC_APP_TOKEN }}
         shell: bash
         run: |
           force_arg=""

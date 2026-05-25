@@ -97,6 +97,62 @@ class ManagerRadarTests(unittest.TestCase):
         self.assertEqual(radar["focus_manager_groups"][0]["key"], "tier_1")
         self.assertEqual(radar["focus_manager_groups"][0]["managers"][0]["manager_key"], "altimeter")
 
+    def test_goog_and_googl_count_as_same_overlap(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        init_db(conn)
+        config = AppConfig(
+            path=Path("config/invest.toml"),
+            data={
+                "managers": [
+                    {
+                        "key": "altimeter",
+                        "name": "Altimeter Capital Management, LP",
+                        "cik": "0001541617",
+                    }
+                ],
+                "focus_managers": {"tier1_keys": ["altimeter"]},
+                "watchlist": {"symbols": ["GOOG"]},
+                "thesis_buckets": [
+                    {"key": "frontier_ai_platforms", "symbols": ["GOOG", "GOOGL"]},
+                ],
+            },
+        )
+        filing = Filing(
+            manager_key="altimeter",
+            manager_name="Altimeter Capital Management, LP",
+            cik="0001541617",
+            accession_number="0001541617-26-000006",
+            form="13F-HR",
+            filing_date=date(2026, 5, 15),
+            report_date=date(2026, 3, 31),
+            url="https://www.sec.gov/example",
+        )
+        upsert_filing(
+            conn,
+            filing,
+            [
+                Holding(
+                    accession_number=filing.accession_number,
+                    issuer="ALPHABET INC",
+                    title_class="CL A",
+                    cusip="02079K305",
+                    value_usd=Decimal("100"),
+                    shares=Decimal("1"),
+                    symbol="GOOGL",
+                    bucket="frontier_ai_platforms",
+                )
+            ],
+        )
+
+        radar = build_manager_radar(conn, config, {"GOOG": 0.12})
+
+        focus = radar["focus_managers"][0]
+        self.assertEqual(focus["alloiq_watchlist_pct"], 100.0)
+        self.assertEqual(focus["default_portfolio_overlap_pct"], 100.0)
+        self.assertEqual(focus["top_positions"][0]["symbol"], "GOOGL")
+        self.assertEqual(focus["top_positions"][0]["portfolio_weight"], 0.12)
+
 
 if __name__ == "__main__":
     unittest.main()

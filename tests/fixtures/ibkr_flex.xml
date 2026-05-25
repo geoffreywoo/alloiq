@@ -12,6 +12,9 @@
       <OpenPositions>
         <OpenPosition accountId="SIM-ACCOUNT" reportDate="2026-05-07" symbol="NVDA" description="NVIDIA CORP" position="10" costBasisMoney="9006" positionValue="9100" currency="USD"/>
       </OpenPositions>
+      <CashReports>
+        <CashReport accountId="SIM-ACCOUNT" reportDate="2026-05-07" currency="USD" endingCash="900"/>
+      </CashReports>
     </FlexStatement>
   </FlexStatements>
 </FlexQueryResponse>

@@ -44,7 +44,10 @@ MACRO_LABELS = {
 }
 
 
-def build_macro_dashboard(prices: dict[str, dict[str, Decimal]]) -> dict[str, Any]:
+def build_macro_dashboard(
+    prices: dict[str, dict[str, Decimal]],
+    fred_macro: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     tape = []
     for symbol in DEFAULT_MACRO_SYMBOLS:
         quote = prices.get(symbol, {})
@@ -66,18 +69,40 @@ def build_macro_dashboard(prices: dict[str, dict[str, Decimal]]) -> dict[str, An
     rates_move = move(prices, "^TNX")
     dollar_move = move(prices, "UUP")
     vol_move = move(prices, "^VIX")
-    regime = classify_regime(ai_momentum, risk_momentum, defensive_momentum, rates_move, dollar_move, vol_move)
+    fred_scores = (fred_macro or {}).get("scores") or {}
+    regime = classify_regime(
+        ai_momentum,
+        risk_momentum,
+        defensive_momentum,
+        rates_move,
+        dollar_move,
+        vol_move,
+        fred_scores,
+    )
+    scores = {
+        "ai_momentum": float(round(ai_momentum, 2)),
+        "risk_momentum": float(round(risk_momentum, 2)),
+        "defensive_momentum": float(round(defensive_momentum, 2)),
+        "rates_move": decimal_score(rates_move),
+        "dollar_move": decimal_score(dollar_move),
+        "vol_move": decimal_score(vol_move),
+    }
+    for key in [
+        "yield_curve_10y2y",
+        "credit_spread_high_yield",
+        "credit_spread_change_1m",
+        "credit_stress_score",
+        "liquidity_pressure_score",
+        "yield_curve_inversion_score",
+        "energy_pressure_score",
+    ]:
+        if fred_scores.get(key) is not None:
+            scores[key] = float(fred_scores[key])
     return {
         "regime": regime,
-        "scores": {
-            "ai_momentum": float(round(ai_momentum, 2)),
-            "risk_momentum": float(round(risk_momentum, 2)),
-            "defensive_momentum": float(round(defensive_momentum, 2)),
-            "rates_move": float(round(rates_move, 2)),
-            "dollar_move": float(round(dollar_move, 2)),
-            "vol_move": float(round(vol_move, 2)),
-        },
+        "scores": scores,
         "tape": tape,
+        "fred_macro": fred_macro or {},
         "playbook": playbook_for_regime(regime),
     }
 
@@ -96,14 +121,30 @@ def move(prices: dict[str, dict[str, Decimal]], symbol: str) -> Decimal | None:
     return quote.get("five_day_pct")
 
 
+def decimal_score(value: Decimal | None) -> float:
+    return float(round(value or Decimal("0"), 2))
+
+
 def classify_regime(
     ai_momentum: Decimal,
     risk_momentum: Decimal,
     defensive_momentum: Decimal,
-    rates_move: Decimal,
-    dollar_move: Decimal,
-    vol_move: Decimal,
+    rates_move: Decimal | None,
+    dollar_move: Decimal | None,
+    vol_move: Decimal | None,
+    fred_scores: dict[str, Any] | None = None,
 ) -> str:
+    rates_move = rates_move or Decimal("0")
+    dollar_move = dollar_move or Decimal("0")
+    vol_move = vol_move or Decimal("0")
+    fred_scores = fred_scores or {}
+    credit_stress = Decimal(str(fred_scores.get("credit_stress_score") or 0))
+    liquidity_pressure = Decimal(str(fred_scores.get("liquidity_pressure_score") or 0))
+    curve_inversion = Decimal(str(fred_scores.get("yield_curve_inversion_score") or 0))
+    if credit_stress >= 8 or liquidity_pressure >= 8:
+        return "credit/liquidity stress"
+    if curve_inversion >= 8 and rates_move > 2:
+        return "curve/rates pressure"
     if ai_momentum > 3 and risk_momentum > 1 and vol_move < 10:
         return "risk-on AI acceleration"
     if rates_move > 4 and dollar_move > 1 and ai_momentum < 2:
@@ -116,6 +157,18 @@ def classify_regime(
 
 
 def playbook_for_regime(regime: str) -> list[str]:
+    if regime == "credit/liquidity stress":
+        return [
+            "Raise the evidence bar for financed data-center, neocloud, and long-duration AI infrastructure exposure.",
+            "Prefer names with funded balance sheets, signed contracts, and near-term cash-flow proof.",
+            "Treat credit-spread widening as a sizing constraint even when AI demand indicators remain strong.",
+        ]
+    if regime == "curve/rates pressure":
+        return [
+            "Discount-rate pressure argues for smaller starter weights and stricter valuation support.",
+            "Check whether earnings revisions are strong enough to offset higher duration risk.",
+            "Avoid adding before financing or earnings events unless primary-source evidence improved.",
+        ]
     if regime == "risk-on AI acceleration":
         return [
             "Favor high-conviction AI beneficiaries only where forward return still beats the downside case.",

@@ -23,6 +23,9 @@ class RiskControlTests(unittest.TestCase):
         )
 
         self.assertEqual(controlled[0]["recommended_delta_weight"], 0.01)
+        self.assertEqual(controlled[0]["post_action_weight"], 0.15)
+        self.assertEqual(controlled[0]["target_weight"], 0.15)
+        self.assertEqual(controlled[0]["trade_target_weight"], 0.15)
         self.assertIn("single_name_cap", controlled[0]["risk_flags"])
         self.assertTrue(controlled[0]["approval_required"])
         self.assertEqual(controlled[0]["order_execution"], "none")
@@ -46,8 +49,9 @@ class RiskControlTests(unittest.TestCase):
             limits={"earnings_blackout_days": 2},
         )
 
-        self.assertEqual(controlled[0]["trade_action"], "watch")
+        self.assertEqual(controlled[0]["trade_action"], "hold")
         self.assertEqual(controlled[0]["recommended_delta_weight"], 0.0)
+        self.assertEqual(controlled[0]["target_weight"], 0.01)
         self.assertIn("earnings_blackout", controlled[0]["risk_flags"])
 
 

@@ -31,12 +31,22 @@ stale_after_days = 7
 # symbol = "NVDA"
 # description = "NVIDIA Corp"
 # quantity = 0
+#
+# Optional cash reserves. Public snapshots publish only the percentage weight.
+# Use either a private amount or a target weight. When only weight is supplied,
+# the report derives a private synthetic cash value from the current portfolio
+# denominator so public weights include cash without exposing account size.
+# [[portfolio.cash_reserves]]
+# currency = "USD"
+# weight = 0.10
+# description = "Cash reserves"
 
 [risk]
 max_single_name_weight = 0.15
 max_bucket_weight = 0.45
 max_daily_turnover = 0.08
 max_one_ticket_delta = 0.03
+max_cash_deploy_weight = 0.02
 min_signal_family_count = 2
 earnings_blackout_days = 2
 earnings_risk_window_days = 7
@@ -44,6 +54,21 @@ no_add_symbols = []
 watch_only_symbols = []
 
 [earnings]
+# Free-first provider layer. Manual dates and company IR feeds are treated as
+# canonical when present. Alpha Vantage is optional and uses a free API key from
+# the environment. Nasdaq is a no-key fallback derived from its public earnings
+# calendar, so it is treated as estimated.
+[earnings.providers]
+alpha_vantage_enabled = true
+alpha_vantage_api_key_env = "ALPHA_VANTAGE_API_KEY"
+alpha_vantage_horizon = "3month"
+nasdaq_enabled = true
+nasdaq_lookahead_days = 45
+nasdaq_max_requests = 20
+nasdaq_timeout_seconds = 3
+nasdaq_retries = 2
+ir_feed_enabled = true
+
 # Optional manually maintained earnings dates. These are used as the reliable
 # baseline for earnings-window risk and publish only sanitized event metadata.
 # [[earnings.events]]
@@ -57,6 +82,13 @@ watch_only_symbols = []
 # [[earnings.sec_companies]]
 # symbol = "NVDA"
 # cik = "0001045810"
+
+# Optional company IR RSS/Atom feeds. Feed items with earnings/results language
+# are parsed for explicit dates first; otherwise they become company-result
+# markers, not forward earnings dates.
+# [[earnings.ir_feeds]]
+# symbol = "NVDA"
+# url = "https://investor.nvidia.com/news/press-releases/rss"
 
 [[managers]]
 key = "situational-awareness"
@@ -184,7 +216,7 @@ lens = "global internet/software growth"
 key = "d1-capital"
 name = "D1 Capital Partners L.P."
 cik = "0001747057"
-tier = "tier_1"
+tier = "tier_2"
 lens = "crossover growth and opportunistic public equities"
 
 [[managers]]
@@ -206,11 +238,11 @@ cik = "0001061165"
 lens = "Tiger-cub growth and quality compounders"
 
 [focus_managers]
-tier1_keys = ["situational-awareness", "altimeter", "dragoneer", "d1-capital"]
+tier1_keys = ["situational-awareness", "altimeter", "dragoneer"]
 tier2_keys = [
   "duquesne", "pershing-square", "tci", "durable", "atreides", "berkshire",
   "appaloosa", "baupost", "light-street", "valley-forge", "dorsey", "akre",
-  "coatue", "greenoaks", "tiger-global", "whale-rock",
+  "coatue", "greenoaks", "tiger-global", "d1-capital", "whale-rock",
   "viking-global", "lone-pine"
 ]
 keys = [
@@ -266,6 +298,43 @@ symbols = [
 
 [macro]
 symbols = ["QQQ", "SMH", "IGV", "IWM", "SPY", "TLT", "HYG", "LQD", "UUP", "GLD", "USO", "XLE", "XLU", "^VIX", "^TNX", "BTC-USD"]
+
+[macro.fred]
+# No-key FRED CSV series used as structured macro signals for credit stress,
+# liquidity pressure, yield-curve shape, and energy input costs.
+enabled = true
+timeout_seconds = 5
+max_observations = 520
+series = ["DGS10", "DGS2", "BAMLH0A0HYM2", "NFCI", "WALCL", "DCOILWTICO", "DHHNGSP"]
+
+[external_signals]
+# Free-first external feed layer used by the feature matrix and engine.
+# Missing optional API keys are reported as limited source health rather than
+# breaking scheduled publication. Alpha Vantage News uses the same key as the
+# earnings calendar. EIA and FINRA keys can be added later without code changes.
+timeout_seconds = 8
+max_runtime_seconds = 45
+alpha_vantage_news_enabled = true
+alpha_vantage_api_key_env = "ALPHA_VANTAGE_API_KEY"
+alpha_vantage_news_max_symbols = 35
+alpha_vantage_news_limit = 50
+gdelt_enabled = true
+gdelt_timespan_days = 3
+gdelt_max_records = 25
+sec_company_enabled = true
+sec_company_max_symbols = 18
+sec_auto_cik_lookup = true
+eia_enabled = true
+eia_api_key_env = "EIA_API_KEY"
+eia_frequency = "monthly"
+eia_data_field = "generation"
+finra_short_interest_enabled = true
+finra_api_token_env = "FINRA_API_TOKEN"
+finra_max_rows = 5000
+cftc_cot_enabled = true
+cftc_app_token_env = "CFTC_APP_TOKEN"
+cftc_max_rows = 5000
+cftc_markets = ["NASDAQ-100", "S&P 500", "E-MINI NASDAQ", "NATURAL GAS", "WTI"]
 
 [news]
 enabled = true

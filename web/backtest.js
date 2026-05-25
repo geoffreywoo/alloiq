@@ -21,6 +21,8 @@ function render() {
   renderCalibration();
   renderGroup("signalFamilyTable", backtest().by_signal_family || []);
   renderGroup("bucketTable", backtest().by_bucket || []);
+  renderGroup("externalStatusTable", backtest().by_external_feed_status || [], "No external feed status labels yet.");
+  renderGroup("externalCoverageTable", backtest().by_external_coverage || [], "No external coverage labels yet.");
   renderOutcomes("topWins", backtest().top_wins || [], "No completed wins yet.");
   renderOutcomes("pendingOutcomes", backtest().recent_pending || [], "No pending labels.");
 }
@@ -96,13 +98,16 @@ function renderCalibration() {
   `;
 }
 
-function renderGroup(targetId, rows) {
+function renderGroup(targetId, rows, emptyText = "No completed labels yet.") {
   document.getElementById(targetId).innerHTML = rows.length
     ? rows.slice(0, 10).map(groupRow).join("")
-    : empty("No completed labels yet.");
+    : empty(emptyText);
 }
 
 function groupRow(row) {
+  const detail = row.mean_error == null
+    ? `Hit ${formatRatio(row.hit_rate)}`
+    : `Hit ${formatRatio(row.hit_rate)} · Error ${formatPct(row.mean_error)}`;
   return `
     <div class="mini-row">
       <span>
@@ -111,7 +116,7 @@ function groupRow(row) {
       </span>
       <span>
         <strong>${formatPct(row.average_decision_return)}</strong>
-        <small>Hit ${formatRatio(row.hit_rate)}</small>
+        <small>${escapeHtml(detail)}</small>
       </span>
     </div>
   `;

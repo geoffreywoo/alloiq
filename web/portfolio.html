@@ -36,9 +36,9 @@
           <span id="portfolioDate">Loading</span>
           <span class="badge">Weights-only</span>
           <a class="topbar-link" href="/">Home</a>
-          <a class="topbar-link" href="/dashboard">Trade OS</a>
+          <a class="topbar-link" href="/dashboard">Today</a>
           <a class="topbar-link" href="/research">Research</a>
-          <a class="topbar-link" href="/optimizer">Optimizer</a>
+          <a class="topbar-link" href="/optimizer">Targets</a>
           <a class="topbar-link" href="/backtest">Backtest</a>
         </div>
       </header>
@@ -46,28 +46,28 @@
       <main class="layout">
         <nav class="rail" aria-label="Primary navigation">
           <div class="rail-section">
-            <span class="rail-section-label">Pages</span>
+            <span class="rail-section-label">Workflow</span>
             <a class="rail-button rail-link" href="/">Home</a>
-            <a class="rail-button rail-link" href="/dashboard">Trade OS</a>
-            <a class="rail-button rail-link active" href="/portfolio" aria-current="page">GW Portfolio</a>
-            <a class="rail-button rail-link" href="/research">Research Book</a>
-            <a class="rail-button rail-link" href="/optimizer">Optimizer</a>
+            <a class="rail-button rail-link" href="/dashboard">Today</a>
+            <a class="rail-button rail-link active" href="/portfolio" aria-current="page">Portfolio</a>
+            <a class="rail-button rail-link" href="/research">Research</a>
+            <a class="rail-button rail-link" href="/optimizer">Targets</a>
             <a class="rail-button rail-link" href="/backtest">Backtest</a>
             <a class="rail-button rail-link" href="/ai-thesis-core">AI Core</a>
           </div>
           <div class="rail-section">
-            <span class="rail-section-label">Trade OS</span>
+            <span class="rail-section-label">Signals</span>
             <a class="rail-button rail-subbutton" href="/dashboard#dashboard">Today</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#moves">Trade Feed</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#research">Study Queue</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#moves">Blotter</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#research">Research</a>
             <a class="rail-button rail-subbutton" href="/dashboard#earnings">Catalysts</a>
             <a class="rail-button rail-subbutton" href="/dashboard#managers">Managers</a>
             <a class="rail-button rail-subbutton" href="/dashboard#macro">Macro</a>
             <a class="rail-button rail-subbutton" href="/dashboard#news">News</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#method">Method</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#audit">Audit</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#calendar">Calendar</a>
             <a class="rail-button rail-subbutton" href="/dashboard#engine">Engine</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#audit">Audit</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#method">Method</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#calendar">Calendar</a>
           </div>
         </nav>
 
@@ -77,18 +77,17 @@
             <p class="eyebrow">alloiq.com / gw portfolio</p>
             <h1>Geoffrey Woo Portfolio</h1>
             <p>
-              A public, weights-only map of what Geoffrey owns, why the book is shaped this way,
-              and how a friend can mirror the allocation by percentage without seeing private records,
+              Public, weights-only allocation map. Mirror by percentage without private records,
               share counts, or dollar values.
             </p>
           </div>
           <div class="portfolio-hero-actions">
             <button id="copyWeightsButton" class="primary-button" type="button">Copy weights CSV</button>
             <a class="secondary-button" href="/ai-thesis-core">AI core positions</a>
-            <a class="secondary-button" href="/research">Research Book</a>
-            <a class="secondary-button" href="/optimizer">Optimizer</a>
+            <a class="secondary-button" href="/research">Research</a>
+            <a class="secondary-button" href="/optimizer">Targets</a>
             <a class="secondary-button" href="/backtest">Backtest</a>
-            <a class="secondary-button" href="/dashboard">Open Trade OS</a>
+            <a class="secondary-button" href="/dashboard">Open Today</a>
           </div>
           </section>
 
@@ -122,7 +121,7 @@
           <section class="panel">
             <div class="panel-head">
               <h3>Thesis Buckets</h3>
-              <span>Where the AI-maxxi bet lives</span>
+              <span>Where the AI-max bet lives</span>
             </div>
             <div id="bucketThesisList" class="bucket-thesis-list"></div>
           </section>

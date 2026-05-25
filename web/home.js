@@ -39,7 +39,7 @@ async function init() {
 
 function render() {
   const asOf = payload.as_of || "";
-  document.title = asOf ? `AlloIQ - GW AI-Max Portfolio ${asOf}` : "AlloIQ - GW AI-Max Portfolio";
+  document.title = asOf ? `AlloIQ - AI Markets Intelligence ${asOf}` : "AlloIQ - AI Markets Intelligence";
   document.getElementById("homeDate").textContent = asOf ? `Snapshot ${asOf}` : "Public snapshot";
   renderSnapshot();
   renderPerformance();
@@ -59,7 +59,7 @@ function renderSnapshot() {
   const snapshot = document.querySelector("#homeSnapshot + small");
   if (snapshot) {
     snapshot.textContent = top
-      ? `Largest weight: ${top.symbol} ${formatWeight(top.weight)} total / ${formatWeight(exCashWeight(top.weight))} ex-cash | Cash ${formatWeight(cash)}`
+      ? `Largest ex-cash weight: ${top.symbol} ${formatWeight(top.weight)} | Cash reserve ${formatWeight(cash)}`
       : "Public weights only";
   }
 }
@@ -78,12 +78,10 @@ function renderPerformance() {
     detail.textContent = "No return windows in this snapshot.";
     return;
   }
-  const totalReturn = primaryAnalytics?.total_portfolio_return ?? primary.portfolio_return;
-  const exCashReturn = primaryAnalytics?.invested_equity_return;
-  title.textContent = `${primary.label || "3M"} ${formatPct(totalReturn)}`;
+  const exCashReturn = primaryAnalytics?.invested_equity_return ?? primary.portfolio_return;
+  title.textContent = `${primary.label || "3M"} ${formatPct(exCashReturn)}`;
   detail.textContent = [
-    exCashReturn != null ? `ex-cash ${formatPct(exCashReturn)}` : "",
-    primaryAnalytics?.cash_effect_pct != null ? `cash effect ${formatPp(primaryAnalytics.cash_effect_pct)}` : "",
+    "ex-cash invested-equity proxy",
     ytd ? `YTD ex-cash ${formatPct(ytd.invested_equity_return ?? ytd.portfolio_return)}` : "",
     oneYear ? `1Y ex-cash ${formatPct(oneYear.invested_equity_return ?? oneYear.portfolio_return)}` : "",
   ].filter(Boolean).join(" | ");
@@ -134,10 +132,15 @@ function renderBucketMix() {
 function renderReturnAnalytics() {
   const target = document.getElementById("homeReturnAnalytics");
   if (!target) return;
-  const rows = payload.portfolio_benchmark?.return_analytics?.horizons || [];
+  const rows = payload.portfolio_benchmark?.return_analytics?.horizons?.length
+    ? payload.portfolio_benchmark.return_analytics.horizons
+    : (payload.portfolio_benchmark?.horizon_returns || []).map((row) => ({
+      ...row,
+      total_portfolio_return: row.portfolio_return,
+    }));
   target.innerHTML = rows.length
     ? rows.map(returnAnalyticTile).join("")
-    : empty("No ex-cash return analytics available.");
+    : empty("No return windows available.");
 }
 
 function sortedSymbols() {
@@ -184,11 +187,12 @@ function weightBar(label, weight, bucket, options = {}) {
 }
 
 function returnAnalyticTile(row) {
+  const hasExCash = row.invested_equity_return != null;
   return `
     <article class="horizon-tile">
-      <span>${escapeHtml(row.label || row.key || "Window")} ex-cash</span>
-      <strong>${escapeHtml(formatPct(row.invested_equity_return))}</strong>
-      <small>Total ${escapeHtml(formatPct(row.total_portfolio_return))} | cash effect ${escapeHtml(formatPp(row.cash_effect_pct))}</small>
+      <span>${escapeHtml(row.label || row.key || "Window")}${hasExCash ? " ex-cash" : ""}</span>
+      <strong>${escapeHtml(formatPct(hasExCash ? row.invested_equity_return : row.total_portfolio_return))}</strong>
+      <small>${escapeHtml(hasExCash ? "Invested-equity price proxy" : `${formatPlainPct(row.price_coverage_pct)} priced | ex-cash proxy`)}</small>
     </article>
   `;
 }
@@ -214,6 +218,11 @@ function formatPct(value) {
 function formatPp(value) {
   if (value == null || Number.isNaN(Number(value))) return "n/a";
   return `${Number(value) >= 0 ? "+" : ""}${number.format(Number(value))} pp`;
+}
+
+function formatPlainPct(value) {
+  if (value == null || Number.isNaN(Number(value))) return "n/a";
+  return `${number.format(Number(value))}%`;
 }
 
 function equityWeight() {

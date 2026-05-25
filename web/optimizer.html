@@ -6,9 +6,9 @@
     <meta name="theme-color" content="#0e151b">
     <meta
       name="description"
-      content="AlloIQ Optimizer compares Geoffrey Woo Portfolio weights against model target weights and add/trim deltas."
+      content="AlloIQ Targets compares Geoffrey Woo Portfolio ex-cash weights against model target weights and add/trim deltas."
     >
-    <title>Portfolio Optimizer | AlloIQ</title>
+    <title>Targets | AlloIQ</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -34,55 +34,55 @@
         </a>
         <div class="topbar-meta">
           <span id="optimizerDate">Loading</span>
-          <a class="topbar-link" href="/dashboard">Trade OS</a>
+          <a class="topbar-link" href="/dashboard">Today</a>
           <a class="topbar-link" href="/research">Research</a>
           <a class="topbar-link" href="/backtest">Backtest</a>
-          <a class="topbar-link" href="/portfolio">GW Portfolio</a>
+          <a class="topbar-link" href="/portfolio">Portfolio</a>
         </div>
       </header>
 
       <main class="layout">
         <nav class="rail" aria-label="Primary navigation">
           <div class="rail-section">
-            <span class="rail-section-label">Pages</span>
+            <span class="rail-section-label">Workflow</span>
             <a class="rail-button rail-link" href="/">Home</a>
-            <a class="rail-button rail-link" href="/dashboard">Trade OS</a>
-            <a class="rail-button rail-link" href="/portfolio">GW Portfolio</a>
-            <a class="rail-button rail-link" href="/research">Research Book</a>
-            <a class="rail-button rail-link active" href="/optimizer" aria-current="page">Optimizer</a>
+            <a class="rail-button rail-link" href="/dashboard">Today</a>
+            <a class="rail-button rail-link" href="/portfolio">Portfolio</a>
+            <a class="rail-button rail-link" href="/research">Research</a>
+            <a class="rail-button rail-link active" href="/optimizer" aria-current="page">Targets</a>
             <a class="rail-button rail-link" href="/backtest">Backtest</a>
             <a class="rail-button rail-link" href="/ai-thesis-core">AI Core</a>
           </div>
           <div class="rail-section">
-            <span class="rail-section-label">Trade OS</span>
+            <span class="rail-section-label">Signals</span>
             <a class="rail-button rail-subbutton" href="/dashboard#dashboard">Today</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#moves">Trade Feed</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#research">Study Queue</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#moves">Blotter</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#research">Research</a>
             <a class="rail-button rail-subbutton" href="/dashboard#earnings">Catalysts</a>
             <a class="rail-button rail-subbutton" href="/dashboard#managers">Managers</a>
             <a class="rail-button rail-subbutton" href="/dashboard#macro">Macro</a>
             <a class="rail-button rail-subbutton" href="/dashboard#news">News</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#method">Method</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#audit">Audit</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#calendar">Calendar</a>
             <a class="rail-button rail-subbutton" href="/dashboard#engine">Engine</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#audit">Audit</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#method">Method</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#calendar">Calendar</a>
           </div>
         </nav>
 
         <section class="optimizer-page">
           <section class="research-hero">
           <div>
-            <p class="eyebrow">portfolio optimizer / target weights</p>
-            <h1>GW Portfolio vs model portfolio</h1>
+            <p class="eyebrow">targets / model weights</p>
+            <h1>Current vs target</h1>
             <p>
-              Current public weights compared with model target weights, constrained by single-name,
-              bucket, turnover, event, evidence, timing, and drawdown risk.
+              Current public weights versus model targets, constrained by concentration,
+              turnover, events, evidence, timing, and drawdown risk.
             </p>
           </div>
-          <a class="primary-button" href="/research">Open Research Book</a>
+          <a class="primary-button" href="/research">Open Research</a>
           </section>
 
-          <section id="optimizerSummary" class="portfolio-summary-grid" aria-label="Optimizer summary"></section>
+          <section id="optimizerSummary" class="portfolio-summary-grid" aria-label="Target summary"></section>
 
           <section class="optimizer-grid">
           <section class="panel optimizer-main">

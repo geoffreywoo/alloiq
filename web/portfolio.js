@@ -20,7 +20,7 @@ const bucketThesis = {
   neocloud_datacenters: "Own AI infrastructure and data-center capacity when utilization, customer quality, and financing terms are attractive.",
   ai_enabled_financials: "Own financials where AI improves underwriting, distribution, fraud, or operating efficiency.",
   disrupted_incumbents: "Track vulnerable incumbents where AI may compress margins or break legacy distribution.",
-  cash_reserves: "Hold dry powder as part of the total portfolio denominator; deploy only when explicit add targets are funded.",
+  cash_reserves: "Hold dry powder separately from ex-cash equity comparisons; deploy only when explicit add targets are funded.",
   unmapped: "Positions that still need a cleaner thesis bucket before they deserve more size.",
 };
 
@@ -88,12 +88,12 @@ function renderSummary() {
     {
       label: "Largest thesis bucket",
       value: labelize(topBucket.bucket || "n/a"),
-      detail: `${formatWeight(topBucket.weight)} of public weights.`,
+      detail: `${formatWeight(topBucket.weight)} of ex-cash public weights.`,
     },
     {
       label: "Cash reserve",
       value: formatWeight(cashWeight),
-      detail: cashWeight > 0 ? "Included in total portfolio weights." : "No cash sleeve in this snapshot.",
+      detail: cashWeight > 0 ? "Excluded from comparison weights." : "No cash sleeve in this snapshot.",
     },
     ...["3M", "YTD", "1Y"].map((label) => returnWindowCard(benchmark, label)),
     {
@@ -313,7 +313,7 @@ function returnWindowCard(benchmark, label) {
   return {
     label: `${label} return proxy`,
     value: row ? formatPct(row.portfolio_return) : "n/a",
-    detail: row ? `${formatPlainPct(row.price_coverage_pct)} priced | current-weight proxy` : "Window unavailable.",
+    detail: row ? `${formatPlainPct(row.price_coverage_pct)} priced | ex-cash proxy` : "Window unavailable.",
   };
 }
 

@@ -8,7 +8,7 @@
       name="description"
       content="AlloIQ turns public 13F filings, AI-market news, price moves, and macro signals into direct portfolio-weight trades."
     >
-    <title>Trade OS | AlloIQ</title>
+    <title>Today | AlloIQ</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -43,28 +43,28 @@
       <main class="layout">
         <nav class="rail" aria-label="Primary navigation">
           <div class="rail-section">
-            <span class="rail-section-label">Pages</span>
+            <span class="rail-section-label">Workflow</span>
             <a class="rail-button rail-link" href="/">Home</a>
-            <a class="rail-button rail-link rail-parent-active" href="/dashboard">Trade OS</a>
-            <a class="rail-button rail-link" href="/portfolio">GW Portfolio</a>
-            <a class="rail-button rail-link" href="/research">Research Book</a>
-            <a class="rail-button rail-link" href="/optimizer">Optimizer</a>
+            <a class="rail-button rail-link rail-parent-active" href="/dashboard">Today</a>
+            <a class="rail-button rail-link" href="/portfolio">Portfolio</a>
+            <a class="rail-button rail-link" href="/research">Research</a>
+            <a class="rail-button rail-link" href="/optimizer">Targets</a>
             <a class="rail-button rail-link" href="/backtest">Backtest</a>
             <a class="rail-button rail-link" href="/ai-thesis-core">AI Core</a>
           </div>
           <div class="rail-section">
-            <span class="rail-section-label">Trade OS</span>
+            <span class="rail-section-label">Signals</span>
             <a class="rail-button rail-subbutton active" href="/dashboard#dashboard" data-view="dashboard" aria-current="page">Today</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#moves" data-view="moves">Trade Feed</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#research" data-view="research">Study Queue</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#moves" data-view="moves">Blotter</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#research" data-view="research">Research</a>
             <a class="rail-button rail-subbutton" href="/dashboard#earnings" data-view="earnings">Catalysts</a>
             <a class="rail-button rail-subbutton" href="/dashboard#managers" data-view="managers">Managers</a>
             <a class="rail-button rail-subbutton" href="/dashboard#macro" data-view="macro">Macro</a>
             <a class="rail-button rail-subbutton" href="/dashboard#news" data-view="news">News</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#method" data-view="method">Method</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#audit" data-view="audit">Audit</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#calendar" data-view="calendar">Calendar</a>
             <a class="rail-button rail-subbutton" href="/dashboard#engine" data-view="engine">Engine</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#audit" data-view="audit">Audit</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#method" data-view="method">Method</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#calendar" data-view="calendar">Calendar</a>
           </div>
         </nav>
 
@@ -72,46 +72,62 @@
           <div class="command-bar">
             <div>
               <p class="eyebrow">alloiq.com</p>
-              <h1>AlloIQ Trade OS</h1>
+              <h1>AlloIQ Today</h1>
             </div>
             <label class="search">
               <span>Search</span>
               <input id="searchInput" type="search" placeholder="Ticker, manager, catalyst">
             </label>
           </div>
-          <p class="notice">Public weights, public filings, daily AI markets signals. Approval-only; no live order execution. Portfolio data is shown as percentages, not share counts or account values.</p>
+          <p class="notice">Weights-only. Approval-only. No live orders.</p>
           <p id="staleBanner" class="stale-banner" hidden></p>
 
           <section class="view active" id="dashboard" aria-labelledby="dashboardTitle">
             <div class="section-head">
-              <h2 id="dashboardTitle">Today's Decision Stack</h2>
+              <h2 id="dashboardTitle">Today</h2>
               <span id="regimeBadge" class="regime-badge">Macro regime loading</span>
             </div>
-            <div id="kpiGrid" class="kpi-grid"></div>
             <div id="decisionStack" class="decision-stack"></div>
-            <div class="dashboard-grid">
-              <section class="panel">
+            <div class="decision-board">
+              <section class="panel priority-panel">
                 <div class="panel-head">
-                  <h3>Performance Return Proxies</h3>
-                  <span id="benchmarkHorizon">3M / YTD / 1Y current-weight proxy</span>
+                  <h3>Action Blotter</h3>
+                  <span id="actionCount">0 items</span>
+                </div>
+                <div id="portfolioActionList" class="list"></div>
+              </section>
+              <section class="panel chart-panel priority-panel">
+                <div class="panel-head">
+                  <h3>Add / Trim</h3>
+                  <span>Ex-cash weight delta</span>
+                </div>
+                <div id="actionSizingVisual" class="action-visual-list"></div>
+              </section>
+            </div>
+            <div id="kpiGrid" class="kpi-grid terminal-kpis"></div>
+            <div class="dashboard-grid">
+              <section class="panel chart-panel">
+                <div class="panel-head">
+                  <h3>Return Strip</h3>
+                  <span id="benchmarkHorizon">3M / YTD / 1Y ex-cash proxy</span>
                 </div>
                 <div id="returnCurve" class="return-curve"></div>
                 <div id="horizonList" class="horizon-list"></div>
                 <div id="benchmarkList" class="benchmark-list"></div>
               </section>
-              <section class="panel priority-panel">
+              <section class="panel chart-panel">
                 <div class="panel-head">
-                  <h3>Today's Trades</h3>
-                  <span id="actionCount">0 items</span>
+                  <h3>Top Return Drivers</h3>
+                  <span>5-day lift and drag</span>
                 </div>
-                <div id="portfolioActionList" class="list"></div>
+                <div id="attributionWaterfall" class="waterfall-list"></div>
               </section>
             </div>
             <div class="visual-grid">
               <section class="panel chart-panel">
                 <div class="panel-head">
-                  <h3>Signal Strength Map</h3>
-                  <span>Score vs number of managers</span>
+                  <h3>Signal Map</h3>
+                  <span>Score vs managers</span>
                 </div>
                 <div class="canvas-wrap">
                   <canvas id="signalCanvas" role="img" aria-label="Signal score by consensus manager count"></canvas>
@@ -120,24 +136,8 @@
               </section>
               <section class="panel chart-panel">
                 <div class="panel-head">
-                  <h3>Add / Trim Sizing</h3>
-                  <span>Recommended change as portfolio weight</span>
-                </div>
-                <div id="actionSizingVisual" class="action-visual-list"></div>
-              </section>
-            </div>
-            <div class="visual-grid">
-              <section class="panel chart-panel">
-                <div class="panel-head">
-                  <h3>Top Return Drivers</h3>
-                  <span>5-day lift and drag</span>
-                </div>
-                <div id="attributionWaterfall" class="waterfall-list"></div>
-              </section>
-              <section class="panel chart-panel">
-                <div class="panel-head">
-                  <h3>Portfolio Evolution</h3>
-                  <span>Current, peer average, and target</span>
+                  <h3>Portfolio vs Target</h3>
+                  <span>Current, peer, target</span>
                 </div>
                 <div id="peerGapChart" class="peer-gap-list"></div>
               </section>
@@ -146,14 +146,14 @@
               <section class="panel">
                 <div class="panel-head">
                   <h3>Under/Overweight Gaps</h3>
-                  <span>Your weight vs focus funds</span>
+                  <span>Your ex-cash weight vs focus funds</span>
                 </div>
                 <div id="exposureGapList" class="list"></div>
               </section>
               <section class="panel">
                 <div class="panel-head">
-                  <h3>Study Queue</h3>
-                  <span>Positions that need more work</span>
+                  <h3>Research Queue</h3>
+                  <span>Open questions</span>
                 </div>
                 <div id="studyList" class="list"></div>
               </section>
@@ -185,16 +185,16 @@
 
           <section class="view" id="moves" aria-labelledby="movesTitle">
             <div class="section-head">
-              <h2 id="movesTitle">Trade Feed</h2>
-              <span>Add/trim instructions sized by portfolio weight</span>
+              <h2 id="movesTitle">Blotter</h2>
+              <span>Add, trim, hold, watch</span>
             </div>
             <div id="moveList" class="idea-grid"></div>
           </section>
 
           <section class="view" id="research" aria-labelledby="researchTitle">
             <div class="section-head">
-              <h2 id="researchTitle">Study Queue</h2>
-              <span id="researchSummary">Thesis, trigger, and risk</span>
+              <h2 id="researchTitle">Research</h2>
+              <span id="researchSummary">Thesis, trigger, risk</span>
             </div>
             <div id="weeklyResearchList" class="idea-grid"></div>
           </section>
@@ -209,13 +209,13 @@
 
           <section class="view" id="managers" aria-labelledby="managersTitle">
             <div class="section-head">
-              <h2 id="managersTitle">Manager 13F Radar</h2>
+              <h2 id="managersTitle">Managers</h2>
               <span id="managerSummary">Loading public filings</span>
             </div>
             <section class="panel focus-panel">
               <div class="panel-head">
                 <h3>Focus Fund Tracking %</h3>
-                <a class="panel-link" href="/ai-thesis-core">Full AI Thesis Core positions</a>
+                <a class="panel-link" href="/ai-thesis-core">Full AI Core positions</a>
               </div>
               <div id="focusManagerGrid" class="focus-grid"></div>
             </section>
@@ -287,7 +287,7 @@
 
           <section class="view" id="method" aria-labelledby="methodTitle">
             <div class="section-head">
-              <h2 id="methodTitle">Method & Data Health</h2>
+              <h2 id="methodTitle">Method</h2>
               <span id="methodSummary">Live backend method</span>
             </div>
             <div id="methodKpis" class="kpi-grid"></div>
@@ -327,7 +327,7 @@
 
           <section class="view" id="audit" aria-labelledby="auditTitle">
             <div class="section-head">
-              <h2 id="auditTitle">Audit & Engine Health</h2>
+              <h2 id="auditTitle">Audit</h2>
               <span id="auditSummary">Source freshness and publication safety</span>
             </div>
             <div id="auditKpis" class="kpi-grid"></div>
@@ -375,7 +375,7 @@
 
           <section class="view" id="engine" aria-labelledby="engineTitle">
             <div class="section-head">
-              <h2 id="engineTitle">Trading Engine</h2>
+              <h2 id="engineTitle">Engine</h2>
               <span id="engineSummary">Expected-return ranking with paper tracking</span>
             </div>
             <div id="engineKpis" class="kpi-grid"></div>

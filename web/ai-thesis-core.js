@@ -38,7 +38,7 @@ const bucketColors = {
 let payload = null;
 
 init().catch((error) => {
-  document.body.insertAdjacentHTML("afterbegin", `<p class="stale-banner">AI Thesis Core failed to load: ${escapeHtml(error.message)}</p>`);
+  document.body.insertAdjacentHTML("afterbegin", `<p class="stale-banner">AI Core failed to load: ${escapeHtml(error.message)}</p>`);
 });
 
 async function init() {
@@ -51,7 +51,7 @@ async function init() {
 
 function render() {
   const asOf = payload.as_of || "";
-  document.title = `AI Thesis Core Positions - ${asOf}`;
+  document.title = `AI Core - ${asOf}`;
   document.getElementById("coreDate").textContent = asOf ? `Snapshot ${asOf}` : "Public snapshot";
   renderSummary();
   renderOverlap();
@@ -126,7 +126,7 @@ function renderOverlap() {
             <div class="core-overlap-metrics">
               <span>${escapeHtml(row.manager_count)} funds</span>
               <strong>${escapeHtml(formatWeight(row.avg_weight))} avg</strong>
-              <small>GW ${escapeHtml(formatWeight(row.portfolio_weight))}</small>
+              <small>GW ex-cash ${escapeHtml(formatWeight(row.portfolio_weight))}</small>
             </div>
           </article>
         `;
@@ -188,7 +188,7 @@ function managerTemplate(manager) {
       <div class="core-manager-metrics">
         ${metricTemplate("Positions", positions.length)}
         ${metricTemplate("Symbol coverage", formatPlainPct(manager.symbol_coverage_pct))}
-        ${metricTemplate("GW overlap", formatPlainPct(manager.default_portfolio_overlap_pct))}
+        ${metricTemplate("GW symbol overlap", formatPlainPct(manager.default_portfolio_overlap_pct))}
         ${metricTemplate("Top 10 concentration", formatPlainPct(manager.top10_concentration_pct))}
       </div>
       <div class="core-table-wrap">
@@ -199,7 +199,7 @@ function managerTemplate(manager) {
               <th>Position</th>
               <th>Thesis Bucket</th>
               <th>Fund Weight</th>
-              <th>GW Weight</th>
+              <th>GW Ex-cash Weight</th>
               <th>Entry Proxy</th>
               <th>Current Est.</th>
               <th>Est. Return</th>
@@ -254,7 +254,7 @@ async function copyCoreCsv() {
       "issuer",
       "fund_weight_pct",
       "bucket",
-      "gw_portfolio_weight_pct",
+      "gw_ex_cash_weight_pct",
       "entry_price_estimate",
       "latest_report_price",
       "current_price",

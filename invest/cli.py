@@ -11,7 +11,7 @@ from .config import DEFAULT_CONFIG_PATH, init_config, load_config
 from .db import connect, init_db, insert_positions, insert_transactions, record_import, upsert_filing
 from .filings.sec import DEFAULT_CUSIP_SYMBOL_MAP, DEFAULT_ISSUER_SYMBOL_MAP, fetch_13f_holdings, fetch_recent_filings
 from .reports import generate_brief
-from .site import build_site
+from .site import build_site, serve_site
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -108,6 +108,10 @@ def main(argv: list[str] | None = None) -> int:
     site_build = site_sub.add_parser("build", help="Build web/data from report JSON")
     site_build.add_argument("--out-dir", default="web", help="Static output directory")
     site_build.add_argument("--privacy", choices=["public", "private"], default="public")
+    site_serve = site_sub.add_parser("serve", help="Serve the static web app with clean URL support")
+    site_serve.add_argument("--out-dir", default="web", help="Static web directory")
+    site_serve.add_argument("--host", default="", help="Bind host, defaults to all interfaces")
+    site_serve.add_argument("--port", type=int, default=4173, help="Bind port")
 
     backtest = sub.add_parser("backtest", help="Run recommendation outcome backtests from saved reports")
     backtest_sub = backtest.add_subparsers(dest="backtest_command", required=True)
@@ -130,6 +134,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "warehouse":
         return command_warehouse(args)
+    if args.command == "site" and args.site_command == "serve":
+        return serve_site(Path(args.out_dir), host=args.host, port=args.port)
 
     config_path = Path(args.config)
     if args.command == "init":
@@ -158,9 +164,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote {json_path}")
         return 0
     if args.command == "site":
-        result = build_site(config.reports_dir, Path(args.out_dir), privacy=args.privacy)
-        print(json.dumps(result, indent=2, sort_keys=True))
-        return 0
+        if args.site_command == "build":
+            result = build_site(config.reports_dir, Path(args.out_dir), privacy=args.privacy)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        return 2
     if args.command == "backtest":
         return command_backtest(args, config)
     if args.command == "pipeline":

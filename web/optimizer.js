@@ -3,7 +3,7 @@ const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 let payload = null;
 
 init().catch((error) => {
-  document.body.insertAdjacentHTML("afterbegin", `<p class="stale-banner">Optimizer failed to load: ${escapeHtml(error.message)}</p>`);
+  document.body.insertAdjacentHTML("afterbegin", `<p class="stale-banner">Targets failed to load: ${escapeHtml(error.message)}</p>`);
 });
 
 async function init() {
@@ -44,7 +44,7 @@ function renderSummary() {
     {
       label: "Equity target pool",
       value: formatWeight(sizing.target_total_weight ?? portfolio.equity_weight ?? 1),
-      detail: "Model targets normalize inside the equity sleeve",
+      detail: "Model targets use ex-cash equity weights",
     },
     {
       label: "Cash reserve",
@@ -150,7 +150,7 @@ function actionTemplate(action) {
         <p>${escapeHtml(action.sizing_summary || action.action || "")}</p>
       </div>
       <div class="rebalance-metrics">
-        <span>Current ${escapeHtml(formatWeight(action.current_weight ?? action.portfolio_weight))}</span>
+        <span>Current ex-cash ${escapeHtml(formatWeight(action.current_weight ?? action.portfolio_weight))}</span>
         <span>After ${escapeHtml(formatWeight(action.post_action_weight ?? action.target_weight))}</span>
         <span>Model ${escapeHtml(formatWeight(action.model_target_weight ?? action.target_weight))}</span>
         <span>${escapeHtml(labelize(action.funding_source || "no_trade"))}</span>

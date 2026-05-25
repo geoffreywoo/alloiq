@@ -5,7 +5,7 @@ let selectedSymbol = "";
 let searchText = "";
 
 init().catch((error) => {
-  document.body.insertAdjacentHTML("afterbegin", `<p class="stale-banner">Research Book failed to load: ${escapeHtml(error.message)}</p>`);
+  document.body.insertAdjacentHTML("afterbegin", `<p class="stale-banner">Research failed to load: ${escapeHtml(error.message)}</p>`);
 });
 
 async function init() {

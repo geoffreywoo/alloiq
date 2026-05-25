@@ -5,7 +5,7 @@
   "display": "standalone",
   "background_color": "#f5f6f0",
   "theme_color": "#0e151b",
-  "description": "AI markets intelligence for portfolio-weight decisions.",
+  "description": "Static AI markets intelligence for portfolio-weight decisions.",
   "icons": [
     {
       "src": "/favicon.svg",

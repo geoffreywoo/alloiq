@@ -6,9 +6,9 @@
     <meta name="theme-color" content="#0e151b">
     <meta
       name="description"
-      content="Full public 13F position weights for the AlloIQ AI Thesis Core: Situational Awareness, Altimeter, and Dragoneer."
+      content="Public 13F position weights for the AlloIQ AI Core: Situational Awareness, Altimeter, and Dragoneer."
     >
-    <title>AI Thesis Core Positions | AlloIQ</title>
+    <title>AI Core | AlloIQ</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -36,7 +36,7 @@
           <span id="coreDate">Loading</span>
           <span class="badge">Public 13F</span>
           <a class="topbar-link" href="/">Home</a>
-          <a class="topbar-link" href="/dashboard">Trade OS</a>
+          <a class="topbar-link" href="/dashboard">Today</a>
           <a class="topbar-link" href="/research">Research</a>
           <a class="topbar-link" href="/backtest">Backtest</a>
         </div>
@@ -45,28 +45,28 @@
       <main class="layout">
         <nav class="rail" aria-label="Primary navigation">
           <div class="rail-section">
-            <span class="rail-section-label">Pages</span>
+            <span class="rail-section-label">Workflow</span>
             <a class="rail-button rail-link" href="/">Home</a>
-            <a class="rail-button rail-link" href="/dashboard">Trade OS</a>
-            <a class="rail-button rail-link" href="/portfolio">GW Portfolio</a>
-            <a class="rail-button rail-link" href="/research">Research Book</a>
-            <a class="rail-button rail-link" href="/optimizer">Optimizer</a>
+            <a class="rail-button rail-link" href="/dashboard">Today</a>
+            <a class="rail-button rail-link" href="/portfolio">Portfolio</a>
+            <a class="rail-button rail-link" href="/research">Research</a>
+            <a class="rail-button rail-link" href="/optimizer">Targets</a>
             <a class="rail-button rail-link" href="/backtest">Backtest</a>
             <a class="rail-button rail-link active" href="/ai-thesis-core" aria-current="page">AI Core</a>
           </div>
           <div class="rail-section">
-            <span class="rail-section-label">Trade OS</span>
+            <span class="rail-section-label">Signals</span>
             <a class="rail-button rail-subbutton" href="/dashboard#dashboard">Today</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#moves">Trade Feed</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#research">Study Queue</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#moves">Blotter</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#research">Research</a>
             <a class="rail-button rail-subbutton" href="/dashboard#earnings">Catalysts</a>
             <a class="rail-button rail-subbutton" href="/dashboard#managers">Managers</a>
             <a class="rail-button rail-subbutton" href="/dashboard#macro">Macro</a>
             <a class="rail-button rail-subbutton" href="/dashboard#news">News</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#method">Method</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#audit">Audit</a>
-            <a class="rail-button rail-subbutton" href="/dashboard#calendar">Calendar</a>
             <a class="rail-button rail-subbutton" href="/dashboard#engine">Engine</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#audit">Audit</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#method">Method</a>
+            <a class="rail-button rail-subbutton" href="/dashboard#calendar">Calendar</a>
           </div>
         </nav>
 
@@ -74,15 +74,15 @@
           <section class="core-hero">
           <div>
             <p class="eyebrow">alloiq.com / ai thesis core</p>
-            <h1>AI Thesis Core Positions</h1>
+            <h1>AI Core positions</h1>
             <p>
-              Full public 13F common-stock position weights for Situational Awareness,
-              Altimeter, and Dragoneer, benchmarked against the Geoffrey Woo Portfolio.
+              Public 13F weights for Situational Awareness, Altimeter, and Dragoneer,
+              benchmarked against the Geoffrey Woo Portfolio.
             </p>
           </div>
           <div class="portfolio-hero-actions">
             <button id="copyCoreButton" class="primary-button" type="button">Copy core CSV</button>
-            <a class="secondary-button" href="/portfolio">GW Portfolio</a>
+            <a class="secondary-button" href="/portfolio">Portfolio</a>
           </div>
           </section>
 
@@ -91,7 +91,7 @@
           and intraday trading. Fund holdings are published as weights only.
           </p>
 
-          <section id="coreSummary" class="portfolio-summary-grid" aria-label="AI Thesis Core summary"></section>
+          <section id="coreSummary" class="portfolio-summary-grid" aria-label="AI Core summary"></section>
 
           <section class="panel core-overlap-panel">
           <div class="panel-head">
@@ -101,7 +101,7 @@
           <div id="coreOverlapList" class="core-overlap-list"></div>
           </section>
 
-          <section id="coreManagerList" class="core-manager-list" aria-label="Full AI Thesis Core positions"></section>
+          <section id="coreManagerList" class="core-manager-list" aria-label="Full AI Core positions"></section>
         </section>
       </main>
 

@@ -171,7 +171,7 @@ function nearestSignalPoint(x, y) {
 
 function render() {
   const payload = state.payload;
-  document.title = "AlloIQ Trade OS - " + (payload.as_of || "Markets");
+  document.title = "AlloIQ Today - " + (payload.as_of || "Markets");
   const runKind = payload.site?.last_run_kind || payload.session || "report";
   document.getElementById("reportDate").textContent = `${labelize(runKind)} report ${payload.as_of || ""}`;
   const privacy = payload.site?.privacy || "public";
@@ -235,7 +235,7 @@ function payloadFreshness(payload) {
   const builtAt = Date.parse(site.built_at || "");
   if (!builtAt) return { isStale: true, reason: "missing build timestamp" };
   const ageHours = (Date.now() - builtAt) / 36e5;
-  if (status.is_stale_at_build) return { isStale: true, reason: "build marked stale" };
+  if (status.is_stale_at_build) return { isStale: true, reason: status.reason || "build marked stale" };
   if (ageHours > maxAgeHours) {
     return { isStale: true, reason: `last build is ${number.format(ageHours)} hours old` };
   }
@@ -265,7 +265,7 @@ function renderKpis() {
     {
       label: `${portfolioName} ${primaryLabel} return proxy`,
       value: formatPct(primaryReturn),
-      detail: returnStack || `Current weights priced for ${formatPlainPct(benchmark.primary_price_coverage_pct ?? benchmark.price_coverage_pct)} of the portfolio`,
+      detail: returnStack || `Ex-cash weights priced for ${formatPlainPct(benchmark.primary_price_coverage_pct ?? benchmark.price_coverage_pct)} of the equity sleeve`,
     },
     {
       label: "Active vs Nasdaq 100",
@@ -273,32 +273,32 @@ function renderKpis() {
       detail: nasdaq ? `QQQ 5D return ${formatPct(nasdaq.return_5d)}` : "Benchmark unavailable",
     },
     {
-      label: medianPeer && aiThesisCoreBenchmarkNames.has(medianPeer.name) ? "Active vs AI Thesis Core" : "Active vs focus peers",
+      label: medianPeer && aiThesisCoreBenchmarkNames.has(medianPeer.name) ? "Active vs AI Core" : "Active vs focus peers",
       value: medianPeer ? formatPp(medianPeer.portfolio_vs_benchmark) : "n/a",
       detail: medianPeer ? `Peer median 13F proxy ${formatPct(medianPeer.return_5d)}` : "13F proxy unavailable",
     },
     {
-      label: "Today's trades",
+      label: "Blotter",
       value: String(actions.length || 0),
-      detail: actions[0] ? `Top trade: ${actions[0].symbol} ${displayActionText(actions[0].action)}` : "No urgent portfolio-weight changes",
+      detail: actions[0] ? `${actions[0].symbol} ${displayActionText(actions[0].action)}` : "No weight changes",
     },
     {
       label: "Cash reserve",
       value: formatWeight(portfolio.cash_weight || 0),
-      detail: `Equity sleeve ${formatWeight(portfolio.equity_weight ?? 1)}; queue can draw ${(benchmark.sizing_plan?.rebalance_budget?.cash_deployed_weight || 0) ? formatWeight(benchmark.sizing_plan.rebalance_budget.cash_deployed_weight) : "0%"} cash today`,
+      detail: `Excluded from comparisons; queue can draw ${(benchmark.sizing_plan?.rebalance_budget?.cash_deployed_weight || 0) ? formatWeight(benchmark.sizing_plan.rebalance_budget.cash_deployed_weight) : "0%"} cash today`,
     },
     {
-      label: "Backtest confidence",
+      label: "Backtest",
       value: labelize(backtest.status || "awaiting_matured_outcomes"),
       detail: `${backtest.completed_outcome_count || 0} completed labels / ${backtest.pending_outcome_count || 0} pending`,
     },
     {
-      label: "Macro risk gate",
+      label: "Risk gate",
       value: macro.regime || "Mixed",
       detail: scoreDetail(macro.scores),
     },
     {
-      label: "Data posture",
+      label: "Freshness",
       value: dataPosture,
       detail: dataHealth.summary || "Scheduled source-health checks",
     },
@@ -319,7 +319,7 @@ function timeAdjustedReturnDetail(benchmark) {
       return row ? `${row.label || label} ${formatPct(row.portfolio_return)}` : "";
     })
     .filter(Boolean);
-  return windows.length ? `${windows.join(" | ")} | current-weight proxy` : "";
+  return windows.length ? `${windows.join(" | ")} | ex-cash proxy` : "";
 }
 
 function benchmarkReturnWindow(benchmark, label) {
@@ -350,7 +350,7 @@ function renderDashboard() {
   const actionCount = document.getElementById("actionCount");
   const benchmarkHorizon = document.getElementById("benchmarkHorizon");
   if (actionCount) actionCount.textContent = `${actions.length} trades`;
-  if (benchmarkHorizon) benchmarkHorizon.textContent = timeAdjustedReturnDetail(benchmark) || `${benchmark.primary_label || "3M"} current-weight horizon`;
+  if (benchmarkHorizon) benchmarkHorizon.textContent = timeAdjustedReturnDetail(benchmark) || `${benchmark.primary_label || "3M"} ex-cash horizon`;
   const decisionStack = document.getElementById("decisionStack");
   if (decisionStack) {
     decisionStack.innerHTML = decisionStackTemplate(benchmark, actions, macro);
@@ -396,22 +396,22 @@ function decisionStackTemplate(benchmark, actions, macro) {
   const actionText = primary.symbol ? decisionActionLabel(primary, delta) : "No weight change";
   return `
     <article class="decision-card decision-primary">
-      <span>Primary trade</span>
+      <span>Primary</span>
       <strong class="${delta > 0 ? "positive" : delta < 0 ? "negative" : ""}">${escapeHtml(actionText)}</strong>
       <small>${escapeHtml(displayActionText(primary.action) || "No portfolio-weight changes triggered in this report.")}</small>
     </article>
     <article class="decision-card">
-      <span>Peer spread</span>
+      <span>Peer</span>
       <strong class="${Number(peer?.portfolio_vs_benchmark || 0) >= 0 ? "positive" : "negative"}">${escapeHtml(peer ? formatPp(peer.portfolio_vs_benchmark) : "n/a")}</strong>
       <small>${escapeHtml(peer ? `Portfolio return proxy vs ${peer.name}` : "Benchmark unavailable")}</small>
     </article>
     <article class="decision-card">
-      <span>Macro risk gate</span>
+      <span>Risk gate</span>
       <strong>${escapeHtml(macro.regime || "Mixed")}</strong>
       <small>${escapeHtml(scoreDetail(macro.scores || {}))}</small>
     </article>
     <article class="decision-card">
-      <span>Evidence confidence</span>
+      <span>Evidence</span>
       <strong>${escapeHtml(confidence ? `${confidence}/100` : "n/a")}</strong>
       <small>${escapeHtml(primary.symbol ? `${primary.signal_family_count || 0} signal families, priority ${number.format(primary.priority || 0)}` : "No ranked trade")}</small>
     </article>
@@ -469,7 +469,7 @@ function returnCurveTemplate(horizons) {
       <div class="curve-labels">
         ${rows.map((row) => `<span>${escapeHtml(row.label || row.key)} ${escapeHtml(formatPct(row.portfolio_return))}</span>`).join("")}
       </div>
-      <p class="curve-note">Current public weights repriced over each window. Share counts and account values stay private.</p>
+      <p class="curve-note">Ex-cash public weights repriced over each window. Share counts and account values stay private.</p>
     </div>
   `;
 }
@@ -479,7 +479,7 @@ function horizonTemplate(row) {
     <article class="horizon-tile searchable" data-search="${searchAttribute(row)}">
       <span>${escapeHtml(row.label || row.key || "Window")}</span>
       <strong>${escapeHtml(formatPct(row.portfolio_return))}</strong>
-      <small>${escapeHtml(formatPlainPct(row.price_coverage_pct))} priced | current-weight proxy</small>
+      <small>${escapeHtml(formatPlainPct(row.price_coverage_pct))} priced | ex-cash proxy</small>
     </article>
   `;
 }
@@ -525,7 +525,7 @@ function actionTemplate(item) {
       <p>${escapeHtml(item.company_reason || item.why || "")}</p>
       ${item.sector_reason ? `<p>${escapeHtml(item.sector_reason)}</p>` : ""}
       <div class="tags">
-        <span class="tag">Current weight ${escapeHtml(formatWeight(item.portfolio_weight))}</span>
+        <span class="tag">Current ex-cash weight ${escapeHtml(formatWeight(item.portfolio_weight))}</span>
         <span class="tag">Model target ${escapeHtml(formatWeight(item.model_target_weight ?? item.target_weight ?? item.post_action_weight ?? item.portfolio_weight))}</span>
         ${item.risk_adjusted_expected_return != null ? `<span class="tag">Expected ${escapeHtml(formatPct(item.risk_adjusted_expected_return))}</span>` : ""}
         ${item.company_underwriting_score != null ? `<span class="tag">Company ${escapeHtml(number.format(item.company_underwriting_score))}/100</span>` : ""}
@@ -570,7 +570,7 @@ function actionSizingVisualTemplate(actions) {
           </div>
         </div>
         <div class="delta-meta">
-          <span>Current weight ${escapeHtml(formatWeight(item.portfolio_weight))}</span>
+          <span>Current ex-cash weight ${escapeHtml(formatWeight(item.portfolio_weight))}</span>
           <span>After move ${escapeHtml(formatWeight(item.post_action_weight ?? item.portfolio_weight))}</span>
         </div>
       </article>
@@ -609,7 +609,7 @@ function attributionWaterfallTemplate(benchmark) {
         <div class="waterfall-meta">
           <span>${escapeHtml(labelize(row.bucket || "portfolio"))}</span>
           <span>5D price move ${escapeHtml(formatPct(row.five_day_pct))}</span>
-          <span>Portfolio weight ${escapeHtml(formatWeight(row.weight))}</span>
+          <span>Ex-cash weight ${escapeHtml(formatWeight(row.weight))}</span>
         </div>
       </article>
     `;
@@ -640,7 +640,7 @@ function peerGapTemplate(items) {
       <article class="peer-gap-row searchable" data-search="${searchAttribute(row)}">
         <div class="peer-gap-head">
           <strong>${escapeHtml(row.symbol)}</strong>
-          <span>Your weight ${escapeHtml(formatWeight(current))} | peer avg ${escapeHtml(formatWeight(peer))}</span>
+          <span>Your ex-cash weight ${escapeHtml(formatWeight(current))} | peer avg ${escapeHtml(formatWeight(peer))}</span>
         </div>
         <div class="peer-gap-track" aria-label="${escapeAttribute(`${row.symbol} current ${formatWeight(current)} peer ${formatWeight(peer)}`)}">
           <span class="peer-gap-current" style="width:${currentWidth}%"></span>
@@ -648,7 +648,7 @@ function peerGapTemplate(items) {
           <span class="peer-gap-target" style="left:${targetLeft}%"></span>
         </div>
         <div class="peer-gap-legend">
-          <span><i class="legend-current"></i>Your weight</span>
+          <span><i class="legend-current"></i>Your ex-cash weight</span>
           <span><i class="legend-peer"></i>Peer avg</span>
           <span><i class="legend-target"></i>Target / after move</span>
         </div>
@@ -666,7 +666,7 @@ function exposureGapTemplate(gap) {
       </div>
       <p>${escapeHtml(gap.reason || "")}</p>
       <div class="tags">
-        <span class="tag">Your weight ${escapeHtml(formatWeight(gap.portfolio_weight))}</span>
+        <span class="tag">Your ex-cash weight ${escapeHtml(formatWeight(gap.portfolio_weight))}</span>
         <span class="tag">Peer avg ${escapeHtml(formatWeight(gap.peer_avg_weight))}</span>
         <span class="tag">Score ${escapeHtml(gap.score || 0)}</span>
         <span class="tag">${escapeHtml(gap.signal_family_count || 0)} signals</span>
@@ -684,7 +684,7 @@ function studyTemplate(item) {
       </div>
       <p>${escapeHtml(item.question || "")}</p>
       <div class="tags">
-        <span class="tag">Portfolio weight ${escapeHtml(formatWeight(item.portfolio_weight))}</span>
+        <span class="tag">Ex-cash weight ${escapeHtml(formatWeight(item.portfolio_weight))}</span>
         ${item.five_day_pct == null ? "" : `<span class="tag">5D price ${escapeHtml(formatPct(item.five_day_pct))}</span>`}
         ${item.contribution_pct == null ? "" : `<span class="tag">Return contribution ${escapeHtml(formatPp(item.contribution_pct))}</span>`}
         ${item.peer_avg_weight == null ? "" : `<span class="tag">Peer avg ${escapeHtml(formatWeight(item.peer_avg_weight))}</span>`}
@@ -794,7 +794,7 @@ function researchTemplate(idea) {
       <div class="tags">
         <span class="tag">Rank ${escapeHtml(idea.rank || "n/a")}</span>
         <span class="tag">Score ${escapeHtml(idea.score || 0)}</span>
-        <span class="tag">Current weight ${escapeHtml(formatWeight(idea.portfolio_weight))}</span>
+        <span class="tag">Current ex-cash weight ${escapeHtml(formatWeight(idea.portfolio_weight))}</span>
         <span class="tag">Suggested delta ${escapeHtml(formatSignedWeight(idea.recommended_delta_weight))}</span>
         ${(idea.signal_families || []).slice(0, 3).map((family) => `<span class="tag">${escapeHtml(labelize(family))}</span>`).join("")}
       </div>
@@ -1011,7 +1011,7 @@ function focusManagerTemplate(row) {
   const positionHtml = positions.slice(0, 5).map((position) => {
     const label = position.symbol || position.issuer || "Unresolved";
     const portfolio = Number(position.portfolio_weight || 0) > 0
-      ? `<span>GW Port ${escapeHtml(formatWeight(position.portfolio_weight))}</span>`
+      ? `<span>GW ex-cash ${escapeHtml(formatWeight(position.portfolio_weight))}</span>`
       : "";
     return `
       <div class="mini-position">
@@ -1036,7 +1036,7 @@ function focusManagerTemplate(row) {
         ${focusMetricTemplate("Est. return", proxy?.proxy_return, { signed: true, className: "focus-return-metric" })}
         ${focusMetricTemplate("13F coverage", row.symbol_coverage_pct)}
         ${focusMetricTemplate("Watchlist overlap", row.alloiq_watchlist_pct)}
-        ${focusMetricTemplate("Portfolio overlap", row.default_portfolio_overlap_pct)}
+        ${focusMetricTemplate("Portfolio symbol overlap", row.default_portfolio_overlap_pct)}
         ${focusMetricTemplate("Top-10 concentration", row.top10_concentration_pct)}
       </div>
       <p class="focus-return-note">${escapeHtml(proxyNote)}</p>
@@ -1500,7 +1500,7 @@ function renderEngine() {
         detail: `${backtest.trial_count || 0} recommendation trials`,
       },
       {
-        label: "Optimizer",
+        label: "Targets",
         value: labelize(optimizer.type || "long_only_weight_optimizer"),
         detail: `${optimizer.allocation_count || 0} constrained allocations`,
       },

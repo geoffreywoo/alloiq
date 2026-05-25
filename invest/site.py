@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import errno
 import json
 import shutil
 from copy import deepcopy
 from datetime import datetime
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 from .managers import manager_group_label
 from .symbols import equivalent_symbols
@@ -908,6 +911,56 @@ def stale_status(run_kind: str, built_at: str) -> dict[str, Any]:
         "max_age_hours": max_age_hours,
         "policy": "client marks stale when built_at exceeds max_age_hours",
     }
+
+
+def serve_site(out_dir: Path = DEFAULT_WEB_DIR, host: str = "", port: int = 4173) -> int:
+    web_dir = out_dir.resolve()
+    ensure_dir(web_dir)
+    ensure_static_assets(web_dir)
+
+    class CleanUrlHandler(SimpleHTTPRequestHandler):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, directory=str(web_dir), **kwargs)
+
+        def translate_path(self, path: str) -> str:
+            parsed = urlsplit(path)
+            route = unquote(parsed.path)
+            if route == "/":
+                route = "/index.html"
+            elif "." not in Path(route).name:
+                candidate = (web_dir / route.lstrip("/")).with_suffix(".html")
+                if candidate.exists():
+                    route = "/" + candidate.relative_to(web_dir).as_posix()
+            return super().translate_path(route)
+
+        def end_headers(self) -> None:
+            if urlsplit(self.path).path.startswith("/data/"):
+                self.send_header("Cache-Control", "no-store, max-age=0")
+            super().end_headers()
+
+    display_host = host or "127.0.0.1"
+    httpd: ThreadingHTTPServer | None = None
+    bound_port = port
+    for candidate_port in range(port, port + 20):
+        try:
+            httpd = ThreadingHTTPServer((host, candidate_port), CleanUrlHandler)
+            bound_port = candidate_port
+            break
+        except OSError as exc:
+            if exc.errno != errno.EADDRINUSE or candidate_port == port + 19:
+                raise
+            if candidate_port == port:
+                print(f"Port {port} is busy; trying the next available port.")
+    if httpd is None:
+        raise RuntimeError("Unable to start AlloIQ dev server.")
+
+    with httpd:
+        print(f"Serving AlloIQ on http://{display_host}:{bound_port}/ from {web_dir}")
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\nStopping AlloIQ dev server")
+    return 0
 
 
 def ensure_static_assets(out_dir: Path) -> None:

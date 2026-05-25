@@ -1,50 +1,85 @@
 {
   "anti_fund_growth": {
-    "as_of": "May 24, 2026",
-    "basis": "affiliated_private_growth_book_weight",
+    "as_of": "May 25, 2026",
+    "basis": "mark_to_market_growth_book_weight",
+    "basis_label": "Mark-to-market weight",
     "category": "affiliated_private_fund",
-    "description": "Geoffrey Woo's affiliated private tech crossover fund, shown below the public-stock portfolio weights. The Anti Fund link is marketing context; Growth I is not a public-stock fund. Sizes, shares, PPS, account records, and raw LP model fields are excluded.",
+    "description": "Geoffrey Woo's affiliated private tech crossover fund, shown below the public-stock portfolio weights. Growth I is not a public-stock fund. Public weights use mark-to-market estimates; share counts, PPS, dollar marks, account records, and raw LP model fields are excluded.",
+    "mark_policy": "Weights use the local Anti Fund Growth I model, live public Ventuals/Hyperliquid marks where available, reported financing or secondary indications where available, and flat marks otherwise.",
     "marketing_url": "https://antifund.com",
     "name": "Anti Fund Growth I, LP",
     "positions": [
       {
         "company": "OpenAI",
-        "weight": 0.393107
-      },
-      {
-        "company": "Cognition",
-        "weight": 0.179038
-      },
-      {
-        "company": "Saronic",
-        "weight": 0.131646
+        "cost_weight": 0.393107,
+        "mark_basis": "vntl:OPENAI public mark",
+        "source_label": "Hyperliquid Ventuals",
+        "source_url": "https://app.hyperliquid.xyz/trade/vntl:OPENAI",
+        "weight": 0.431002
       },
       {
         "company": "SpaceX",
-        "weight": 0.118488
+        "cost_weight": 0.118488,
+        "mark_basis": "vntl:SPACEX public mark",
+        "source_label": "Hyperliquid Ventuals",
+        "source_url": "https://app.hyperliquid.xyz/trade/vntl:SPACEX",
+        "weight": 0.157402
       },
       {
-        "company": "Helion",
-        "weight": 0.065823
+        "company": "Cognition",
+        "cost_weight": 0.179038,
+        "mark_basis": "Series C and prior-position model mark",
+        "source_label": "Local LP model",
+        "weight": 0.138166
+      },
+      {
+        "company": "Saronic",
+        "cost_weight": 0.131646,
+        "mark_basis": "Series D and secondary indication",
+        "source_label": "Local LP model",
+        "source_url": "https://www.prnewswire.com/news-releases/saronic-closes-1-75b-series-d-at-9-25b-valuation-to-accelerate-a-new-era-of-maritime-autonomy-302729238.html",
+        "weight": 0.099542
       },
       {
         "company": "Anduril",
-        "weight": 0.065823
+        "cost_weight": 0.065823,
+        "mark_basis": "Series H and secondary indication",
+        "source_label": "Local LP model",
+        "source_url": "https://techcrunch.com/2026/05/13/anduril-raises-5b-doubles-valuation-to-61b/",
+        "weight": 0.071726
+      },
+      {
+        "company": "Helion",
+        "cost_weight": 0.065823,
+        "mark_basis": "Flat at current model mark",
+        "source_label": "Local LP model",
+        "weight": 0.047103
       },
       {
         "company": "Erebor",
-        "weight": 0.026327
+        "cost_weight": 0.026327,
+        "mark_basis": "Series C indication",
+        "source_label": "Local LP model",
+        "weight": 0.034647
       },
       {
         "company": "Modal",
-        "weight": 0.013165
+        "cost_weight": 0.013165,
+        "mark_basis": "Public Series C reference",
+        "source_label": "Local LP model",
+        "source_url": "https://modal.com/blog/modal-series-c",
+        "weight": 0.015701
       },
       {
         "company": "Etched",
-        "weight": 0.006582
+        "cost_weight": 0.006582,
+        "mark_basis": "Flat at current model mark",
+        "source_label": "Local LP model",
+        "weight": 0.00471
       }
     ],
-    "relationship": "Geoffrey Woo's affiliated private tech crossover fund."
+    "relationship": "Geoffrey Woo's affiliated private tech crossover fund.",
+    "source_summary": "Local LP model plus public secondary-market marks and financing references."
   },
   "approval_tickets": [
     {

@@ -187,18 +187,27 @@ function renderAntiFundGrowth() {
     link.href = growth.marketing_url || "https://antifund.com";
   }
   if (summary) {
+    const basisLabel = growth.basis_label || "Weights";
     summary.textContent = growth.as_of
-      ? `${growth.as_of} | affiliated private fund | weights only`
-      : "Affiliated private fund | weights only";
+      ? `${growth.as_of} | ${basisLabel} | weights only`
+      : `${basisLabel} | weights only`;
   }
   target.innerHTML = positions.length
-    ? positions.map((row, index) => privateWeightTemplate(row, index)).join("")
+    ? positions.map((row, index) => privateWeightTemplate(row, index, growth)).join("")
     : empty("No affiliated private-fund weights in this snapshot.");
 }
 
-function privateWeightTemplate(row, index) {
+function privateWeightTemplate(row, index, growth = {}) {
   const palette = ["#0e151b", "#08745f", "#2558d5", "#b5681e", "#0f7580", "#66518d", "#69752d", "#b04449", "#5a6673"];
   const color = palette[index % palette.length];
+  const markBasis = row.mark_basis || growth.basis_label || "Mark-to-market weight";
+  const costWeight = Number(row.cost_weight);
+  const costText = Number.isFinite(costWeight) ? `Cost ${formatWeight(costWeight)}` : "";
+  const sourceLabel = row.source_label || growth.source_summary || "";
+  const sourceText = [sourceLabel, costText].filter(Boolean).join(" | ");
+  const sourceMarkup = row.source_url && sourceLabel
+    ? `<a href="${escapeHtml(row.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(sourceLabel)}</a>${costText ? ` | ${escapeHtml(costText)}` : ""}`
+    : escapeHtml(sourceText);
   return `
     <article class="private-weight-card">
       <div class="private-weight-head">
@@ -206,7 +215,8 @@ function privateWeightTemplate(row, index) {
         <span>${escapeHtml(formatWeight(row.weight))}</span>
       </div>
       <div class="bar-track"><div class="bar-fill" style="width:${barWidth(row.weight)}%;background:${color}"></div></div>
-      <small>Affiliated private-growth book weight</small>
+      <small>${escapeHtml(markBasis)}</small>
+      ${sourceText ? `<small>${sourceMarkup}</small>` : ""}
     </article>
   `;
 }

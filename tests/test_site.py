@@ -198,6 +198,43 @@ class SiteTests(unittest.TestCase):
         self.assertEqual(public["anti_fund_growth"]["category"], "affiliated_private_fund")
         self.assertEqual(public["anti_fund_growth"]["marketing_url"], "https://antifund.com")
         self.assertIn("not a public-stock fund", public["anti_fund_growth"]["description"])
+        self.assertEqual(public["anti_fund_growth"]["basis"], "mark_to_market_growth_book_weight")
+        self.assertEqual(public["anti_fund_growth"]["basis_label"], "Mark-to-market weight")
+        anti_positions = public["anti_fund_growth"]["positions"]
+        self.assertAlmostEqual(sum(row["weight"] for row in anti_positions), 1.0, places=5)
+        self.assertEqual(anti_positions[0]["company"], "OpenAI")
+        self.assertAlmostEqual(anti_positions[0]["weight"], 0.431002, places=6)
+        self.assertAlmostEqual(anti_positions[0]["cost_weight"], 0.393107, places=6)
+        anti_keys = set()
+
+        def collect_keys(value):
+            if isinstance(value, dict):
+                anti_keys.update(value.keys())
+                for child in value.values():
+                    collect_keys(child)
+            elif isinstance(value, list):
+                for child in value:
+                    collect_keys(child)
+
+        collect_keys(public["anti_fund_growth"])
+        self.assertFalse(
+            {
+                "account_details",
+                "warehouse_details",
+                "share_count",
+                "shares",
+                "pps",
+                "fund_price_per_share",
+                "original_price_per_share",
+                "original_purchase_price",
+                "fund_purchase_price",
+                "mark_m",
+                "cost_m",
+                "market_value",
+                "cost_basis",
+            }
+            & anti_keys
+        )
         self.assertEqual(public["recommended_moves"][0]["action"], "Core position review")
         self.assertNotIn("estimated_notional", public["approval_tickets"][0])
         self.assertNotIn("estimated_shares", public["approval_tickets"][0])

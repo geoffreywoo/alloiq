@@ -1111,6 +1111,16 @@ h3 {
   font-size: 0.74rem;
 }
 
+.private-weight-card a {
+  color: var(--accent);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.private-weight-card a:hover {
+  text-decoration: underline;
+}
+
 .research-page,
 .optimizer-page,
 .backtest-page {

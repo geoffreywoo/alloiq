@@ -529,9 +529,9 @@ def portfolio_weight_by_symbol(portfolio: dict[str, Any]) -> dict[str, float]:
     weights: dict[str, float] = {}
     for row in portfolio.get("by_symbol", []):
         symbol = str(row.get("symbol") or "").upper()
-        if not symbol:
+        if not symbol or row.get("is_cash"):
             continue
-        weight = float(row.get("weight") or 0)
+        weight = float(row.get("comparison_weight", row.get("ex_cash_weight", row.get("weight") or 0)) or 0)
         for candidate in equivalent_symbols(symbol):
             weights[candidate] = weights.get(candidate, 0.0) + weight
     return weights

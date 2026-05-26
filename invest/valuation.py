@@ -341,7 +341,7 @@ def build_portfolio_valuation_snapshot(portfolio: dict[str, Any], as_of: date | 
             {
                 "symbol": position.get("symbol", ""),
                 "bucket": position.get("bucket", "unmapped"),
-                "portfolio_weight": round(float(position.get("weight") or 0), 6),
+                "portfolio_weight": round(float(position.get("comparison_weight", position.get("ex_cash_weight", position.get("weight") or 0)) or 0), 6),
                 "entry_price_estimate": rounded_float(entry_price),
                 "current_price": rounded_float(current_price),
                 "current_value": rounded_float(current_value),

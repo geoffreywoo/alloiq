@@ -144,3 +144,17 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "Update scheduled AlloIQ ${{ steps.pipeline.outputs.kind }} snapshot"
           git push
+
+      - name: Send Telegram briefing
+        env:
+          ALLOIQ_TELEGRAM_BOT_TOKEN: ${{ secrets.ALLOIQ_TELEGRAM_BOT_TOKEN }}
+          ALLOIQ_TELEGRAM_CHAT_ID: ${{ secrets.ALLOIQ_TELEGRAM_CHAT_ID }}
+        shell: bash
+        run: |
+          if [[ -z "${ALLOIQ_TELEGRAM_BOT_TOKEN:-}" || -z "${ALLOIQ_TELEGRAM_CHAT_ID:-}" ]]; then
+            echo "Telegram briefing skipped: missing ALLOIQ_TELEGRAM_BOT_TOKEN or ALLOIQ_TELEGRAM_CHAT_ID."
+            exit 0
+          fi
+          python3 -m invest notify \
+            --session "${{ steps.pipeline.outputs.kind }}" \
+            --channel telegram

@@ -11,6 +11,7 @@ from .config import AppConfig
 from .db import insert_positions, insert_transactions, record_import, upsert_filing
 from .filings.sec import DEFAULT_CUSIP_SYMBOL_MAP, DEFAULT_ISSUER_SYMBOL_MAP, fetch_13f_holdings, fetch_recent_filings
 from .privacy import assert_public_assets_safe
+from .quality import assert_public_snapshot_quality
 from .reports import generate_brief
 from .scheduler import parse_scheduled_at, should_run_pipeline
 from .site import build_site
@@ -68,6 +69,7 @@ def run_pipeline(
     )
     if privacy == "public":
         assert_public_assets_safe(out_dir)
+        assert_public_snapshot_quality(out_dir)
     ran_result = {
         **result,
         "status": "ran",

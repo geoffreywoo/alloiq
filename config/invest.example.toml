@@ -11,6 +11,18 @@ timezone = "America/Puerto_Rico"
 premarket_time = "08:00"
 postmarket_time = "17:00"
 
+[notifications]
+# Sends compact report briefings after scheduled runs when the required channel
+# secrets are present in the environment. Secrets must never be committed.
+enabled = true
+site_url = "https://alloiq.com"
+
+[notifications.telegram]
+enabled = true
+bot_token_env = "ALLOIQ_TELEGRAM_BOT_TOKEN"
+chat_id_env = "ALLOIQ_TELEGRAM_CHAT_ID"
+timeout_seconds = 10
+
 [ibkr]
 enabled = true
 token_env = "IBKR_FLEX_TOKEN"
@@ -313,14 +325,18 @@ series = ["DGS10", "DGS2", "BAMLH0A0HYM2", "NFCI", "WALCL", "DCOILWTICO", "DHHNG
 # breaking scheduled publication. Alpha Vantage News uses the same key as the
 # earnings calendar. EIA and FINRA keys can be added later without code changes.
 timeout_seconds = 8
-max_runtime_seconds = 45
+max_runtime_seconds = 30
+tail_provider_reserve_seconds = 8
 alpha_vantage_news_enabled = true
 alpha_vantage_api_key_env = "ALPHA_VANTAGE_API_KEY"
 alpha_vantage_news_max_symbols = 35
 alpha_vantage_news_limit = 50
+alpha_vantage_news_timespan_days = 3
 gdelt_enabled = true
 gdelt_timespan_days = 3
 gdelt_max_records = 25
+gdelt_timeout_seconds = 4
+gdelt_max_failures = 2
 sec_company_enabled = true
 sec_company_max_symbols = 18
 sec_auto_cik_lookup = true
@@ -331,9 +347,11 @@ eia_data_field = "generation"
 finra_short_interest_enabled = true
 finra_api_token_env = "FINRA_API_TOKEN"
 finra_max_rows = 5000
+finra_short_interest_max_age_days = 75
 cftc_cot_enabled = true
 cftc_app_token_env = "CFTC_APP_TOKEN"
 cftc_max_rows = 5000
+cftc_cot_max_age_days = 45
 cftc_markets = ["NASDAQ-100", "S&P 500", "E-MINI NASDAQ", "NATURAL GAS", "WTI"]
 
 [news]

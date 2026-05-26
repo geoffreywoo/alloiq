@@ -117,9 +117,10 @@ in `config/invest.toml`. The report values those shares from latest quote data
 and combines them with IBKR before calculating Geoffrey Woo Portfolio weights.
 Cash reserves can be added under `[[portfolio.cash_reserves]]` with either a
 private amount or a target `weight`. Public snapshots publish only the cash
-weight, and all equity weights are then shown against the total portfolio
-including cash. The sizing engine can draw from cash for high-conviction adds,
-bounded by `max_cash_deploy_weight`.
+weight, while portfolio comparisons, return proxies, manager overlap context,
+and public equity weights are normalized ex-cash against the invested equity
+sleeve. The sizing engine can draw from cash for high-conviction adds, bounded
+by `max_cash_deploy_weight`.
 
 ## Commands
 
@@ -182,6 +183,25 @@ Optional data-source secrets:
   provider for 3/6/12 month expected earnings dates. Without it, AlloIQ still
   uses manual dates, company IR RSS/Atom feeds, Nasdaq's public earnings
   calendar fallback, SEC result markers, and news-derived catalyst detection.
+
+Optional briefing delivery secrets:
+
+- `ALLOIQ_TELEGRAM_BOT_TOKEN`: Telegram bot token from BotFather.
+- `ALLOIQ_TELEGRAM_CHAT_ID`: destination chat id after the user sends the bot
+  an initial message.
+
+Telegram delivery runs after the scheduled report if both secrets are present:
+
+```bash
+python3 -m invest notify --session premarket --channel telegram --dry-run
+python3 -m invest notify --session postmarket --channel telegram
+python3 -m invest notify --session weekly --channel telegram
+```
+
+The message is generated from the latest private report JSON and includes only
+weights, add/trim deltas, expected-return estimates, catalysts, constraints,
+data health, and an AlloIQ link. It does not publish quantities, account values,
+broker names, cost basis, raw account ids, or tokens.
 
 The workflow never commits `.env`, `config/invest.toml`, `data/`, or `reports/`.
 It runs tests, builds the public site, scans for private fields, and commits only

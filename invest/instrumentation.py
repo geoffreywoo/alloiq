@@ -3,8 +3,19 @@ from __future__ import annotations
 from typing import Any
 
 
-INSTRUMENTATION_AUDIT_VERSION = "2026-05-number-wiring-audit-v1"
+INSTRUMENTATION_AUDIT_VERSION = "2026-05-external-reliability-wiring-v2"
 TOLERANCE = 0.00001
+EXTERNAL_RELIABILITY_FIELDS = [
+    "external_signal_score",
+    "coverage_adjusted_external_signal_score",
+    "external_coverage_multiplier",
+    "external_feed_status",
+    "external_provider_count",
+    "external_provider_ok_count",
+    "external_provider_ok_ratio",
+    "external_signal_count",
+    "external_source_count",
+]
 
 
 def build_instrumentation_audit(payload: dict[str, Any]) -> dict[str, Any]:
@@ -15,6 +26,9 @@ def build_instrumentation_audit(payload: dict[str, Any]) -> dict[str, Any]:
     checks.extend(engine_wiring_checks(payload))
     checks.extend(return_wiring_checks(payload))
     checks.extend(backtest_wiring_checks(payload))
+    checks.extend(external_signal_schema_checks(payload))
+    checks.extend(external_reliability_wiring_checks(payload))
+    checks.extend(backtest_external_schema_checks(payload))
     failures = [check for check in checks if check.get("status") != "ok"]
     backtest = payload.get("backtest") or {}
     return {
@@ -216,6 +230,100 @@ def backtest_wiring_checks(payload: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def external_signal_schema_checks(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    external = payload.get("external_signals") or {}
+    provider_count = int(external.get("provider_count") or 0)
+    if not provider_count:
+        return []
+    return [
+        check_present("external_signals_provider_ok_count_present", external.get("provider_ok_count")),
+        check_present("external_signals_provider_ok_ratio_present", external.get("provider_ok_ratio")),
+        check_present("external_signals_provider_status_counts_present", external.get("provider_status_counts")),
+    ]
+
+
+def external_reliability_wiring_checks(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    external = payload.get("external_signals") or {}
+    provider_count = int(external.get("provider_count") or 0)
+    if not provider_count:
+        return []
+    feature_rows = (payload.get("feature_matrix") or {}).get("rows") or []
+    engine_rows = (payload.get("engine") or {}).get("ranked_candidates") or []
+    return [
+        check_rows_have_fields("feature_matrix_external_reliability_fields_present", feature_rows, EXTERNAL_RELIABILITY_FIELDS),
+        check_rows_have_fields("engine_external_reliability_fields_present", engine_rows, EXTERNAL_RELIABILITY_FIELDS),
+        check_engine_external_reliability_mirrors_features(engine_rows, feature_rows),
+    ]
+
+
+def check_rows_have_fields(name: str, rows: list[dict[str, Any]], fields: list[str]) -> dict[str, Any]:
+    missing: list[dict[str, str]] = []
+    for row in rows:
+        symbol = str(row.get("symbol") or "unknown").upper()
+        for field in fields:
+            if not value_present(row.get(field)):
+                missing.append({"symbol": symbol, "field": field})
+    return {
+        "name": name,
+        "status": "ok" if not missing else "fail",
+        "row_count": len(rows),
+        "missing_count": len(missing),
+        "missing_sample": missing[:10],
+        "expected_fields": fields,
+    }
+
+
+def check_engine_external_reliability_mirrors_features(engine_rows: list[dict[str, Any]], feature_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    features_by_symbol = {str(row.get("symbol") or "").upper(): row for row in feature_rows if row.get("symbol")}
+    mismatches: list[dict[str, Any]] = []
+    for row in engine_rows:
+        symbol = str(row.get("symbol") or "").upper()
+        feature = features_by_symbol.get(symbol)
+        if not feature:
+            continue
+        for field in EXTERNAL_RELIABILITY_FIELDS:
+            observed = row.get(field)
+            expected = feature.get(field)
+            if not values_match(observed, expected):
+                mismatches.append({"symbol": symbol, "field": field, "observed": observed, "expected": expected})
+    return {
+        "name": "engine_external_reliability_mirrors_feature_matrix",
+        "status": "ok" if not mismatches else "fail",
+        "engine_row_count": len(engine_rows),
+        "mismatch_count": len(mismatches),
+        "mismatch_sample": mismatches[:10],
+    }
+
+
+def backtest_external_schema_checks(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    backtest = payload.get("backtest") or {}
+    completed_count = int(backtest.get("completed_outcome_count") or 0)
+    if not completed_count:
+        return []
+    status_groups = backtest.get("by_external_feed_status")
+    coverage_groups = backtest.get("by_external_coverage")
+    return [
+        check_non_empty("backtest_external_feed_status_groups_present", status_groups),
+        check_non_empty("backtest_external_coverage_groups_present", coverage_groups),
+        check_equal(
+            "backtest_external_feed_status_count_matches_completed",
+            group_completed_count(status_groups),
+            completed_count,
+        ),
+        check_equal(
+            "backtest_external_coverage_count_matches_completed",
+            group_completed_count(coverage_groups),
+            completed_count,
+        ),
+    ]
+
+
+def group_completed_count(rows: Any) -> int:
+    if not isinstance(rows, list):
+        return 0
+    return sum(int(row.get("completed_count") or 0) for row in rows if isinstance(row, dict))
+
+
 def required_action_field_checks(symbol: str, action: dict[str, Any]) -> list[dict[str, Any]]:
     required = [
         "current_weight",
@@ -256,13 +364,29 @@ def check_lte(name: str, observed: Any, expected: Any) -> dict[str, Any]:
 
 
 def check_present(name: str, observed: Any) -> dict[str, Any]:
-    if isinstance(observed, str):
-        ok = bool(observed.strip())
-    elif isinstance(observed, (list, dict)):
-        ok = True
-    else:
-        ok = observed is not None
+    ok = value_present(observed)
     return {"name": name, "status": "ok" if ok else "fail", "observed": observed, "expected": "present"}
+
+
+def value_present(observed: Any) -> bool:
+    if isinstance(observed, str):
+        return bool(observed.strip())
+    if isinstance(observed, (list, dict)):
+        return True
+    return observed is not None
+
+
+def values_match(observed: Any, expected: Any) -> bool:
+    observed_float = as_float(observed)
+    expected_float = as_float(expected)
+    if observed_float is not None or expected_float is not None:
+        return observed_float is not None and expected_float is not None and abs(observed_float - expected_float) <= TOLERANCE
+    return observed == expected
+
+
+def check_non_empty(name: str, observed: Any) -> dict[str, Any]:
+    ok = isinstance(observed, (list, dict, str)) and bool(observed)
+    return {"name": name, "status": "ok" if ok else "fail", "observed": observed, "expected": "non_empty"}
 
 
 def check_truthy(name: str, observed: Any) -> dict[str, Any]:

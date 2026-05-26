@@ -29,8 +29,9 @@ def apply_risk_controls(
     limits = normalize_limits(limits)
     cards_by_symbol = proxy_index(cards)
     bucket_weights = {
-        str(row.get("bucket", "unmapped")): float(row.get("weight") or 0)
+        str(row.get("bucket", "unmapped")): float(row.get("comparison_weight", row.get("ex_cash_weight", row.get("weight") or 0)) or 0)
         for row in portfolio.get("by_bucket", [])
+        if str(row.get("bucket", "unmapped")) != "cash_reserves"
     }
     event_by_symbol = nearest_earnings_by_symbol(earnings_events or [])
     remaining_turnover = float(limits["max_daily_turnover"])

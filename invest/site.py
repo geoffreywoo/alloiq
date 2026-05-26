@@ -4,22 +4,65 @@ import errno
 import json
 import shutil
 from copy import deepcopy
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
+from zoneinfo import ZoneInfo
 
+from .audit import WEAK_SOURCE_STATUSES, learning_gap_detail
+from .backtest import (
+    BACKTEST_VERSION,
+    PENDING_EXTERNAL_ALIGNMENT_REVIEW_QUEUE_LIMIT,
+    estimated_label_due_date,
+    external_alignment_bucket,
+    external_alignment_summaries,
+    pending_external_coverage_summaries,
+    pending_external_coverage_gap_count,
+    pending_external_coverage_gap_plan,
+    pending_external_coverage_gap_queue,
+    pending_external_alignment_summaries,
+    pending_external_alignment_due_dates,
+    pending_external_alignment_review_acceptance_summary,
+    pending_external_alignment_review_count,
+    pending_external_alignment_review_due_dates,
+    pending_external_alignment_review_item_count,
+    pending_external_alignment_review_queue,
+    pending_external_alignment_measurement_gap_plan,
+    pending_external_alignment_measurement_gap_queue,
+    pending_external_alignment_measurement_gap_work_items,
+    pending_external_alignment_watchlist,
+    pending_group_summaries,
+    PENDING_EXTERNAL_ALIGNMENT_MEASUREMENT_GAP_QUEUE_LIMIT,
+)
+from .earnings import earnings_health_summary
+from .external_signals import external_provider_health_detail
+from .features import external_coverage_multiplier
+from .instrumentation import build_instrumentation_audit
 from .managers import manager_group_label
+from .outcomes import (
+    external_learning_readiness_projection,
+    label_maturity,
+    learning_readiness_projection,
+    pending_label_schedule,
+)
+from .scheduler import is_nyse_trading_day
 from .symbols import equivalent_symbols
-from .util import ensure_dir
+from .util import ensure_dir, parse_date
 
 
 DEFAULT_WEB_DIR = Path("web")
+EASTERN = ZoneInfo("America/New_York")
 PORTFOLIO_DISPLAY_NAME = "Geoffrey Woo Portfolio"
 BENCHMARK_NAME_MAP = {
     "Tier 1 median proxy": "AI Thesis Core median proxy",
     "Tier 2 median proxy": "Manager Context Bench median proxy",
+}
+REPORT_SESSION_RANK = {
+    "premarket": 1,
+    "intraday": 2,
+    "postmarket": 3,
 }
 ANTI_FUND_GROWTH_I = {
     "name": "Anti Fund Growth I, LP",
@@ -113,7 +156,7 @@ def build_site(
     workflow: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ensure_dir(out_dir / "data")
-    report_paths = sorted(reports_dir.glob("*.json"), key=lambda path: (path.stat().st_mtime, path.name))
+    report_paths = sorted(reports_dir.glob("*.json"), key=report_selection_key)
     if not report_paths:
         existing_snapshot = out_dir / "data" / "latest.json"
         if existing_snapshot.exists():
@@ -129,7 +172,7 @@ def build_site(
     latest_path = report_paths[-1]
     payload = json.loads(latest_path.read_text(encoding="utf-8"))
     web_payload = sanitize_payload(payload, privacy=privacy)
-    built_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    built_at = utc_timestamp()
     last_run_kind = run_kind or str(payload.get("session") or "manual")
     web_payload["site"] = {
         "name": "AlloIQ",
@@ -138,15 +181,16 @@ def build_site(
         "source_report": latest_path.name,
         "last_run_kind": last_run_kind,
         "report_session": payload.get("session", ""),
+        "report_as_of": payload.get("as_of", ""),
         "built_at": built_at,
         "workflow": workflow or {"provider": "local", "name": "", "run_id": "", "sha": ""},
-        "stale_status": stale_status(last_run_kind, built_at),
+        "stale_status": stale_status(last_run_kind, built_at, payload.get("as_of")),
     }
     report_index = [
         {
             "file": path.name,
             "stem": path.stem,
-            "updated_at": datetime.utcfromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds") + "Z",
+            "updated_at": utc_timestamp(datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)),
         }
         for path in report_paths
     ]
@@ -159,6 +203,29 @@ def build_site(
         "privacy": privacy,
         "report_count": len(report_paths),
     }
+
+
+def report_selection_key(path: Path) -> tuple[date, float, int, str]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        payload = {}
+    report_date = parse_date(payload.get("as_of")) or parse_date(path.stem[:10]) or date.min
+    session = str(payload.get("session") or session_from_report_name(path) or "").lower()
+    return (
+        report_date,
+        path.stat().st_mtime,
+        REPORT_SESSION_RANK.get(session, 0),
+        path.name,
+    )
+
+
+def session_from_report_name(path: Path) -> str:
+    stem = path.stem.lower()
+    for session in REPORT_SESSION_RANK:
+        if stem.endswith(f"-{session}") or f"-{session}-" in stem:
+            return session
+    return ""
 
 
 def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[str, Any]:
@@ -175,6 +242,7 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
         )
         return private_payload
     public_payload = deepcopy(payload)
+    normalize_public_external_reliability(public_payload)
     public_payload.setdefault("product", {})["name"] = "AlloIQ"
     public_payload.setdefault("product", {})["domain"] = "alloiq.com"
     public_payload["private_data_redacted"] = True
@@ -196,6 +264,7 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
     public_payload["research_book"] = sanitize_public_section(public_payload.get("research_book") or {})
     public_payload["outcome_diagnostics"] = sanitize_public_section(public_payload.get("outcome_diagnostics") or {})
     public_payload["backtest"] = sanitize_public_section(public_payload.get("backtest") or {})
+    normalize_public_outcome_diagnostics(public_payload)
     public_payload["external_signals"] = sanitize_public_section(
         public_payload.get("external_signals") or default_external_signals(public_payload)
     )
@@ -215,6 +284,7 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
     public_payload["calendars"] = sanitize_public_section(
         public_payload.get("calendars") or default_calendars(public_payload)
     )
+    normalize_public_earnings_health(public_payload)
     public_payload["engine"] = sanitize_public_section(
         public_payload.get("engine") or default_engine(public_payload)
     )
@@ -236,7 +306,462 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
         public_payload.get("macro", {}),
         public_payload["portfolio"],
     )
+    refresh_public_instrumentation_audit(public_payload)
     return public_payload
+
+
+def normalize_public_external_reliability(payload: dict[str, Any]) -> None:
+    external = payload.get("external_signals") or {}
+    source_statuses = external.get("source_statuses") or []
+    status_counts = dict(external.get("provider_status_counts") or {})
+    if not status_counts and source_statuses:
+        for row in source_statuses:
+            status = str((row or {}).get("status") or "unknown")
+            status_counts[status] = status_counts.get(status, 0) + 1
+    provider_count = int(external.get("provider_count") or sum(status_counts.values()) or len(source_statuses) or 0)
+    provider_ok_count = int(external.get("provider_ok_count") or status_counts.get("ok", 0))
+    provider_ok_ratio = external.get("provider_ok_ratio")
+    if provider_ok_ratio is None and provider_count:
+        provider_ok_ratio = round(provider_ok_count / provider_count, 4)
+    if provider_count:
+        external["provider_count"] = provider_count
+        external["provider_status_counts"] = status_counts
+        external["provider_ok_count"] = provider_ok_count
+        external["provider_ok_ratio"] = provider_ok_ratio
+        external["status"] = external_status_from_counts(status_counts, int(external.get("signal_count") or 0))
+    payload["external_signals"] = external
+    sync_external_signal_data_health(payload, external)
+
+    by_symbol = external.get("by_symbol") or {}
+    features_by_symbol: dict[str, dict[str, Any]] = {}
+    for row in ((payload.get("feature_matrix") or {}).get("rows") or []):
+        fill_external_reliability(row, by_symbol.get(str(row.get("symbol") or "").upper()) or {}, external)
+        if row.get("symbol"):
+            features_by_symbol[str(row.get("symbol")).upper()] = row
+    for row in ((payload.get("engine") or {}).get("ranked_candidates") or []):
+        feature = features_by_symbol.get(str(row.get("symbol") or "").upper())
+        if feature:
+            for key in EXTERNAL_RELIABILITY_KEYS:
+                if row.get(key) is None or row.get(key) == "":
+                    row[key] = feature.get(key)
+        fill_external_reliability(row, by_symbol.get(str(row.get("symbol") or "").upper()) or {}, external)
+
+
+def normalize_public_outcome_diagnostics(payload: dict[str, Any]) -> None:
+    diagnostics = payload.get("outcome_diagnostics") or {}
+    backtest = payload.get("backtest") or {}
+    as_of = parse_date(payload.get("as_of")) or date.today()
+    due_dates_changed = normalize_public_backtest_due_dates(backtest)
+    normalize_public_pending_external_summaries(backtest)
+    schedule = diagnostics.get("pending_label_schedule")
+    if due_dates_changed or not isinstance(schedule, dict) or not schedule:
+        schedule = pending_label_schedule(backtest, as_of)
+        if schedule.get("pending_label_count"):
+            diagnostics["pending_label_schedule"] = schedule
+    maturity = diagnostics.get("label_maturity") or {}
+    if not isinstance(maturity, dict) or not maturity:
+        maturity = label_maturity_from_backtest(backtest)
+        if maturity:
+            diagnostics["label_maturity"] = maturity
+    horizon_counts = diagnostics.get("horizon_label_counts")
+    if not isinstance(horizon_counts, list) or not horizon_counts:
+        horizon_counts = horizon_label_counts_from_backtest(backtest)
+        if horizon_counts:
+            diagnostics["horizon_label_counts"] = horizon_counts
+    projection = diagnostics.get("learning_readiness_projection")
+    if maturity and (due_dates_changed or not isinstance(projection, dict) or not projection):
+        diagnostics["learning_readiness_projection"] = learning_readiness_projection(maturity, schedule or {})
+    external_projection = diagnostics.get("external_learning_readiness_projection")
+    if due_dates_changed or not isinstance(external_projection, dict) or not external_projection:
+        external_projection = external_learning_readiness_projection(backtest, as_of)
+        if external_projection:
+            diagnostics["external_learning_readiness_projection"] = external_projection
+    payload["outcome_diagnostics"] = diagnostics
+
+
+def normalize_public_pending_external_summaries(backtest: dict[str, Any]) -> None:
+    for section in ("outcomes", "recent_pending"):
+        for row in backtest.get(section) or []:
+            if isinstance(row, dict) and not row.get("external_alignment"):
+                row["external_alignment"] = external_alignment_bucket(row)
+    outcomes = [row for row in backtest.get("outcomes") or [] if isinstance(row, dict)]
+    completed = [
+        row for row in outcomes
+        if row.get("status") == "complete"
+    ]
+    pending = [
+        row for row in outcomes
+        if row.get("status") == "pending"
+    ]
+    alignment_summary = backtest.get("by_external_alignment")
+    if completed and (not isinstance(alignment_summary, list) or not alignment_summary):
+        backtest["by_external_alignment"] = external_alignment_summaries(completed)
+    gap_count = pending_external_coverage_gap_count(outcomes)
+    backtest["pending_external_coverage_gap_count"] = gap_count
+    backtest["pending_external_coverage_gap_queue"] = pending_external_coverage_gap_queue(outcomes)
+    backtest["pending_external_coverage_gap_plan"] = pending_external_coverage_gap_plan(outcomes)
+    if not pending:
+        return
+    status_summary = backtest.get("pending_by_external_feed_status")
+    if not isinstance(status_summary, list) or not status_summary:
+        backtest["pending_by_external_feed_status"] = pending_group_summaries(pending, "external_feed_status")
+    coverage_summary = backtest.get("pending_by_external_coverage")
+    if not isinstance(coverage_summary, list) or not coverage_summary:
+        backtest["pending_by_external_coverage"] = pending_external_coverage_summaries(pending)
+    pending_alignment_summary = backtest.get("pending_by_external_alignment")
+    if not isinstance(pending_alignment_summary, list) or not pending_alignment_summary:
+        backtest["pending_by_external_alignment"] = pending_external_alignment_summaries(pending)
+    due_dates = backtest.get("pending_external_alignment_due_dates")
+    if not isinstance(due_dates, list) or not due_dates:
+        backtest["pending_external_alignment_due_dates"] = pending_external_alignment_due_dates(pending)
+    watchlist = backtest.get("pending_external_alignment_watchlist")
+    if not isinstance(watchlist, list) or not watchlist:
+        backtest["pending_external_alignment_watchlist"] = pending_external_alignment_watchlist(pending)
+    backtest["pending_external_alignment_review_count"] = pending_external_alignment_review_count(pending)
+    review_item_count = pending_external_alignment_review_item_count(pending)
+    review_queue = pending_external_alignment_review_queue(pending)
+    backtest["pending_external_alignment_review_item_count"] = review_item_count
+    backtest["pending_external_alignment_review_queue_limit"] = PENDING_EXTERNAL_ALIGNMENT_REVIEW_QUEUE_LIMIT
+    backtest["pending_external_alignment_review_hidden_item_count"] = max(0, review_item_count - len(review_queue))
+    backtest["pending_external_alignment_review_acceptance_summary"] = pending_external_alignment_review_acceptance_summary(pending)
+    backtest["pending_external_alignment_review_due_dates"] = pending_external_alignment_review_due_dates(pending)
+    backtest["pending_external_alignment_review_queue"] = review_queue
+    measurement_gap_items = pending_external_alignment_measurement_gap_work_items(pending)
+    measurement_gap_queue = pending_external_alignment_measurement_gap_queue(pending)
+    backtest["pending_external_alignment_measurement_gap_label_count"] = sum(
+        int(item.get("missing_label_count") or 0) for item in measurement_gap_items
+    )
+    backtest["pending_external_alignment_measurement_gap_item_count"] = len(measurement_gap_items)
+    backtest["pending_external_alignment_measurement_gap_queue_limit"] = PENDING_EXTERNAL_ALIGNMENT_MEASUREMENT_GAP_QUEUE_LIMIT
+    backtest["pending_external_alignment_measurement_gap_hidden_item_count"] = max(
+        0,
+        len(measurement_gap_items) - len(measurement_gap_queue),
+    )
+    backtest["pending_external_alignment_measurement_gap_plan"] = pending_external_alignment_measurement_gap_plan(pending)
+    backtest["pending_external_alignment_measurement_gap_queue"] = measurement_gap_queue
+
+
+def label_maturity_from_backtest(backtest: dict[str, Any]) -> dict[str, Any]:
+    outcomes = [row for row in backtest.get("outcomes") or [] if isinstance(row, dict)]
+    completed = [row for row in outcomes if row.get("status") == "complete"]
+    long_completed = [row for row in completed if row.get("horizon") != "5d"]
+    short_completed = [row for row in completed if row.get("horizon") == "5d"]
+    pending_count = int_value(backtest.get("pending_outcome_count"))
+    if not pending_count:
+        pending_count = sum(1 for row in outcomes if row.get("status") == "pending")
+    missing_count = int_value(backtest.get("missing_price_count"))
+    if not missing_count:
+        missing_count = sum(1 for row in outcomes if row.get("status") == "missing_price")
+    if not outcomes and not pending_count and not missing_count:
+        return {}
+    return label_maturity(long_completed, short_completed, pending_count, missing_count)
+
+
+def horizon_label_counts_from_backtest(backtest: dict[str, Any]) -> list[dict[str, Any]]:
+    horizons = [
+        {
+            "horizon": row.get("horizon"),
+            "completed_count": int_value(row.get("completed_count")),
+            "pending_count": int_value(row.get("pending_count")),
+            "missing_price_count": int_value(row.get("missing_price_count")),
+        }
+        for row in backtest.get("horizons") or []
+        if isinstance(row, dict) and row.get("horizon")
+    ]
+    if horizons:
+        return horizons
+
+    by_horizon: dict[str, dict[str, Any]] = {}
+    for row in backtest.get("outcomes") or []:
+        if not isinstance(row, dict):
+            continue
+        horizon = str(row.get("horizon") or "")
+        if not horizon:
+            continue
+        counts = by_horizon.setdefault(
+            horizon,
+            {"horizon": horizon, "completed_count": 0, "pending_count": 0, "missing_price_count": 0},
+        )
+        status = str(row.get("status") or "")
+        if status == "complete":
+            counts["completed_count"] += 1
+        elif status == "pending":
+            counts["pending_count"] += 1
+        elif status == "missing_price":
+            counts["missing_price_count"] += 1
+    return list(by_horizon.values())
+
+
+def normalize_public_backtest_due_dates(backtest: dict[str, Any]) -> bool:
+    changed = False
+    checked = 0
+    for section in ("outcomes", "recent_pending"):
+        for row in backtest.get(section) or []:
+            if not isinstance(row, dict):
+                continue
+            as_of = parse_date(row.get("as_of"))
+            horizon = str(row.get("horizon") or "")
+            if as_of is None or not horizon:
+                continue
+            checked += 1
+            try:
+                due_date = estimated_label_due_date(as_of, horizon).isoformat()
+            except (KeyError, TypeError, ValueError):
+                continue
+            if row.get("due_date") != due_date:
+                row["due_date"] = due_date
+                changed = True
+    if checked:
+        backtest["due_date_policy"] = "xnys_trading_days"
+        backtest["due_date_policy_version"] = BACKTEST_VERSION
+    return changed
+
+
+EXTERNAL_RELIABILITY_KEYS = [
+    "external_signal_score",
+    "coverage_adjusted_external_signal_score",
+    "external_coverage_multiplier",
+    "external_feed_status",
+    "external_provider_count",
+    "external_provider_ok_count",
+    "external_provider_ok_ratio",
+    "external_signal_count",
+    "external_source_count",
+]
+
+
+def fill_external_reliability(row: dict[str, Any], symbol_external: dict[str, Any], global_external: dict[str, Any]) -> None:
+    signal_score = numeric_value(row.get("external_signal_score"), symbol_external.get("external_signal_score"), 0.0)
+    signal_count = int_value(row.get("external_signal_count"), symbol_external.get("signal_count"), 0)
+    source_count = int_value(row.get("external_source_count"), symbol_external.get("source_count"), 0)
+    provider_count = int_value(row.get("external_provider_count"), global_external.get("provider_count"), 0)
+    provider_ok_count = int_value(row.get("external_provider_ok_count"), global_external.get("provider_ok_count"), 0)
+    provider_ok_ratio = numeric_value(row.get("external_provider_ok_ratio"), global_external.get("provider_ok_ratio"), None)
+    feed_status = row.get("external_feed_status") or symbol_external.get("external_status") or symbol_external.get("status") or global_external.get("status") or "unknown"
+    coverage_input = {
+        "provider_count": provider_count,
+        "provider_ok_count": provider_ok_count,
+        "provider_ok_ratio": provider_ok_ratio,
+        "external_status": feed_status,
+    }
+    coverage = numeric_value(row.get("external_coverage_multiplier"), None, external_coverage_multiplier(coverage_input))
+    adjusted_score = numeric_value(row.get("coverage_adjusted_external_signal_score"), None, signal_score * coverage)
+    row["external_signal_score"] = round(signal_score, 2)
+    row["coverage_adjusted_external_signal_score"] = round(adjusted_score, 2)
+    row["external_coverage_multiplier"] = round(coverage, 4)
+    row["external_feed_status"] = str(feed_status)
+    row["external_provider_count"] = provider_count
+    row["external_provider_ok_count"] = provider_ok_count
+    row["external_provider_ok_ratio"] = round(float(provider_ok_ratio or 0), 4)
+    row["external_signal_count"] = signal_count
+    row["external_source_count"] = source_count
+
+
+def external_status_from_counts(status_counts: dict[str, int], signal_count: int) -> str:
+    if not status_counts:
+        return "missing"
+    ok_count = status_counts.get("ok", 0)
+    weak_count = sum(status_counts.get(status, 0) for status in ("limited", "missing", "failed", "error", "unknown"))
+    if ok_count and not weak_count:
+        return "ok"
+    if ok_count or status_counts.get("limited") or signal_count:
+        return "limited"
+    return "missing"
+
+
+def sync_external_signal_data_health(payload: dict[str, Any], external: dict[str, Any]) -> None:
+    provider_count = int(external.get("provider_count") or 0)
+    if not provider_count:
+        return
+    row = {
+        "source": "external_signals",
+        "label": "External signal feeds",
+        "status": str(external.get("status") or "unknown"),
+        "detail": external_provider_health_detail(external),
+    }
+    data_health = payload.setdefault("data_health", {})
+    sources = [
+        source for source in data_health.get("sources", [])
+        if (source or {}).get("source") != "external_signals"
+    ]
+    sources.append(row)
+    data_health["sources"] = sources
+    weak_count = sum(1 for source in sources if source.get("status") in WEAK_SOURCE_STATUSES)
+    data_health["weak_source_count"] = weak_count
+    if not (payload.get("portfolio") or {}).get("position_count"):
+        data_health["recommendation_posture"] = "research_only_until_positions_refresh"
+    elif weak_count:
+        data_health["recommendation_posture"] = "reduced_confidence"
+    else:
+        data_health["recommendation_posture"] = "normal"
+    data_health["summary"] = (
+        "Recommendations are constrained by data freshness and remain approval-only."
+        if data_health["recommendation_posture"] != "normal"
+        else "Core scheduled sources are available for this run."
+    )
+
+
+def refresh_public_instrumentation_audit(public_payload: dict[str, Any]) -> None:
+    normalize_public_counted_sections(public_payload)
+    instrumentation_audit = build_instrumentation_audit(public_payload)
+    public_payload["instrumentation_audit"] = sanitize_public_section(instrumentation_audit)
+    audit = public_payload.get("audit") or default_audit(public_payload)
+    audit["instrumentation_health"] = {
+        "status": instrumentation_audit["status"],
+        "check_count": instrumentation_audit["check_count"],
+        "failure_count": instrumentation_audit["failure_count"],
+    }
+    audit["source_freshness"] = source_freshness_from_data_health(public_payload.get("data_health") or {})
+    gaps = [
+        row for row in audit.get("data_gaps", [])
+        if (row or {}).get("area") not in {"instrumentation", "source"}
+    ]
+    gaps = sync_learning_gap_from_outcome_diagnostics(gaps, public_payload)
+    gaps.extend(source_gaps_from_data_health(public_payload.get("data_health") or {}))
+    if instrumentation_audit["status"] != "ok":
+        audit["overall_status"] = "attention"
+        gaps.extend(
+            {
+                "area": "instrumentation",
+                "label": check.get("name", "number_wiring"),
+                "status": check.get("status", "fail"),
+                "detail": f"Observed {check.get('observed', check.get('missing_count', 'n/a'))} expected {check.get('expected', check.get('expected_max', 'n/a'))}",
+            }
+            for check in instrumentation_audit.get("failures", [])[:8]
+        )
+    audit["data_gaps"] = gaps
+    public_payload["audit"] = audit
+
+
+def sync_learning_gap_from_outcome_diagnostics(gaps: list[dict[str, Any]], payload: dict[str, Any]) -> list[dict[str, Any]]:
+    engine = payload.get("engine") or {}
+    learning = engine.get("learning") or {}
+    is_learning_gap = lambda row: (row or {}).get("area") == "engine" and (row or {}).get("label") == "Learning reranker"
+    refreshed = [row for row in gaps if not is_learning_gap(row)]
+    if learning.get("status") != "baseline_fallback":
+        return refreshed
+    refreshed.append(
+        {
+            "area": "engine",
+            "label": "Learning reranker",
+            "status": "baseline_fallback",
+            "detail": learning_gap_detail(learning, outcome_diagnostics_with_backtest_gap_plan(payload)),
+        }
+    )
+    return refreshed
+
+
+def outcome_diagnostics_with_backtest_gap_plan(payload: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = dict(payload.get("outcome_diagnostics") or {})
+    gap_plan = (payload.get("backtest") or {}).get("pending_external_coverage_gap_plan")
+    if isinstance(gap_plan, dict) and gap_plan:
+        diagnostics["external_coverage_gap_plan"] = gap_plan
+    return diagnostics
+
+
+def source_freshness_from_data_health(data_health: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "source": source.get("source", ""),
+            "label": source.get("label", ""),
+            "status": source.get("status", "unknown"),
+            "detail": source.get("detail", ""),
+        }
+        for source in data_health.get("sources", [])
+    ]
+
+
+def source_gaps_from_data_health(data_health: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "area": "source",
+            "label": source.get("label", ""),
+            "status": source.get("status", ""),
+            "detail": source.get("detail", ""),
+        }
+        for source in data_health.get("sources", [])
+        if source.get("status") in WEAK_SOURCE_STATUSES
+    ]
+
+
+def normalize_public_earnings_health(public_payload: dict[str, Any]) -> None:
+    events = public_payload.get("earnings_events") or ((public_payload.get("calendars") or {}).get("earnings") or {}).get("events") or []
+    data_health = public_payload.setdefault("data_health", {})
+    existing_sources = [row for row in data_health.get("sources", []) if isinstance(row, dict)]
+    has_existing_earnings_source = any(row.get("source") == "earnings" for row in existing_sources)
+    if not events and not has_existing_earnings_source:
+        return
+    health = earnings_health_summary(events)
+    calendars = public_payload.setdefault("calendars", {})
+    earnings = calendars.setdefault("earnings", {})
+    earnings.update(
+        {
+            "events": events,
+            "event_count": health["event_count"],
+            "confirmed_count": health["confirmed_count"],
+            "estimated_count": health["estimated_count"],
+            "provider_date_count": health["provider_date_count"],
+            "catalyst_marker_count": health["catalyst_marker_count"],
+            "source_quality": health["source_quality"],
+        }
+    )
+    sources = [
+        row for row in existing_sources
+        if row.get("source") != "earnings"
+    ]
+    detail = (
+        f"{health['event_count']} events; "
+        f"{health['provider_date_count']} forward date candidates; "
+        f"{health['confirmed_count']} confirmed, {health['estimated_count']} estimated"
+        f"{earnings_marker_detail(health)}."
+        if events
+        else "No manual, provider, IR, SEC, or news earnings markers available."
+    )
+    sources.append(
+        {
+            "source": "earnings",
+            "label": "Earnings calendar",
+            "status": health["status"],
+            "detail": detail,
+        }
+    )
+    data_health["sources"] = sources
+    data_health["weak_source_count"] = sum(1 for row in sources if row.get("status") in WEAK_SOURCE_STATUSES)
+    if data_health["weak_source_count"]:
+        data_health["recommendation_posture"] = "reduced_confidence"
+        data_health["summary"] = "Recommendations are constrained by data freshness and remain approval-only."
+
+
+def earnings_marker_detail(earnings_health: dict[str, Any]) -> str:
+    marker_count = int(earnings_health.get("catalyst_marker_count") or 0)
+    return f"; {marker_count} catalyst markers" if marker_count else ""
+
+
+def normalize_public_counted_sections(public_payload: dict[str, Any]) -> None:
+    for key in ("company_underwriting", "sector_underwriting", "research_book"):
+        section = public_payload.get(key)
+        if isinstance(section, dict):
+            section.setdefault("items", [])
+            section.setdefault("item_count", len(section.get("items") or []))
+    feature_matrix = public_payload.get("feature_matrix")
+    if isinstance(feature_matrix, dict):
+        feature_matrix.setdefault("rows", [])
+        feature_matrix.setdefault("feature_count", len(feature_matrix.get("rows") or []))
+
+
+def numeric_value(*values: Any) -> float:
+    for value in values:
+        if value is None or value == "":
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def int_value(*values: Any) -> int:
+    return int(numeric_value(*values))
 
 
 def sanitize_portfolio(portfolio: dict[str, Any]) -> dict[str, Any]:
@@ -246,7 +771,8 @@ def sanitize_portfolio(portfolio: dict[str, Any]) -> dict[str, Any]:
         "display_name": PORTFOLIO_DISPLAY_NAME,
         "private_redacted": True,
         "value_basis": "weights_only",
-        "weight_basis": portfolio.get("weight_basis", "total_portfolio_including_cash"),
+        "weight_basis": portfolio.get("comparison_weight_basis", "invested_equity_ex_cash"),
+        "total_weight_basis": portfolio.get("weight_basis", "total_portfolio_including_cash"),
         "position_count": portfolio.get("position_count", 0),
         "symbol_count": portfolio.get("symbol_count", 0),
         "security_symbol_count": portfolio.get("security_symbol_count", portfolio.get("symbol_count", 0)),
@@ -262,9 +788,11 @@ def sanitize_portfolio(portfolio: dict[str, Any]) -> dict[str, Any]:
         "by_bucket": [
             {
                 "bucket": row.get("bucket", "unmapped"),
-                "weight": round(float(row.get("weight") or 0), 6),
+                "weight": round(public_comparison_weight(row, equity_weight), 6),
+                "total_weight": round(float(row.get("total_weight", row.get("weight") or 0) or 0), 6),
             }
             for row in portfolio.get("by_bucket", [])
+            if row.get("bucket") != "cash_reserves"
         ],
         "by_symbol": [
             {
@@ -272,9 +800,11 @@ def sanitize_portfolio(portfolio: dict[str, Any]) -> dict[str, Any]:
                 "bucket": row.get("bucket", "unmapped"),
                 "asset_class": row.get("asset_class", "cash" if row.get("is_cash") else "equity"),
                 "is_cash": bool(row.get("is_cash", False)),
-                "weight": round(float(row.get("weight") or 0), 6),
+                "weight": round(public_comparison_weight(row, equity_weight), 6),
+                "total_weight": round(float(row.get("total_weight", row.get("weight") or 0) or 0), 6),
             }
             for row in portfolio.get("by_symbol", [])
+            if not row.get("is_cash")
         ],
     }
 
@@ -395,19 +925,32 @@ def portfolio_weight_by_symbol(portfolio: dict[str, Any]) -> dict[str, float]:
     weights: dict[str, float] = {}
     for row in portfolio.get("by_symbol", []):
         symbol = str(row.get("symbol", "")).upper()
-        if not symbol:
+        if not symbol or row.get("is_cash"):
             continue
-        weight = float(row.get("weight") or 0)
+        weight = comparison_weight(row)
         for candidate in equivalent_symbols(symbol):
             weights[candidate] = weights.get(candidate, 0.0) + weight
     return weights
 
 
+def comparison_weight(row: dict[str, Any]) -> float:
+    return float(row.get("comparison_weight", row.get("ex_cash_weight", row.get("weight") or 0)) or 0)
+
+
+def public_comparison_weight(row: dict[str, Any], equity_weight: float) -> float:
+    if row.get("comparison_weight") is not None or row.get("ex_cash_weight") is not None:
+        return comparison_weight(row)
+    weight = float(row.get("weight") or 0)
+    if equity_weight > 0 and not row.get("is_cash") and row.get("bucket") != "cash_reserves":
+        return weight / equity_weight
+    return weight
+
+
 def portfolio_weight_by_bucket(portfolio: dict[str, Any]) -> dict[str, float]:
     return {
-        str(row.get("bucket", "unmapped")): float(row.get("weight") or 0)
+        str(row.get("bucket", "unmapped")): comparison_weight(row)
         for row in portfolio.get("by_bucket", [])
-        if row.get("bucket")
+        if row.get("bucket") and row.get("bucket") != "cash_reserves"
     }
 
 
@@ -964,15 +1507,89 @@ def public_trigger(card: dict[str, Any], action: str) -> str:
     return "Define the variant view and the next public catalyst before acting."
 
 
-def stale_status(run_kind: str, built_at: str) -> dict[str, Any]:
+def stale_status(run_kind: str, built_at: str, report_as_of: Any | None = None) -> dict[str, Any]:
     max_age_hours = 192 if run_kind == "weekly" else 20
-    return {
+    max_report_age_days = 7 if run_kind == "weekly" else 0
+    status = {
         "status": "fresh",
         "is_stale_at_build": False,
         "built_at": built_at,
         "max_age_hours": max_age_hours,
-        "policy": "client marks stale when built_at exceeds max_age_hours",
+        "max_report_age_days": max_report_age_days,
+        "policy": "client marks stale when built_at exceeds max_age_hours; build marks stale when report_as_of lags the market-date window",
     }
+    report_date = parse_date(report_as_of)
+    if not report_date:
+        status["reason"] = "missing report_as_of; client will still enforce build-age freshness"
+        return status
+    built_dt = parse_site_datetime(built_at)
+    market_dt = (built_dt or datetime.now(timezone.utc)).astimezone(EASTERN)
+    market_date = market_dt.date()
+    expected_report_date = expected_report_as_of(run_kind, market_dt)
+    report_age_days = (market_date - report_date).days
+    report_lag_days = max(0, (expected_report_date - report_date).days)
+    status.update(
+        {
+            "report_as_of": report_date.isoformat(),
+            "market_date_at_build": market_date.isoformat(),
+            "expected_report_as_of": expected_report_date.isoformat(),
+            "report_age_days": report_age_days,
+            "report_lag_days": report_lag_days,
+        }
+    )
+    if report_lag_days > max_report_age_days:
+        status.update(
+            {
+                "status": "stale",
+                "is_stale_at_build": True,
+                "reason": (
+                    f"report_as_of {report_date.isoformat()} is before expected report date "
+                    f"{expected_report_date.isoformat()}; allowed lag is {max_report_age_days} days"
+                ),
+            }
+        )
+    else:
+        status["reason"] = "report_as_of is within the expected build window"
+    return status
+
+
+def expected_report_as_of(run_kind: str, market_dt: datetime) -> date:
+    if run_kind == "weekly":
+        return market_dt.date()
+    return latest_nyse_trading_date(market_dt)
+
+
+def latest_nyse_trading_date(market_dt: datetime) -> date:
+    probe = market_dt
+    for _ in range(10):
+        if is_nyse_trading_day(probe):
+            return probe.date()
+        probe = probe - timedelta(days=1)
+    return market_dt.date()
+
+
+def utc_timestamp(value: datetime | None = None) -> str:
+    current = value or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return current.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def parse_site_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def serve_site(out_dir: Path = DEFAULT_WEB_DIR, host: str = "", port: int = 4173) -> int:

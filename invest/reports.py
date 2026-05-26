@@ -5,7 +5,7 @@ import os
 import re
 import sqlite3
 from collections import Counter
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from statistics import mean, median
@@ -17,7 +17,7 @@ from .calendars import build_calendar_snapshot
 from .config import AppConfig
 from .earnings import build_earnings_events, earnings_health_summary
 from .engine import build_engine_snapshot
-from .external_signals import build_external_signal_snapshot
+from .external_signals import build_external_signal_snapshot, external_provider_health_detail
 from .features import build_feature_matrix
 from .instrumentation import build_instrumentation_audit
 from .ideas import build_idea_book
@@ -43,6 +43,9 @@ from .valuation import (
     build_portfolio_valuation_snapshot,
     manager_valuation_symbols,
 )
+
+
+WEAK_SOURCE_STATUSES = {"missing", "stale", "limited", "estimated", "unknown", "failed", "error"}
 
 
 NEWS_ALIASES = {
@@ -98,14 +101,9 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
     price_symbols = unique_symbols(expand_symbol_proxies(configured_universe + [row["symbol"] for row in config.manual_positions]))
     prices = fetch_daily_prices(price_symbols)
     macro_symbols = config.macro_symbols or DEFAULT_MACRO_SYMBOLS
-    return_windows = fetch_return_windows(unique_symbols(expand_symbol_proxies(price_symbols) + macro_symbols))
     portfolio = build_portfolio_exposure(conn, config, prices=prices, as_of=as_of)
     positions = portfolio_values_by_symbol(portfolio)
-    portfolio_weights = {
-        row["symbol"]: float(row.get("weight") or 0)
-        for row in portfolio.get("by_symbol", [])
-        if row.get("symbol")
-    }
+    portfolio_weights = portfolio_comparison_weights_by_symbol(portfolio)
     manager_radar = build_manager_radar(conn, config, portfolio_weights)
     research_symbols = build_research_universe(config, portfolio, manager_radar)
     missing_research_price_symbols = [symbol for symbol in expand_symbol_proxies(research_symbols) if symbol not in prices]
@@ -196,17 +194,6 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         external_signals=external_signals,
     )
     calendars = build_calendar_snapshot(config, as_of, manager_radar, earnings_events)
-    engine = build_engine_snapshot(
-        as_of,
-        session,
-        cards,
-        portfolio,
-        portfolio_benchmark,
-        approval_tickets,
-        config.risk_limits,
-        feature_matrix=feature_matrix,
-        research_book=research_book,
-    )
     recommendation_training_examples = build_training_examples(
         as_of,
         session,
@@ -219,12 +206,26 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         as_of=as_of,
         include_current_examples=recommendation_training_examples,
     )
+    outcome_history = outcome_history_from_backtest(backtest)
+    engine = build_engine_snapshot(
+        as_of,
+        session,
+        cards,
+        portfolio,
+        portfolio_benchmark,
+        approval_tickets,
+        config.risk_limits,
+        outcome_history=outcome_history,
+        feature_matrix=feature_matrix,
+        research_book=research_book,
+    )
     outcome_diagnostics = build_outcome_diagnostics(
         as_of,
         recommendation_training_examples,
-        outcome_history_from_backtest(backtest),
+        outcome_history,
+        backtest,
     )
-    paper_portfolio = build_paper_portfolio(as_of, session, portfolio, approval_tickets, cards)
+    paper_portfolio = build_paper_portfolio(as_of, session, portfolio, approval_tickets, cards, outcome_history)
     methodology = build_methodology(
         config,
         session,
@@ -241,7 +242,7 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         company_underwriting,
         sector_underwriting,
     )
-    audit = build_audit_snapshot(as_of, session, data_health, calendars, engine, paper_portfolio, methodology)
+    audit = build_audit_snapshot(as_of, session, data_health, calendars, engine, paper_portfolio, methodology, outcome_diagnostics)
     payload = {
         "as_of": as_of.isoformat(),
         "session": session,
@@ -437,9 +438,11 @@ def render_portfolio_snapshot(lines: list[str], payload: dict[str, Any]) -> None
         lines.append(f"- Broker exposure: {broker_text}.")
     if portfolio.get("by_bucket"):
         bucket_text = ", ".join(
-            f"{row['bucket']} {row['weight'] * 100:.1f}%" for row in portfolio["by_bucket"][:5]
+            f"{row['bucket']} {(float(row.get('comparison_weight', row.get('ex_cash_weight', row.get('weight') or 0)) or 0) * 100):.1f}%"
+            for row in portfolio["by_bucket"][:5]
+            if row.get("bucket") != "cash_reserves"
         )
-        lines.append(f"- Thesis buckets: {bucket_text}.")
+        lines.append(f"- Thesis buckets, ex-cash: {bucket_text}.")
     if portfolio.get("by_symbol"):
         top_text = ", ".join(
             f"{row['symbol']} ${row['market_value']:,.0f}" for row in portfolio["by_symbol"][:6]
@@ -624,11 +627,134 @@ def render_outcome_diagnostics(lines: list[str], payload: dict[str, Any]) -> Non
     lines.append(
         f"- Status: {diagnostics.get('status', 'unknown')}; "
         f"{diagnostics.get('current_training_example_count', 0)} current training examples; "
-        f"{diagnostics.get('completed_outcome_count', 0)} completed forward outcomes."
+        f"{diagnostics.get('completed_outcome_count', 0)} completed forward outcomes; "
+        f"{diagnostics.get('pending_outcome_count', 0)} pending."
     )
+    maturity = diagnostics.get("label_maturity") or {}
+    if maturity:
+        ready = "ready" if maturity.get("learning_ready") else "not ready"
+        lines.append(
+            f"- Learning readiness: {ready}; "
+            f"{maturity.get('completed_long_horizon_count', 0)}/"
+            f"{maturity.get('minimum_long_horizon_required', 0)} required 1-12 month labels completed; "
+            f"{maturity.get('additional_long_horizon_needed', 0)} more needed; "
+            f"{maturity.get('pending_outcome_count', diagnostics.get('pending_outcome_count', 0))} pending labels."
+        )
+    projection = diagnostics.get("learning_readiness_projection") or {}
+    if projection:
+        projection_line = (
+            "- Learning unlock projection: "
+            f"{projection.get('projected_long_horizon_count_30d', 0)}/"
+            f"{projection.get('minimum_long_horizon_required', 0)} labels after 30-day due window; "
+            f"{projection.get('projected_additional_needed_30d', 0)} more still needed"
+        )
+        if projection.get("next_learning_label_due_date"):
+            projection_line += (
+                f"; next learning due {projection.get('next_learning_label_due_date')} adds "
+                f"{projection.get('next_learning_label_due_count', 0)} labels -> "
+                f"{projection.get('projected_long_horizon_count_next_learning_label', 0)}/"
+                f"{projection.get('minimum_long_horizon_required', 0)}"
+            )
+        if projection.get("estimated_learning_ready_date"):
+            projection_line += (
+                f"; estimated ready {projection.get('estimated_learning_ready_date')} at "
+                f"{projection.get('estimated_learning_ready_projected_count', 0)}/"
+                f"{projection.get('minimum_long_horizon_required', 0)}"
+            )
+        elif not projection.get("learning_ready_with_scheduled_pending_labels"):
+            projection_line += "; queued learning labels do not yet cover the readiness threshold"
+        lines.append(projection_line + ".")
+    external_projection = diagnostics.get("external_learning_readiness_projection") or {}
+    if external_projection:
+        external_line = (
+            "- External-signal learning projection: "
+            f"{external_projection.get('projected_external_long_horizon_count_all_scheduled', 0)}/"
+            f"{external_projection.get('minimum_external_long_horizon_required', 0)} "
+            "externally covered labels after all scheduled labels; "
+            f"{external_projection.get('projected_external_additional_needed_all_scheduled', 0)} more needed"
+        )
+        if external_projection.get("next_external_learning_label_due_date"):
+            external_line += (
+                f"; next external label due {external_projection.get('next_external_learning_label_due_date')} adds "
+                f"{external_projection.get('next_external_learning_label_due_count', 0)} labels"
+            )
+        if external_projection.get("estimated_external_learning_ready_date"):
+            external_line += f"; estimated ready {external_projection.get('estimated_external_learning_ready_date')}"
+        elif not external_projection.get("external_learning_ready_with_scheduled_pending_labels"):
+            external_line += "; queued external labels do not yet cover the readiness threshold"
+        lines.append(external_line + ".")
+        if external_projection.get("next_external_fast_label_due_date"):
+            lines.append(
+                "- External-signal fast check: "
+                f"{external_projection.get('next_external_fast_label_due_count', 0)} 5-day labels due "
+                f"{external_projection.get('next_external_fast_label_due_date')}; "
+                f"{external_projection.get('external_fast_labels_due_next_30d', 0)} due within 30 days."
+            )
+    horizon_counts = diagnostics.get("horizon_label_counts") or []
+    if horizon_counts:
+        lines.append("- Label maturity by horizon: " + ", ".join(
+            f"{row.get('horizon')}: {row.get('completed_count', 0)} complete / "
+            f"{row.get('pending_count', 0)} pending / {row.get('missing_price_count', 0)} missing"
+            for row in horizon_counts[:5]
+        ) + ".")
+    schedule = diagnostics.get("pending_label_schedule") or {}
+    if schedule:
+        next_label = schedule.get("next_label") or {}
+        next_learning = schedule.get("next_learning_label") or {}
+        details = []
+        if next_label:
+            details.append(
+                f"next label {next_label.get('horizon')} {pending_label_due_phrase(next_label)} "
+                f"({next_label.get('due_count', 1)} labels)"
+            )
+        if next_learning:
+            details.append(
+                f"next learning-eligible label {next_learning.get('horizon')} {pending_label_due_phrase(next_learning)} "
+                f"({next_learning.get('due_count', 1)} labels)"
+            )
+        if schedule.get("overdue_label_count"):
+            details.append(f"{schedule.get('overdue_label_count')} overdue labels")
+        if schedule.get("overdue_learning_label_count"):
+            details.append(f"{schedule.get('overdue_learning_label_count')} overdue learning-eligible labels")
+        due_windows = pending_window_phrase(schedule.get("due_window_counts") or {}, "all labels")
+        if due_windows:
+            details.append(due_windows)
+        learning_windows = pending_window_phrase(schedule.get("learning_due_window_counts") or {}, "learning labels")
+        if learning_windows:
+            details.append(learning_windows)
+        if details:
+            lines.append("- Pending label schedule: " + "; ".join(details) + ".")
     calibration = diagnostics.get("calibration") or {}
-    lines.append(f"- Calibration: {calibration.get('status', 'unknown')} - {calibration.get('message', 'tracking expected vs realized returns')}.")
+    calibration_line = (
+        f"- Calibration: {calibration.get('status', 'unknown')} - "
+        f"{calibration.get('message', 'tracking expected vs realized returns')}"
+    )
+    calibration_metrics = calibration_metric_phrase(calibration)
+    if calibration_metrics:
+        calibration_line += f"; {calibration_metrics}"
+    lines.append(calibration_line + ".")
     lines.append("")
+
+
+def pending_label_due_phrase(label: dict[str, Any]) -> str:
+    due_date = label.get("due_date", "unknown date")
+    days = label.get("days_until_due")
+    if days is None:
+        return f"due {due_date}"
+    if days < 0:
+        return f"due {due_date}, overdue by {abs(days)} days"
+    if days == 0:
+        return f"due {due_date}, today"
+    return f"due {due_date}, in {days} days"
+
+
+def pending_window_phrase(counts: dict[str, Any], label: str) -> str:
+    if not counts:
+        return ""
+    return (
+        f"{label}: {counts.get('due_next_7d', 0)} due within 7 days, "
+        f"{counts.get('due_next_30d', 0)} due within 30 days"
+    )
 
 
 def render_backtest_summary(lines: list[str], payload: dict[str, Any]) -> None:
@@ -650,10 +776,60 @@ def render_backtest_summary(lines: list[str], payload: dict[str, Any]) -> None:
             for row in horizons
         ) + ".")
     calibration = backtest.get("calibration") or {}
-    lines.append(
-        f"- Expected-vs-realized: {calibration.get('status', 'unknown')}; "
-        f"mean error {calibration.get('mean_error', 'n/a')}."
-    )
+    calibration_metrics = calibration_metric_phrase(calibration) or "mean error n/a"
+    lines.append(f"- Expected-vs-realized: {calibration.get('status', 'unknown')}; {calibration_metrics}.")
+    calibration_bands = calibration_band_phrases(calibration.get("buckets") or [])
+    if calibration_bands:
+        lines.append("- Calibration bands: " + "; ".join(calibration_bands) + ".")
+    priority_bucket = calibration_priority_phrase(calibration.get("priority_bucket") or {})
+    if priority_bucket:
+        lines.append(f"- Calibration priority: {priority_bucket}.")
+    external_status_bands = calibration_band_phrases(backtest.get("by_external_feed_status") or [])
+    if external_status_bands:
+        lines.append("- External feed status outcomes: " + "; ".join(external_status_bands) + ".")
+    external_coverage_bands = calibration_band_phrases(backtest.get("by_external_coverage") or [])
+    if external_coverage_bands:
+        lines.append("- External coverage outcomes: " + "; ".join(external_coverage_bands) + ".")
+    external_alignment_bands = calibration_band_phrases(backtest.get("by_external_alignment") or [])
+    if external_alignment_bands:
+        lines.append("- External alignment outcomes: " + "; ".join(external_alignment_bands) + ".")
+    alignment_due_dates = backtest.get("pending_external_alignment_due_dates") or []
+    if alignment_due_dates:
+        lines.append("- Pending external alignment due dates: " + "; ".join(
+            f"{row.get('due_date')}: {row.get('due_count', 0)} labels "
+            f"({row.get('conflict_count', 0)} conflict, {row.get('aligned_count', 0)} aligned)"
+            for row in alignment_due_dates[:5]
+        ) + ".")
+    gap_queue = backtest.get("pending_external_coverage_gap_queue") or []
+    gap_count = backtest.get("pending_external_coverage_gap_count", len(gap_queue))
+    gap_plan = backtest.get("pending_external_coverage_gap_plan") or {}
+    priority_rows = gap_plan.get("priority_rows") or []
+    if priority_rows:
+        policy = priority_rows[0].get("external_coverage_backfill_policy") or "decision_time_only"
+        projected = gap_plan.get("projected_external_long_horizon_count_after_priority_backfill")
+        required = gap_plan.get("minimum_external_long_horizon_required")
+        projected_ready = "ready" if gap_plan.get("external_learning_ready_after_priority_backfill") else "not ready"
+        check_count = gap_plan.get("priority_acceptance_check_count") or len(priority_rows[0].get("external_coverage_acceptance_checks") or [])
+        open_check_count = gap_plan.get("priority_open_acceptance_check_count", check_count)
+        lines.append(
+            f"- External coverage gap priority: {gap_plan.get('additional_external_coverage_needed', len(priority_rows))} "
+            f"labels needed; prioritize "
+            + ", ".join(
+                f"{row.get('symbol')} {row.get('horizon')} due {row.get('due_date')} ({row.get('external_coverage_gap_id')})"
+                for row in priority_rows[:5]
+            )
+            + f"; backfill policy {policy}; {open_check_count}/{check_count} acceptance checks open; "
+            f"projected {projected}/{required} external labels, {projected_ready}."
+        )
+    if gap_queue:
+        lines.append(
+            f"- External coverage gap queue: {gap_count} long-horizon labels missing external coverage; "
+            + ", ".join(
+                f"{row.get('symbol')} {row.get('horizon')} due {row.get('due_date')}"
+                for row in gap_queue[:5]
+            )
+            + "."
+        )
     if backtest.get("top_wins"):
         lines.append("- Top wins: " + ", ".join(
             f"{row.get('symbol')} {row.get('horizon')} {row.get('decision_forward_return_pct')}%"
@@ -665,6 +841,49 @@ def render_backtest_summary(lines: list[str], payload: dict[str, Any]) -> None:
             for row in backtest.get("top_losses", [])[:5]
         ) + ".")
     lines.append("")
+
+
+def calibration_metric_phrase(calibration: dict[str, Any]) -> str:
+    details = []
+    if calibration.get("mean_error") is not None:
+        details.append(f"mean error {calibration.get('mean_error')}")
+    if calibration.get("mean_absolute_error") is not None:
+        details.append(f"mean absolute error {calibration.get('mean_absolute_error')}")
+    if calibration.get("minimum_calibration_samples"):
+        details.append(
+            f"samples {calibration.get('sample_count', 0)}/"
+            f"{calibration.get('minimum_calibration_samples')}; "
+            f"{calibration.get('additional_samples_needed', 0)} more before recalibration"
+        )
+    if "underprediction_count" in calibration or "overprediction_count" in calibration:
+        details.append(
+            f"underpredicted {calibration.get('underprediction_count', 0)}; "
+            f"overpredicted {calibration.get('overprediction_count', 0)}"
+        )
+    return "; ".join(details)
+
+
+def calibration_band_phrases(buckets: list[dict[str, Any]]) -> list[str]:
+    phrases = []
+    for bucket in buckets[:3]:
+        label = bucket.get("key", "unknown")
+        count = bucket.get("completed_count", 0)
+        metrics = calibration_metric_phrase(bucket)
+        if metrics:
+            phrases.append(f"{label} ({count} labels, {metrics})")
+        else:
+            phrases.append(f"{label} ({count} labels)")
+    return phrases
+
+
+def calibration_priority_phrase(bucket: dict[str, Any]) -> str:
+    if not bucket or not bucket.get("key"):
+        return ""
+    return (
+        f"{bucket.get('key')} has highest absolute error "
+        f"{bucket.get('mean_absolute_error', 'n/a')} across {bucket.get('completed_count', 0)} labels "
+        f"({bucket.get('bias', 'unknown')} bias)"
+    )
 
 
 def render_macro_tape(lines: list[str], payload: dict[str, Any]) -> None:
@@ -699,11 +918,11 @@ def render_portfolio_benchmark(lines: list[str], payload: dict[str, Any]) -> Non
     primary_return = float(benchmark.get("primary_portfolio_return", benchmark.get("portfolio_return_5d", 0)))
     lines.append("## Portfolio Benchmarks")
     lines.append(
-        f"- Geoffrey Woo Portfolio {primary_label} current-weight price proxy: **{primary_return:.2f}%** "
+        f"- Geoffrey Woo Portfolio {primary_label} ex-cash current-weight price proxy: **{primary_return:.2f}%** "
         f"with {benchmark.get('primary_price_coverage_pct', benchmark.get('price_coverage_pct', 0)):.1f}% priced-weight coverage."
     )
     if benchmark.get("horizon_returns"):
-        lines.append("- Return windows, applying current weights to trailing symbol moves: " + ", ".join(
+        lines.append("- Return windows, applying ex-cash current weights to trailing symbol moves: " + ", ".join(
             f"{row['label']} {row['portfolio_return']:.2f}%"
             for row in benchmark["horizon_returns"]
         ) + ".")
@@ -712,9 +931,8 @@ def render_portfolio_benchmark(lines: list[str], payload: dict[str, Any]) -> Non
         if primary:
             lines.append(
                 f"- Ex-cash invested-equity proxy for {primary.get('label', benchmark.get('primary_label', 'primary'))}: "
-                f"{primary.get('invested_equity_return', 0):.2f}% versus "
-                f"{primary.get('total_portfolio_return', 0):.2f}% including cash; "
-                f"cash effect {primary.get('cash_effect_pct', 0):+.2f} pp."
+                f"{primary.get('invested_equity_return', primary.get('total_portfolio_return', 0)):.2f}%; "
+                f"cash is excluded from this comparison basis."
             )
         lines.append(
             "- These are not verified realized returns, TWR, or IRR; calculating actual performance requires daily account equity and cash flows."
@@ -1167,7 +1385,8 @@ def build_data_health(
             "detail": (
                 f"{earnings_health['event_count']} events; "
                 f"{earnings_health['provider_date_count']} forward date candidates; "
-                f"{earnings_health['confirmed_count']} confirmed, {earnings_health['estimated_count']} estimated."
+                f"{earnings_health['confirmed_count']} confirmed, {earnings_health['estimated_count']} estimated"
+                f"{earnings_marker_detail(earnings_health)}."
                 if earnings_events
                 else "No manual, provider, IR, SEC, or news earnings markers available."
             ),
@@ -1187,18 +1406,12 @@ def build_data_health(
             }
         )
     if external_signals:
-        provider_count = int(external_signals.get("provider_count") or 0)
-        ok_count = sum(1 for row in external_signals.get("source_statuses", []) if row.get("status") == "ok")
-        limited_count = sum(1 for row in external_signals.get("source_statuses", []) if row.get("status") == "limited")
         sources.append(
             {
                 "source": "external_signals",
                 "label": "External signal feeds",
-                "status": external_signals.get("status", "unknown"),
-                "detail": (
-                    f"{external_signals.get('signal_count', 0)} normalized signals; "
-                    f"{ok_count}/{provider_count} providers ok, {limited_count} limited."
-                ),
+                "status": external_signal_health_status(external_signals),
+                "detail": external_provider_health_detail(external_signals),
             }
         )
     if stale_vanguard and stale_vanguard.get("is_stale"):
@@ -1210,7 +1423,7 @@ def build_data_health(
                 "detail": "A manually imported broker source is stale or missing.",
             }
         )
-    weak_sources = [row for row in sources if row["status"] in {"missing", "stale"}]
+    weak_sources = [row for row in sources if row["status"] in WEAK_SOURCE_STATUSES]
     posture = "reduced_confidence" if weak_sources else "normal"
     if not portfolio.get("position_count"):
         posture = "research_only_until_positions_refresh"
@@ -1224,6 +1437,28 @@ def build_data_health(
         "sources": sources,
         "weak_source_count": len(weak_sources),
     }
+
+
+def earnings_marker_detail(earnings_health: dict[str, Any]) -> str:
+    marker_count = int(earnings_health.get("catalyst_marker_count") or 0)
+    return f"; {marker_count} catalyst markers" if marker_count else ""
+
+
+def external_signal_health_status(external_signals: dict[str, Any]) -> str:
+    base_status = str(external_signals.get("status") or "unknown")
+    provider_statuses = [
+        str(row.get("status") or "unknown")
+        for row in external_signals.get("source_statuses", [])
+        if str(row.get("status") or "") != "disabled"
+    ]
+    provider_count = int(external_signals.get("provider_count") or len(provider_statuses))
+    if base_status in {"missing", "failed", "error"}:
+        return base_status
+    if provider_count and any(status in WEAK_SOURCE_STATUSES for status in provider_statuses):
+        return "limited"
+    if provider_count and not any(status == "ok" for status in provider_statuses):
+        return "limited"
+    return base_status
 
 
 def build_methodology(
@@ -1450,7 +1685,7 @@ def configured_ai_universe_symbols(config: AppConfig) -> list[str]:
     return unique_symbols(symbols)
 
 
-def build_research_universe(config: AppConfig, portfolio: dict[str, Any], manager_radar: dict[str, Any], max_symbols: int = 140) -> list[str]:
+def build_research_universe(config: AppConfig, portfolio: dict[str, Any], manager_radar: dict[str, Any], max_symbols: int = 90) -> list[str]:
     symbols = configured_ai_universe_symbols(config)
     symbols.extend(
         str(row.get("symbol") or "").upper()
@@ -1673,7 +1908,7 @@ def build_signal_synthesis(
             "symbol_count": portfolio.get("symbol_count", 0),
             "equity_weight": portfolio.get("equity_weight", 1.0),
             "cash_weight": portfolio.get("cash_weight", 0.0),
-            "weight_basis": portfolio.get("weight_basis", "total_portfolio_including_cash"),
+            "weight_basis": portfolio.get("comparison_weight_basis", "invested_equity_ex_cash"),
         },
         "confirmed_card_count": confirmed,
         "dominant_families": [
@@ -1704,7 +1939,9 @@ def build_portfolio_benchmark(
         "5d",
         prices,
     )
+    total_portfolio_return, total_price_coverage = portfolio_total_window_return(portfolio, window_data, "5d")
     horizon_returns = build_horizon_returns(portfolio, window_data)
+    total_horizon_returns = build_total_horizon_returns(portfolio, window_data)
     equity_horizon_returns = build_equity_horizon_returns(portfolio, window_data)
     primary = choose_primary_horizon(horizon_returns)
     primary_equity = matching_horizon(equity_horizon_returns, primary["key"]) or (
@@ -1759,19 +1996,22 @@ def build_portfolio_benchmark(
     study_queue = build_study_queue(components, gaps)
     return {
         "portfolio_return_5d": round(portfolio_return, 2),
+        "total_portfolio_return_5d": round(total_portfolio_return, 2),
         "price_coverage_pct": round(price_coverage * 100, 2),
+        "total_price_coverage_pct": round(total_price_coverage * 100, 2),
         "primary_horizon": primary["key"],
         "primary_label": primary["label"],
         "primary_portfolio_return": round(primary_return, 2),
         "primary_price_coverage_pct": primary.get("price_coverage_pct", round(price_coverage * 100, 2)),
         "horizon_returns": horizon_returns,
+        "total_horizon_returns": total_horizon_returns,
         "equity_horizon_returns": equity_horizon_returns,
         "primary_equity_return": primary_equity.get("portfolio_return") if primary_equity else None,
         "primary_equity_price_coverage_pct": primary_equity.get("price_coverage_pct") if primary_equity else None,
-        "return_analytics": build_return_analytics(portfolio, horizon_returns, equity_horizon_returns, primary["key"]),
+        "return_analytics": build_return_analytics(portfolio, total_horizon_returns, equity_horizon_returns, primary["key"]),
         "actual_return_available": False,
         "actual_return_required_data": "daily account equity and cash-flow history",
-        "return_basis": "current-weight public-price proxy; not realized/TWR/IRR account performance",
+        "return_basis": "ex-cash current-weight public-price proxy; not realized/TWR/IRR account performance",
         "peer_basis": "priced top disclosed focus-manager 13F positions; delayed and incomplete",
         "benchmarks": benchmarks,
         "peer_proxies": peer_proxies,
@@ -1811,7 +2051,29 @@ def build_horizon_returns(
             {
                 "key": key,
                 "label": label,
-                "basis": "current_weight_price_proxy",
+                "basis": "current_weight_price_proxy_ex_cash",
+                "is_actual_return": False,
+                "portfolio_return": round(portfolio_return, 2),
+                "price_coverage_pct": round(coverage * 100, 2),
+            }
+        )
+    return rows
+
+
+def build_total_horizon_returns(
+    portfolio: dict[str, Any],
+    return_windows: dict[str, dict[str, Decimal]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for key, label in [("5d", "5D"), ("1m", "1M"), ("3m", "3M"), ("ytd", "YTD"), ("1y", "1Y")]:
+        portfolio_return, coverage = portfolio_total_window_return(portfolio, return_windows, key)
+        if coverage <= 0:
+            continue
+        rows.append(
+            {
+                "key": key,
+                "label": label,
+                "basis": "current_weight_price_proxy_total_including_cash",
                 "is_actual_return": False,
                 "portfolio_return": round(portfolio_return, 2),
                 "price_coverage_pct": round(coverage * 100, 2),
@@ -1828,7 +2090,7 @@ def build_equity_horizon_returns(
     equity_weight = portfolio_equity_weight(portfolio)
     cash_weight = portfolio_cash_weight(portfolio)
     for key, label in [("5d", "5D"), ("1m", "1M"), ("3m", "3M"), ("ytd", "YTD"), ("1y", "1Y")]:
-        equity_return, coverage, covered_weight = equity_window_return(portfolio, return_windows, key)
+        equity_return, coverage = portfolio_window_return(portfolio, return_windows, key)
         if coverage <= 0:
             continue
         rows.append(
@@ -1840,7 +2102,7 @@ def build_equity_horizon_returns(
                 "portfolio_return": round(equity_return, 2),
                 "equity_return": round(equity_return, 2),
                 "price_coverage_pct": round(coverage * 100, 2),
-                "covered_equity_weight": round(covered_weight, 6),
+                "covered_equity_weight": round(coverage, 6),
                 "equity_weight": round(equity_weight, 6),
                 "cash_weight_excluded": round(cash_weight, 6),
             }
@@ -1877,12 +2139,12 @@ def build_return_analytics(
         )
     primary = next((row for row in horizons if row["key"] == primary_horizon), horizons[0] if horizons else None)
     return {
-        "basis": "current-weight public-price proxy; compares total portfolio including cash with invested equity sleeve excluding cash",
+        "basis": "current-weight public-price proxy on invested equity, excluding cash from comparison weights",
         "equity_weight": round(portfolio_equity_weight(portfolio), 6),
         "cash_weight": round(portfolio_cash_weight(portfolio), 6),
         "primary": primary,
         "horizons": horizons,
-        "note": "Ex-cash return normalizes priced public-stock weights to the invested equity sleeve. It is still a price proxy, not realized TWR/IRR.",
+        "note": "Return, peer, and exposure comparisons normalize priced public-stock weights to the invested equity sleeve. It is still a price proxy, not realized TWR/IRR.",
     }
 
 
@@ -1899,6 +2161,30 @@ def matching_horizon(horizon_returns: list[dict[str, Any]], key: str) -> dict[st
     return next((row for row in horizon_returns if row.get("key") == key), None)
 
 
+def portfolio_comparison_weights_by_symbol(portfolio: dict[str, Any]) -> dict[str, float]:
+    weights: dict[str, float] = {}
+    for row in portfolio.get("by_symbol", []):
+        symbol = str(row.get("symbol", "")).upper()
+        if not symbol or is_cash_position(row):
+            continue
+        weights[symbol] = weights.get(symbol, 0.0) + portfolio_comparison_weight(portfolio, row)
+    return weights
+
+
+def portfolio_comparison_weight(portfolio: dict[str, Any], row: dict[str, Any]) -> float:
+    if is_cash_position(row):
+        return 0.0
+    for key in ("comparison_weight", "ex_cash_weight"):
+        if row.get(key) is not None:
+            return max(0.0, float(row.get(key) or 0))
+    weight = max(0.0, float(row.get("weight") or 0))
+    cash_weight = portfolio_cash_weight(portfolio)
+    raw_equity_weight = portfolio_equity_weight(portfolio)
+    if cash_weight > 0 and raw_equity_weight > 0:
+        return weight / raw_equity_weight
+    return weight
+
+
 def portfolio_window_return(
     portfolio: dict[str, Any],
     return_windows: dict[str, dict[str, Decimal]],
@@ -1907,9 +2193,34 @@ def portfolio_window_return(
     weighted = 0.0
     covered = 0.0
     for row in portfolio.get("by_symbol", []):
+        if is_cash_position(row):
+            continue
         symbol = str(row.get("symbol", "")).upper()
-        weight = float(row.get("weight") or 0)
-        value = 0.0 if is_cash_position(row) else window_return(return_windows, symbol, horizon)
+        weight = portfolio_comparison_weight(portfolio, row)
+        value = window_return(return_windows, symbol, horizon)
+        if value is None:
+            continue
+        weighted += weight * value
+        covered += weight
+    return weighted, min(covered, 1.0)
+
+
+def portfolio_total_window_return(
+    portfolio: dict[str, Any],
+    return_windows: dict[str, dict[str, Decimal]],
+    horizon: str,
+) -> tuple[float, float]:
+    weighted = 0.0
+    covered = 0.0
+    for row in portfolio.get("by_symbol", []):
+        weight = portfolio_total_weight(portfolio, row)
+        if weight <= 0:
+            continue
+        if is_cash_position(row):
+            covered += weight
+            continue
+        symbol = str(row.get("symbol", "")).upper()
+        value = window_return(return_windows, symbol, horizon)
         if value is None:
             continue
         weighted += weight * value
@@ -1931,7 +2242,7 @@ def equity_window_return(
         if is_cash_position(row):
             continue
         symbol = str(row.get("symbol", "")).upper()
-        weight = float(row.get("weight") or 0)
+        weight = portfolio_comparison_weight(portfolio, row)
         value = window_return(return_windows, symbol, horizon)
         if value is None:
             continue
@@ -1964,6 +2275,18 @@ def portfolio_cash_weight(portfolio: dict[str, Any]) -> float:
     return max(0.0, total)
 
 
+def portfolio_total_weight(portfolio: dict[str, Any], row: dict[str, Any]) -> float:
+    if row.get("total_weight") is not None:
+        return max(0.0, float(row.get("total_weight") or 0))
+    weight = max(0.0, float(row.get("weight") or 0))
+    if is_cash_position(row):
+        return weight or portfolio_cash_weight(portfolio)
+    weight_basis = str(portfolio.get("weight_basis") or "").lower()
+    if "ex_cash" in weight_basis or "invested_equity" in weight_basis:
+        return weight * portfolio_equity_weight(portfolio)
+    return weight
+
+
 def window_return(
     return_windows: dict[str, dict[str, Decimal]],
     symbol: str,
@@ -1992,9 +2315,11 @@ def portfolio_return_components_for_window(
     priced_weight = 0.0
     components: list[dict[str, Any]] = []
     for row in portfolio.get("by_symbol", []):
+        if is_cash_position(row):
+            continue
         symbol = str(row.get("symbol", "")).upper()
-        weight = float(row.get("weight") or 0)
-        five_day = 0.0 if is_cash_position(row) else window_return(return_windows, symbol, horizon)
+        weight = portfolio_comparison_weight(portfolio, row)
+        five_day = window_return(return_windows, symbol, horizon)
         if five_day is None:
             five_day = quote_move(fallback_prices or {}, symbol)
         if five_day is None:
@@ -2168,11 +2493,7 @@ def build_exposure_gaps(
     portfolio: dict[str, Any],
     peer_weights: dict[str, float],
 ) -> list[dict[str, Any]]:
-    portfolio_weights = {
-        str(row.get("symbol", "")).upper(): float(row.get("weight") or 0)
-        for row in portfolio.get("by_symbol", [])
-        if row.get("symbol")
-    }
+    portfolio_weights = portfolio_comparison_weights_by_symbol(portfolio)
     gaps_by_symbol: dict[str, dict[str, Any]] = {}
     for card in cards:
         symbol = str(card.get("symbol", "")).upper()
@@ -2505,7 +2826,7 @@ def alias_matches(haystack: str, alias: str) -> bool:
     return alias in haystack
 
 
-def vanguard_staleness(conn: sqlite3.Connection, stale_after_days: int) -> dict[str, Any]:
+def vanguard_staleness(conn: sqlite3.Connection, stale_after_days: int, now: datetime | None = None) -> dict[str, Any]:
     row = conn.execute(
         "SELECT MAX(imported_at) AS imported_at FROM imports WHERE source = 'vanguard'"
     ).fetchone()
@@ -2516,4 +2837,13 @@ def vanguard_staleness(conn: sqlite3.Connection, stale_after_days: int) -> dict[
         last_dt = datetime.fromisoformat(last)
     except ValueError:
         return {"is_stale": True, "last_import": last}
-    return {"is_stale": datetime.utcnow() - last_dt > timedelta(days=stale_after_days), "last_import": last}
+    if last_dt.tzinfo is None:
+        last_dt = last_dt.replace(tzinfo=timezone.utc)
+    else:
+        last_dt = last_dt.astimezone(timezone.utc)
+    reference_now = now or datetime.now(timezone.utc)
+    if reference_now.tzinfo is None:
+        reference_now = reference_now.replace(tzinfo=timezone.utc)
+    else:
+        reference_now = reference_now.astimezone(timezone.utc)
+    return {"is_stale": reference_now - last_dt > timedelta(days=stale_after_days), "last_import": last}

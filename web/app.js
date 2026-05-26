@@ -351,6 +351,7 @@ function renderDashboard() {
   const benchmarkHorizon = document.getElementById("benchmarkHorizon");
   if (actionCount) actionCount.textContent = `${actions.length} trades`;
   if (benchmarkHorizon) benchmarkHorizon.textContent = timeAdjustedReturnDetail(benchmark) || `${benchmark.primary_label || "3M"} ex-cash horizon`;
+  renderOsTape(benchmark, actions, macro);
   const decisionStack = document.getElementById("decisionStack");
   if (decisionStack) {
     decisionStack.innerHTML = decisionStackTemplate(benchmark, actions, macro);
@@ -364,7 +365,7 @@ function renderDashboard() {
   document.getElementById("benchmarkList").innerHTML =
     benchmarkRows.length === 0 ? empty("No benchmark comparison in this public snapshot.") : benchmarkRows.slice(0, 7).map(benchmarkTemplate).join("");
   document.getElementById("portfolioActionList").innerHTML =
-    actions.length === 0 ? empty("No add/trim trades match this search.") : actions.slice(0, 7).map(actionTemplate).join("");
+    actions.length === 0 ? empty("No add/trim trades match this search.") : actions.slice(0, 7).map((item, index) => actionTemplate(item, index === 0)).join("");
   const actionVisual = document.getElementById("actionSizingVisual");
   if (actionVisual) {
     actionVisual.innerHTML =
@@ -384,6 +385,70 @@ function renderDashboard() {
     studies.length === 0 ? empty("No underwriting questions match this search.") : studies.slice(0, 8).map(studyTemplate).join("");
   renderDataHealth();
   renderRiskControls(actions);
+}
+
+function renderOsTape(benchmark, actions, macro) {
+  const target = document.getElementById("osTape");
+  if (!target) return;
+  const payload = state.payload || {};
+  const portfolio = payload.portfolio || {};
+  const site = payload.site || {};
+  const primary = actions[0];
+  const peer = preferredBenchmark(benchmark.benchmarks || []);
+  const freshness = payloadFreshness(payload);
+  const items = [
+    {
+      label: "as of",
+      value: payload.as_of || "n/a",
+      detail: labelize(site.last_run_kind || payload.session || "report"),
+    },
+    {
+      label: "mode",
+      value: site.privacy === "public" ? "Public" : "Private",
+      detail: site.privacy === "public" ? "weights only" : "private source data",
+    },
+    {
+      label: "primary",
+      value: primary ? decisionActionLabel(primary, Number(primary.recommended_delta_weight || 0)) : "Hold",
+      detail: primary ? displayActionText(primary.action) : "No queued action",
+      tone: primary && Number(primary.recommended_delta_weight || 0) < 0 ? "negative" : "positive",
+    },
+    {
+      label: benchmark.primary_label || "return",
+      value: formatPct(benchmark.primary_portfolio_return ?? benchmark.portfolio_return_5d),
+      detail: timeAdjustedReturnDetail(benchmark) || "ex-cash proxy",
+      tone: Number(benchmark.primary_portfolio_return ?? benchmark.portfolio_return_5d ?? 0) >= 0 ? "positive" : "negative",
+    },
+    {
+      label: "vs ai core",
+      value: peer ? formatPp(peer.portfolio_vs_benchmark) : "n/a",
+      detail: peer?.name || "Benchmark unavailable",
+      tone: Number(peer?.portfolio_vs_benchmark || 0) >= 0 ? "positive" : "negative",
+    },
+    {
+      label: "macro",
+      value: macro.regime || "Mixed",
+      detail: scoreDetail(macro.scores || {}),
+    },
+    {
+      label: "cash",
+      value: formatWeight(portfolio.cash_weight || 0),
+      detail: "reserve weight",
+    },
+    {
+      label: "freshness",
+      value: freshness.isStale ? "Check" : "Fresh",
+      detail: freshness.reason,
+      tone: freshness.isStale ? "negative" : "positive",
+    },
+  ];
+  target.innerHTML = items.map((item) => `
+    <article>
+      <span>${escapeHtml(item.label)}</span>
+      <strong class="${item.tone || ""}">${escapeHtml(item.value)}</strong>
+      <small>${escapeHtml(item.detail || "")}</small>
+    </article>
+  `).join("");
 }
 
 function decisionStackTemplate(benchmark, actions, macro) {
@@ -503,47 +568,65 @@ function benchmarkTemplate(row) {
   `;
 }
 
-function actionTemplate(item) {
+function actionTemplate(item, expanded = false) {
   const delta = Number(item.recommended_delta_weight || 0);
   const deltaClass = delta > 0 ? "positive" : delta < 0 ? "negative" : "";
-  const targetText = item.target_weight == null || item.target_weight === item.post_action_weight
-    ? ""
-    : ` | Target ${formatWeight(item.target_weight)}`;
   const timestamp = state.payload.as_of || state.payload.site?.built_at || "";
   const tradeLabel = item.trade_action ? labelize(item.trade_action).replace("Hold Hedge", "Hold") : "Trade";
   const sourceText = `${item.signal_family_count || 0} signals${item.manager_count ? `, ${item.manager_count} managers` : ""}`;
+  const targetWeight = item.target_weight ?? item.post_action_weight ?? item.portfolio_weight;
+  const expected = item.risk_adjusted_expected_return ?? item.probability_weighted_return;
+  const blockers = [
+    ...(item.active_constraints || []),
+    ...(item.risk_flags || []),
+  ].slice(0, 2);
   return `
-    <article class="row searchable" data-search="${searchAttribute(item)}">
-      <div class="row-main">
-        <div class="symbol">${escapeHtml(item.symbol)}</div>
-        <div class="action-size">
-          <strong class="${deltaClass}">${escapeHtml(actionSizeLabel(delta))}</strong>
-          <span>After move ${escapeHtml(formatWeight(item.post_action_weight ?? item.portfolio_weight))}${escapeHtml(targetText)}</span>
+    <details class="action-row searchable" data-search="${searchAttribute(item)}" ${expanded ? "open" : ""}>
+      <summary class="action-summary">
+        <span class="action-symbol">${escapeHtml(item.symbol)}</span>
+        <strong class="${deltaClass}">${escapeHtml(actionSizeLabel(delta))}</strong>
+        <span>
+          <em>current</em>
+          ${escapeHtml(formatWeight(item.portfolio_weight))}
+        </span>
+        <span>
+          <em>target</em>
+          ${escapeHtml(formatWeight(targetWeight))}
+        </span>
+        <span>
+          <em>expected</em>
+          ${escapeHtml(formatPct(expected))}
+        </span>
+        <span>
+          <em>evidence</em>
+          ${escapeHtml(item.evidence_quality == null ? `${item.signal_family_count || 0} sig` : `${number.format(item.evidence_quality)}/100`)}
+        </span>
+        <span>
+          <em>blockers</em>
+          ${escapeHtml(blockers.length ? blockers.map(labelize).join(", ") : "clear")}
+        </span>
+      </summary>
+      <div class="action-details">
+        <p><strong>${escapeHtml(tradeLabel)}:</strong> ${escapeHtml(displayActionText(item.action) || "")}</p>
+        <p>${escapeHtml(item.company_reason || item.why || "")}</p>
+        <div class="tags">
+          <span class="tag">After move ${escapeHtml(formatWeight(item.post_action_weight ?? item.portfolio_weight))}</span>
+          <span class="tag">Model target ${escapeHtml(formatWeight(item.model_target_weight ?? targetWeight))}</span>
+          ${item.company_underwriting_score != null ? `<span class="tag">Company ${escapeHtml(number.format(item.company_underwriting_score))}/100</span>` : ""}
+          ${item.sector_setup_score != null ? `<span class="tag">Sector ${escapeHtml(number.format(item.sector_setup_score))}/100</span>` : ""}
+          ${item.funding_source ? `<span class="tag">${escapeHtml(labelize(item.funding_source))}</span>` : ""}
+          ${item.review_required ? `<span class="tag">Review ${escapeHtml(labelize(item.review_status || "required"))}</span>` : ""}
+          ${item.catalyst_clock ? `<span class="tag">${escapeHtml(item.catalyst_clock)}</span>` : ""}
+          <span class="tag">Peer avg ${escapeHtml(formatWeight(item.peer_avg_weight))}</span>
+          <span class="tag">5D price ${escapeHtml(formatPct(item.five_day_pct))}</span>
+          <span class="tag">Contribution ${escapeHtml(formatPp(item.contribution_pct))}</span>
+          <span class="tag">Priority ${escapeHtml(number.format(item.priority || 0))}</span>
+          ${item.confidence ? `<span class="tag">Confidence ${escapeHtml(item.confidence)}/100</span>` : ""}
+          <span class="tag">${escapeHtml(sourceText)}</span>
+          ${timestamp ? `<span class="tag">As of ${escapeHtml(dateOnly(timestamp))}</span>` : ""}
         </div>
       </div>
-      <p><strong>${escapeHtml(tradeLabel)}:</strong> ${escapeHtml(displayActionText(item.action) || "")}</p>
-      <p>${escapeHtml(item.company_reason || item.why || "")}</p>
-      ${item.sector_reason ? `<p>${escapeHtml(item.sector_reason)}</p>` : ""}
-      <div class="tags">
-        <span class="tag">Current ex-cash weight ${escapeHtml(formatWeight(item.portfolio_weight))}</span>
-        <span class="tag">Model target ${escapeHtml(formatWeight(item.model_target_weight ?? item.target_weight ?? item.post_action_weight ?? item.portfolio_weight))}</span>
-        ${item.risk_adjusted_expected_return != null ? `<span class="tag">Expected ${escapeHtml(formatPct(item.risk_adjusted_expected_return))}</span>` : ""}
-        ${item.company_underwriting_score != null ? `<span class="tag">Company ${escapeHtml(number.format(item.company_underwriting_score))}/100</span>` : ""}
-        ${item.sector_setup_score != null ? `<span class="tag">Sector ${escapeHtml(number.format(item.sector_setup_score))}/100</span>` : ""}
-        ${item.funding_source ? `<span class="tag">${escapeHtml(labelize(item.funding_source))}</span>` : ""}
-        ${item.review_required ? `<span class="tag">Review ${escapeHtml(labelize(item.review_status || "required"))}</span>` : ""}
-        ${item.catalyst_clock ? `<span class="tag">${escapeHtml(item.catalyst_clock)}</span>` : ""}
-        <span class="tag">Peer avg ${escapeHtml(formatWeight(item.peer_avg_weight))}</span>
-        <span class="tag">5D price ${escapeHtml(formatPct(item.five_day_pct))}</span>
-        <span class="tag">Return contribution ${escapeHtml(formatPp(item.contribution_pct))}</span>
-        <span class="tag">Priority score ${escapeHtml(number.format(item.priority || 0))}</span>
-        ${item.confidence ? `<span class="tag">Confidence ${escapeHtml(item.confidence)}/100</span>` : ""}
-        <span class="tag">${escapeHtml(sourceText)}</span>
-        ${timestamp ? `<span class="tag">As of ${escapeHtml(dateOnly(timestamp))}</span>` : ""}
-        ${(item.active_constraints || []).slice(0, 3).map((flag) => `<span class="tag">${escapeHtml(labelize(flag))}</span>`).join("")}
-        ${(item.risk_flags || []).slice(0, 3).map((flag) => `<span class="tag">${escapeHtml(labelize(flag))}</span>`).join("")}
-      </div>
-    </article>
+    </details>
   `;
 }
 

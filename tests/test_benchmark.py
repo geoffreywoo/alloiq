@@ -77,7 +77,7 @@ class PortfolioBenchmarkTests(unittest.TestCase):
         self.assertEqual(benchmark["primary_horizon"], "3m")
         self.assertEqual(benchmark["primary_portfolio_return"], 19.5)
         self.assertFalse(benchmark["actual_return_available"])
-        self.assertEqual(benchmark["horizon_returns"][0]["basis"], "current_weight_price_proxy")
+        self.assertEqual(benchmark["horizon_returns"][0]["basis"], "current_weight_price_proxy_ex_cash")
         self.assertEqual(benchmark["peer_proxies"][0]["proxy_return"], 25.0)
         self.assertEqual(benchmark["benchmarks"][0]["name"], "S&P 500")
         self.assertEqual(benchmark["benchmarks"][0]["portfolio_vs_benchmark"], 13.5)
@@ -93,7 +93,7 @@ class PortfolioBenchmarkTests(unittest.TestCase):
         self.assertEqual(googl_action["recommended_delta_weight"], 0.02)
         self.assertEqual(googl_action["target_weight"], 0.02)
 
-    def test_cash_reserve_counts_as_zero_return_coverage(self):
+    def test_cash_reserve_is_excluded_from_return_comparisons(self):
         portfolio = {
             "cash_weight": 0.2,
             "equity_weight": 0.8,
@@ -109,19 +109,22 @@ class PortfolioBenchmarkTests(unittest.TestCase):
 
         benchmark = build_portfolio_benchmark(portfolio, [], {"focus_managers": []}, {"tape": []}, {}, return_windows)
 
-        self.assertEqual(benchmark["portfolio_return_5d"], 8.0)
+        self.assertEqual(benchmark["portfolio_return_5d"], 10.0)
+        self.assertEqual(benchmark["total_portfolio_return_5d"], 8.0)
         self.assertEqual(benchmark["price_coverage_pct"], 100.0)
-        self.assertEqual(benchmark["primary_portfolio_return"], 24.0)
+        self.assertEqual(benchmark["total_price_coverage_pct"], 100.0)
+        self.assertEqual(benchmark["primary_portfolio_return"], 30.0)
         self.assertEqual(benchmark["primary_price_coverage_pct"], 100.0)
         self.assertEqual(benchmark["primary_equity_return"], 30.0)
+        self.assertEqual(benchmark["total_horizon_returns"][0]["basis"], "current_weight_price_proxy_total_including_cash")
+        self.assertEqual(benchmark["total_horizon_returns"][0]["portfolio_return"], 8.0)
         self.assertEqual(benchmark["equity_horizon_returns"][0]["basis"], "current_weight_price_proxy_ex_cash")
         self.assertEqual(benchmark["equity_horizon_returns"][0]["portfolio_return"], 10.0)
         self.assertEqual(benchmark["return_analytics"]["primary"]["invested_equity_return"], 30.0)
         self.assertEqual(benchmark["return_analytics"]["primary"]["total_portfolio_return"], 24.0)
         self.assertEqual(benchmark["return_analytics"]["primary"]["cash_effect_pct"], -6.0)
-        cash_component = next(row for row in benchmark["top_detractors"] if row["symbol"] == "CASH")
-        self.assertEqual(cash_component["five_day_pct"], 0.0)
-        self.assertEqual(cash_component["contribution_pct"], 0.0)
+        self.assertEqual(benchmark["return_analytics"]["primary"]["ex_cash_uplift_pct"], 6.0)
+        self.assertFalse(any(row["symbol"] == "CASH" for row in benchmark["top_detractors"]))
 
     def test_goog_and_googl_proxy_returns_and_weights(self):
         portfolio = {
@@ -161,12 +164,9 @@ class PortfolioBenchmarkTests(unittest.TestCase):
         benchmark = build_portfolio_benchmark(portfolio, cards, manager_radar, {"tape": []}, {}, return_windows)
 
         self.assertEqual(benchmark["primary_horizon"], "3m")
-        self.assertEqual(benchmark["primary_portfolio_return"], 1.2)
+        self.assertEqual(benchmark["primary_portfolio_return"], 12.0)
         self.assertEqual(benchmark["peer_proxies"][0]["proxy_return"], 12.0)
-        self.assertEqual(benchmark["exposure_gaps"][0]["symbol"], "GOOGL")
-        self.assertEqual(benchmark["exposure_gaps"][0]["portfolio_weight"], 0.10)
-        self.assertEqual(benchmark["exposure_gaps"][0]["peer_avg_weight"], 0.15)
-        self.assertNotEqual(benchmark["exposure_gaps"][0]["type"], "white_space")
+        self.assertEqual(benchmark["exposure_gaps"], [])
 
 
 if __name__ == "__main__":

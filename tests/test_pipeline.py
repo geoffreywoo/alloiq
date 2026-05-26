@@ -25,6 +25,7 @@ class PipelineTests(unittest.TestCase):
                 patch("invest.pipeline.generate_brief", return_value=(Path(tmp) / "weekly.md", Path(tmp) / "weekly.json")) as brief,
                 patch("invest.pipeline.build_site", return_value={"out_dir": str(Path(tmp) / "web")}) as site,
                 patch("invest.pipeline.assert_public_assets_safe") as scan,
+                patch("invest.pipeline.assert_public_snapshot_quality") as quality,
             ):
                 result = run_pipeline(None, config, "weekly", out_dir=Path(tmp) / "web", force=True)
 
@@ -34,6 +35,7 @@ class PipelineTests(unittest.TestCase):
             brief.assert_called_once_with(None, config, "weekly")
             site.assert_called_once()
             scan.assert_called_once_with(Path(tmp) / "web")
+            quality.assert_called_once_with(Path(tmp) / "web")
 
     def test_scheduled_duplicate_window_skips_without_side_effects(self):
         config = AppConfig(path=Path("config/invest.toml"), data={})

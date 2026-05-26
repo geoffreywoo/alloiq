@@ -546,17 +546,23 @@ def earnings_source_quality(events: list[dict[str, Any]]) -> str:
 
 def earnings_health_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
     source_quality = earnings_source_quality(events)
-    confirmed = sum(1 for row in events if row.get("confirmed_or_estimated") == "confirmed")
-    estimated = sum(1 for row in events if row.get("confirmed_or_estimated") == "estimated")
-    provider_dates = sum(1 for row in events if row.get("event_type") == "earnings")
+    date_events = [row for row in events if is_forward_earnings_date(row)]
+    confirmed = sum(1 for row in date_events if row.get("confirmed_or_estimated") == "confirmed")
+    estimated = sum(1 for row in date_events if row.get("confirmed_or_estimated") == "estimated")
+    marker_count = len(events) - len(date_events)
     return {
         "status": "ok" if source_quality == "ok" else "limited" if source_quality == "limited" else "estimated",
         "source_quality": source_quality,
         "confirmed_count": confirmed,
         "estimated_count": estimated,
-        "provider_date_count": provider_dates,
+        "provider_date_count": len(date_events),
+        "catalyst_marker_count": marker_count,
         "event_count": len(events),
     }
+
+
+def is_forward_earnings_date(event: dict[str, Any]) -> bool:
+    return event.get("event_type") == "earnings"
 
 
 def earnings_provider_settings(config: AppConfig) -> dict[str, Any]:

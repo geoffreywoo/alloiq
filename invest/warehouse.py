@@ -229,6 +229,15 @@ CREATE TABLE IF NOT EXISTS engine_features (
     expected_return_rank_score NUMERIC,
     signal_family_count INTEGER NOT NULL DEFAULT 0,
     current_weight NUMERIC,
+    external_signal_score NUMERIC,
+    coverage_adjusted_external_signal_score NUMERIC,
+    external_coverage_multiplier NUMERIC,
+    external_feed_status TEXT NOT NULL DEFAULT '',
+    external_provider_count INTEGER,
+    external_provider_ok_count INTEGER,
+    external_provider_ok_ratio NUMERIC,
+    external_signal_count INTEGER,
+    external_source_count INTEGER,
     raw JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -301,6 +310,8 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
     pending_outcome_count INTEGER NOT NULL DEFAULT 0,
     calibration JSONB NOT NULL DEFAULT '{}'::jsonb,
     horizon_summary JSONB NOT NULL DEFAULT '[]'::jsonb,
+    external_feed_status_summary JSONB NOT NULL DEFAULT '[]'::jsonb,
+    external_coverage_summary JSONB NOT NULL DEFAULT '[]'::jsonb,
     raw JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -328,6 +339,15 @@ CREATE TABLE IF NOT EXISTS backtest_outcomes (
     risk_adjusted_expected_return NUMERIC,
     expected_vs_realized_error NUMERIC,
     signal_families JSONB NOT NULL DEFAULT '[]'::jsonb,
+    external_signal_score NUMERIC,
+    coverage_adjusted_external_signal_score NUMERIC,
+    external_coverage_multiplier NUMERIC,
+    external_feed_status TEXT NOT NULL DEFAULT '',
+    external_provider_count INTEGER,
+    external_provider_ok_count INTEGER,
+    external_provider_ok_ratio NUMERIC,
+    external_signal_count INTEGER,
+    external_source_count INTEGER,
     raw JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -346,6 +366,15 @@ CREATE TABLE IF NOT EXISTS recommendation_training_examples (
     recommended_delta_weight NUMERIC,
     target_weight NUMERIC,
     risk_adjusted_expected_return NUMERIC,
+    external_signal_score NUMERIC,
+    coverage_adjusted_external_signal_score NUMERIC,
+    external_coverage_multiplier NUMERIC,
+    external_feed_status TEXT NOT NULL DEFAULT '',
+    external_provider_count INTEGER,
+    external_provider_ok_count INTEGER,
+    external_provider_ok_ratio NUMERIC,
+    external_signal_count INTEGER,
+    external_source_count INTEGER,
     forward_return_labels JSONB NOT NULL DEFAULT '{}'::jsonb,
     raw JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -361,6 +390,36 @@ CREATE TABLE IF NOT EXISTS model_policy_versions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE backtest_runs ADD COLUMN IF NOT EXISTS external_feed_status_summary JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE backtest_runs ADD COLUMN IF NOT EXISTS external_coverage_summary JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE engine_features ADD COLUMN IF NOT EXISTS external_signal_score NUMERIC;
+ALTER TABLE engine_features ADD COLUMN IF NOT EXISTS coverage_adjusted_external_signal_score NUMERIC;
+ALTER TABLE engine_features ADD COLUMN IF NOT EXISTS external_coverage_multiplier NUMERIC;
+ALTER TABLE engine_features ADD COLUMN IF NOT EXISTS external_feed_status TEXT NOT NULL DEFAULT '';
+ALTER TABLE engine_features ADD COLUMN IF NOT EXISTS external_provider_count INTEGER;
+ALTER TABLE engine_features ADD COLUMN IF NOT EXISTS external_provider_ok_count INTEGER;
+ALTER TABLE engine_features ADD COLUMN IF NOT EXISTS external_provider_ok_ratio NUMERIC;
+ALTER TABLE engine_features ADD COLUMN IF NOT EXISTS external_signal_count INTEGER;
+ALTER TABLE engine_features ADD COLUMN IF NOT EXISTS external_source_count INTEGER;
+ALTER TABLE backtest_outcomes ADD COLUMN IF NOT EXISTS external_signal_score NUMERIC;
+ALTER TABLE backtest_outcomes ADD COLUMN IF NOT EXISTS coverage_adjusted_external_signal_score NUMERIC;
+ALTER TABLE backtest_outcomes ADD COLUMN IF NOT EXISTS external_coverage_multiplier NUMERIC;
+ALTER TABLE backtest_outcomes ADD COLUMN IF NOT EXISTS external_feed_status TEXT NOT NULL DEFAULT '';
+ALTER TABLE backtest_outcomes ADD COLUMN IF NOT EXISTS external_provider_count INTEGER;
+ALTER TABLE backtest_outcomes ADD COLUMN IF NOT EXISTS external_provider_ok_count INTEGER;
+ALTER TABLE backtest_outcomes ADD COLUMN IF NOT EXISTS external_provider_ok_ratio NUMERIC;
+ALTER TABLE backtest_outcomes ADD COLUMN IF NOT EXISTS external_signal_count INTEGER;
+ALTER TABLE backtest_outcomes ADD COLUMN IF NOT EXISTS external_source_count INTEGER;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS external_signal_score NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS coverage_adjusted_external_signal_score NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS external_coverage_multiplier NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS external_feed_status TEXT NOT NULL DEFAULT '';
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS external_provider_count INTEGER;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS external_provider_ok_count INTEGER;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS external_provider_ok_ratio NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS external_signal_count INTEGER;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS external_source_count INTEGER;
 """
 
 
@@ -927,8 +986,12 @@ def replace_engine_features(conn, run_id: str, payload: dict[str, Any]) -> int:
                 """
                 INSERT INTO engine_features
                 (feature_id, run_id, as_of, symbol, bucket, expected_return_score,
-                 expected_return_rank_score, signal_family_count, current_weight, raw)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                 expected_return_rank_score, signal_family_count, current_weight,
+                 external_signal_score, coverage_adjusted_external_signal_score,
+                 external_coverage_multiplier, external_feed_status, external_provider_count,
+                 external_provider_ok_count, external_provider_ok_ratio, external_signal_count,
+                 external_source_count, raw)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
                 """,
                 (
                     stable_id([run_id, row.get("feature_id") or "feature", symbol]),
@@ -940,6 +1003,15 @@ def replace_engine_features(conn, run_id: str, payload: dict[str, Any]) -> int:
                     numeric(row.get("expected_return_rank_score")),
                     int(row.get("signal_family_count") or 0),
                     numeric(row.get("current_weight")),
+                    numeric(row.get("external_signal_score")),
+                    numeric(row.get("coverage_adjusted_external_signal_score")),
+                    numeric(row.get("external_coverage_multiplier")),
+                    row.get("external_feed_status") or "",
+                    row.get("external_provider_count"),
+                    row.get("external_provider_ok_count"),
+                    numeric(row.get("external_provider_ok_ratio")),
+                    row.get("external_signal_count"),
+                    row.get("external_source_count"),
                     json_param(row),
                 ),
             )
@@ -1050,8 +1122,8 @@ def replace_backtest_run(conn, run_id: str, payload: dict[str, Any]) -> int:
             INSERT INTO backtest_runs
             (backtest_id, run_id, as_of, version, model_policy_version, source_report_count,
              trial_count, completed_outcome_count, pending_outcome_count, calibration,
-             horizon_summary, raw, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, now())
+             horizon_summary, external_feed_status_summary, external_coverage_summary, raw, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, now())
             ON CONFLICT (backtest_id) DO UPDATE SET
               run_id = EXCLUDED.run_id,
               as_of = EXCLUDED.as_of,
@@ -1063,6 +1135,8 @@ def replace_backtest_run(conn, run_id: str, payload: dict[str, Any]) -> int:
               pending_outcome_count = EXCLUDED.pending_outcome_count,
               calibration = EXCLUDED.calibration,
               horizon_summary = EXCLUDED.horizon_summary,
+              external_feed_status_summary = EXCLUDED.external_feed_status_summary,
+              external_coverage_summary = EXCLUDED.external_coverage_summary,
               raw = EXCLUDED.raw,
               updated_at = now()
             """,
@@ -1078,6 +1152,8 @@ def replace_backtest_run(conn, run_id: str, payload: dict[str, Any]) -> int:
                 int(backtest.get("pending_outcome_count") or 0),
                 json_param(backtest.get("calibration") or {}),
                 json_param(backtest.get("horizons") or []),
+                json_param(backtest.get("by_external_feed_status") or []),
+                json_param(backtest.get("by_external_coverage") or []),
                 json_param(backtest),
             ),
         )
@@ -1100,9 +1176,13 @@ def replace_backtest_outcomes(conn, run_id: str, payload: dict[str, Any]) -> int
                 (outcome_id, run_id, backtest_id, trial_id, as_of, session, symbol, bucket,
                  trade_action, horizon, status, direction, entry_date, exit_date, entry_price,
                  exit_price, raw_forward_return_pct, decision_forward_return_pct,
-                 risk_adjusted_expected_return, expected_vs_realized_error, signal_families, raw)
+                 risk_adjusted_expected_return, expected_vs_realized_error, signal_families,
+                 external_signal_score, coverage_adjusted_external_signal_score,
+                 external_coverage_multiplier, external_feed_status, external_provider_count,
+                 external_provider_ok_count, external_provider_ok_ratio, external_signal_count,
+                 external_source_count, raw)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                        %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
                 """,
                 (
                     row.get("outcome_id") or stable_id([run_id, "backtest_outcome", symbol, row.get("horizon")]),
@@ -1126,6 +1206,15 @@ def replace_backtest_outcomes(conn, run_id: str, payload: dict[str, Any]) -> int
                     numeric(row.get("risk_adjusted_expected_return")),
                     numeric(row.get("expected_vs_realized_error")),
                     json_param(row.get("signal_families") or []),
+                    numeric(row.get("external_signal_score")),
+                    numeric(row.get("coverage_adjusted_external_signal_score")),
+                    numeric(row.get("external_coverage_multiplier")),
+                    row.get("external_feed_status") or "",
+                    row.get("external_provider_count"),
+                    row.get("external_provider_ok_count"),
+                    numeric(row.get("external_provider_ok_ratio")),
+                    row.get("external_signal_count"),
+                    row.get("external_source_count"),
                     json_param(row),
                 ),
             )
@@ -1145,8 +1234,13 @@ def replace_recommendation_training_examples(conn, run_id: str, payload: dict[st
                 INSERT INTO recommendation_training_examples
                 (example_id, run_id, ticket_id, as_of, session, symbol, bucket, model_policy_version,
                  trade_action, current_weight, recommended_delta_weight, target_weight,
-                 risk_adjusted_expected_return, forward_return_labels, raw)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                 risk_adjusted_expected_return, external_signal_score,
+                 coverage_adjusted_external_signal_score, external_coverage_multiplier,
+                 external_feed_status, external_provider_count, external_provider_ok_count,
+                 external_provider_ok_ratio, external_signal_count, external_source_count,
+                 forward_return_labels, raw)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
                 """,
                 (
                     row.get("example_id") or stable_id([run_id, "training", symbol, row.get("ticket_id")]),
@@ -1162,6 +1256,15 @@ def replace_recommendation_training_examples(conn, run_id: str, payload: dict[st
                     numeric(row.get("recommended_delta_weight")),
                     numeric(row.get("target_weight")),
                     numeric(row.get("risk_adjusted_expected_return")),
+                    numeric(row.get("external_signal_score")),
+                    numeric(row.get("coverage_adjusted_external_signal_score")),
+                    numeric(row.get("external_coverage_multiplier")),
+                    row.get("external_feed_status") or "",
+                    row.get("external_provider_count"),
+                    row.get("external_provider_ok_count"),
+                    numeric(row.get("external_provider_ok_ratio")),
+                    row.get("external_signal_count"),
+                    row.get("external_source_count"),
                     json_param(row.get("forward_return_labels") or {}),
                     json_param(row),
                 ),

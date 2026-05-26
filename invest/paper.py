@@ -56,10 +56,11 @@ def paper_weight_snapshots(portfolio: dict[str, Any], trades: list[dict[str, Any
         str(row.get("symbol") or "").upper(): {
             "symbol": str(row.get("symbol") or "").upper(),
             "bucket": row.get("bucket", "unmapped"),
-            "current_weight": round(float(row.get("weight") or 0), 6),
-            "paper_target_weight": round(float(row.get("weight") or 0), 6),
+            "current_weight": round(float(row.get("comparison_weight", row.get("ex_cash_weight", row.get("weight") or 0)) or 0), 6),
+            "paper_target_weight": round(float(row.get("comparison_weight", row.get("ex_cash_weight", row.get("weight") or 0)) or 0), 6),
         }
         for row in portfolio.get("by_symbol", [])
+        if not row.get("is_cash")
     }
     for trade in trades:
         symbol = trade["symbol"]

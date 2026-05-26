@@ -39,12 +39,14 @@ async function init() {
 
 function render() {
   const asOf = payload.as_of || "";
-  document.title = asOf ? `AlloIQ - AI Markets Intelligence ${asOf}` : "AlloIQ - AI Markets Intelligence";
+  document.title = asOf ? `Geoffrey Woo Portfolio - AlloIQ ${asOf}` : "Geoffrey Woo Portfolio - AlloIQ";
   document.getElementById("homeDate").textContent = asOf ? `Snapshot ${asOf}` : "Public snapshot";
   renderSnapshot();
   renderPerformance();
   renderTopTrade();
   renderFreshness();
+  renderProofSurface();
+  renderHeroTrade();
   renderTopWeights();
   renderBucketMix();
   renderReturnAnalytics();
@@ -115,17 +117,83 @@ function renderFreshness() {
     : "Missing build timestamp";
 }
 
+function renderProofSurface() {
+  const benchmark = payload.portfolio_benchmark || {};
+  const primary = horizonFor("3M") || horizonFor("YTD") || (benchmark.horizon_returns || [])[0];
+  const primaryValue = primary ? (analyticsFor(primary.key)?.invested_equity_return ?? primary.portfolio_return) : null;
+  const proofTitle = document.getElementById("homeProofTitle");
+  const proofMeta = document.getElementById("homeProofMeta");
+  const curve = document.getElementById("homeReturnCurve");
+  const drivers = document.getElementById("homeDriverWaterfall");
+  if (proofTitle) {
+    proofTitle.textContent = primary ? `${primary.label || "Return"} ${formatPct(primaryValue)}` : "No return window";
+  }
+  if (proofMeta) {
+    proofMeta.textContent = `${formatPlainPct(benchmark.primary_price_coverage_pct ?? benchmark.price_coverage_pct)} priced | ex-cash proxy`;
+  }
+  if (curve) {
+    curve.innerHTML = returnCurveTemplate(returnRows());
+  }
+  if (drivers) {
+    drivers.innerHTML = driverWaterfallTemplate();
+  }
+}
+
+function renderHeroTrade() {
+  const trade = (payload.portfolio_benchmark?.action_queue || [])[0];
+  const title = document.getElementById("homeHeroTrade");
+  const risk = document.getElementById("homeHeroRisk");
+  const detail = document.getElementById("homeHeroTradeDetail");
+  const stats = document.getElementById("homeHeroTradeStats");
+  const queue = document.getElementById("homeDecisionList");
+  if (risk) {
+    risk.textContent = payload.macro?.regime || "Mixed macro tape";
+  }
+  if (!trade) {
+    if (title) title.textContent = "Hold";
+    if (detail) detail.textContent = "No add/trim target in the current feed.";
+    if (stats) stats.innerHTML = "";
+    if (queue) queue.innerHTML = empty("No active calls.");
+    return;
+  }
+  if (title) {
+    title.textContent = `${trade.symbol} ${tradeLabel(trade)}`;
+  }
+  if (detail) {
+    detail.textContent = trade.company_reason || trade.why || trade.action || "Review the current target weight before changing size.";
+  }
+  if (stats) {
+    stats.innerHTML = [
+      ["current", formatWeight(trade.portfolio_weight)],
+      ["target", formatWeight(trade.target_weight ?? trade.post_action_weight ?? trade.portfolio_weight)],
+      ["expected", formatPct(trade.risk_adjusted_expected_return)],
+      ["evidence", trade.evidence_quality == null ? "n/a" : `${number.format(trade.evidence_quality)}/100`],
+    ].map(([label, value]) => `
+      <article>
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(value)}</strong>
+      </article>
+    `).join("");
+  }
+  if (queue) {
+    const actions = (payload.portfolio_benchmark?.action_queue || []).slice(0, 4);
+    queue.innerHTML = actions.length
+      ? actions.map(homeDecisionRow).join("")
+      : empty("No active calls.");
+  }
+}
+
 function renderTopWeights() {
   const rows = sortedSymbols().slice(0, 10);
   document.getElementById("homeTopWeights").innerHTML = rows.length
-    ? rows.map((row) => weightBar(row.symbol, row.weight, row.bucket, { showExCash: !row.is_cash })).join("")
+    ? rows.map((row) => weightBar(row.symbol, row.weight, row.bucket, { secondaryWeight: row.total_weight, secondaryLabel: "total" })).join("")
     : empty("No public portfolio weights available.");
 }
 
 function renderBucketMix() {
   const rows = [...(payload.portfolio?.by_bucket || [])].sort((a, b) => Number(b.weight || 0) - Number(a.weight || 0));
   document.getElementById("homeBucketMix").innerHTML = rows.length
-    ? rows.map((row) => weightBar(labelize(row.bucket), row.weight, row.bucket, { showExCash: row.bucket !== "cash_reserves" })).join("")
+    ? rows.map((row) => weightBar(labelize(row.bucket), row.weight, row.bucket, { secondaryWeight: row.total_weight, secondaryLabel: "total" })).join("")
     : empty("No thesis bucket weights available.");
 }
 
@@ -150,6 +218,18 @@ function sortedSymbols() {
   });
 }
 
+function returnRows() {
+  const analytics = payload.portfolio_benchmark?.return_analytics?.horizons || [];
+  const horizons = payload.portfolio_benchmark?.horizon_returns || [];
+  const rows = analytics.length ? analytics : horizons;
+  return rows
+    .map((row) => ({
+      label: row.label || row.key,
+      value: row.invested_equity_return ?? row.total_portfolio_return ?? row.portfolio_return,
+    }))
+    .filter((row) => row.value != null && !Number.isNaN(Number(row.value)));
+}
+
 function horizonFor(label) {
   const target = String(label || "").toLowerCase();
   return (payload?.portfolio_benchmark?.horizon_returns || []).find((row) => (
@@ -164,6 +244,85 @@ function analyticsFor(label) {
   ));
 }
 
+function returnCurveTemplate(rows) {
+  if (!rows.length) return empty("No return windows available.");
+  if (rows.length === 1) {
+    return `<div class="home-curve-single"><span>${escapeHtml(rows[0].label || "Return")}</span><strong>${escapeHtml(formatPct(rows[0].value))}</strong></div>`;
+  }
+  const width = 420;
+  const height = 154;
+  const padX = 34;
+  const padY = 22;
+  const values = rows.map((row) => Number(row.value));
+  const min = Math.min(0, ...values);
+  const max = Math.max(0, ...values);
+  const span = Math.max(1, max - min);
+  const points = rows.map((row, index) => {
+    const x = padX + (index / (rows.length - 1)) * (width - padX * 2);
+    const y = padY + (1 - ((Number(row.value) - min) / span)) * (height - padY * 2);
+    return { x, y, row };
+  });
+  const zeroY = padY + (1 - ((0 - min) / span)) * (height - padY * 2);
+  return `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Portfolio return proxy by horizon">
+      <line x1="${padX}" y1="${zeroY}" x2="${width - padX}" y2="${zeroY}" class="curve-zero"></line>
+      <polyline points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" class="curve-line"></polyline>
+      ${points.map((point) => `
+        <g>
+          <circle cx="${point.x}" cy="${point.y}" r="4.5" class="curve-point"></circle>
+          <text x="${point.x}" y="${height - 6}" text-anchor="middle">${escapeHtml(point.row.label || "")}</text>
+          <text x="${point.x}" y="${Math.max(12, point.y - 10)}" text-anchor="middle" class="curve-value">${escapeHtml(formatPct(point.row.value))}</text>
+        </g>
+      `).join("")}
+    </svg>
+  `;
+}
+
+function driverWaterfallTemplate() {
+  const benchmark = payload.portfolio_benchmark || {};
+  const rows = [
+    ...(benchmark.top_contributors || []),
+    ...(benchmark.top_detractors || []),
+  ]
+    .filter((row) => row.symbol && row.contribution_pct != null)
+    .sort((a, b) => Math.abs(Number(b.contribution_pct || 0)) - Math.abs(Number(a.contribution_pct || 0)))
+    .slice(0, 6);
+  if (!rows.length) return empty("No return drivers in this snapshot.");
+  const maxAbs = Math.max(...rows.map((row) => Math.abs(Number(row.contribution_pct || 0))), 0.1);
+  return rows.map((row) => {
+    const contribution = Number(row.contribution_pct || 0);
+    const width = Math.max(4, Math.min(100, (Math.abs(contribution) / maxAbs) * 100));
+    return `
+      <div class="home-driver-row">
+        <strong>${escapeHtml(row.symbol)}</strong>
+        <div class="home-driver-track ${contribution < 0 ? "is-negative" : ""}">
+          <span style="width:${width}%"></span>
+        </div>
+        <em class="${contribution >= 0 ? "positive" : "negative"}">${escapeHtml(formatPp(contribution))}</em>
+      </div>
+    `;
+  }).join("");
+}
+
+function homeDecisionRow(trade) {
+  const delta = Number(trade.recommended_delta_weight || 0);
+  return `
+    <article class="home-decision-row">
+      <div>
+        <strong>${escapeHtml(trade.symbol)}</strong>
+        <span>${escapeHtml(actionWord(delta))}</span>
+      </div>
+      <em class="${delta >= 0 ? "positive" : "negative"}">${escapeHtml(delta === 0 ? "Hold" : formatAbsWeight(delta))}</em>
+    </article>
+  `;
+}
+
+function actionWord(delta) {
+  if (delta > 0) return "Add";
+  if (delta < 0) return "Trim";
+  return "Hold";
+}
+
 function tradeLabel(trade) {
   const delta = Number(trade.recommended_delta_weight || 0);
   if (delta > 0) return `Add ${formatAbsWeight(delta)}`;
@@ -172,15 +331,15 @@ function tradeLabel(trade) {
 }
 
 function weightBar(label, weight, bucket, options = {}) {
-  const showExCash = options.showExCash && equityWeight() > 0;
-  const exCash = showExCash ? exCashWeight(weight) : null;
+  const secondaryWeight = options.secondaryWeight;
+  const secondaryLabel = options.secondaryLabel || "";
   return `
     <div class="bar-row">
       <strong>${escapeHtml(label)}</strong>
       <div class="bar-track"><div class="bar-fill" style="width:${barWidth(weight)}%;background:${bucketColors[bucket] || bucketColors.unmapped}"></div></div>
       <div class="metric weight-metric">
         <strong>${escapeHtml(formatWeight(weight))}</strong>
-        ${exCash == null ? "" : `<small>${escapeHtml(formatWeight(exCash))} ex-cash</small>`}
+        ${secondaryWeight == null ? "" : `<small>${escapeHtml(formatWeight(secondaryWeight))}${secondaryLabel ? ` ${escapeHtml(secondaryLabel)}` : ""}</small>`}
       </div>
     </div>
   `;
@@ -223,19 +382,6 @@ function formatPp(value) {
 function formatPlainPct(value) {
   if (value == null || Number.isNaN(Number(value))) return "n/a";
   return `${number.format(Number(value))}%`;
-}
-
-function equityWeight() {
-  const explicit = payload?.portfolio?.equity_weight;
-  if (explicit != null && Number(explicit) > 0) return Number(explicit);
-  return (payload?.portfolio?.by_symbol || [])
-    .filter((row) => !row.is_cash)
-    .reduce((sum, row) => sum + Number(row.weight || 0), 0);
-}
-
-function exCashWeight(weight) {
-  const equity = equityWeight();
-  return equity > 0 ? Number(weight || 0) / equity : null;
 }
 
 function labelize(value) {

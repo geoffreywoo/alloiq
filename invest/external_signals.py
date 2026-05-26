@@ -24,6 +24,8 @@ SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 CFTC_LEGACY_COT_URL = "https://publicreporting.cftc.gov/resource/6dca-aqww.json"
 FINRA_SHORT_INTEREST_URL = "https://api.finra.org/data/group/otcmarket/name/consolidatedShortInterest"
 EIA_POWER_URL = "https://api.eia.gov/v2/electricity/electric-power-operational-data/data/"
+FINRA_SHORT_INTEREST_DEFAULT_MAX_AGE_DAYS = 75
+CFTC_COT_DEFAULT_MAX_AGE_DAYS = 45
 
 DEFAULT_GDELT_QUERIES = [
     '("artificial intelligence" OR "AI data center" OR GPU) (capex OR power OR earnings OR guidance)',
@@ -126,25 +128,34 @@ def build_external_signal_snapshot(
 
     providers = [
         alpha_vantage_news_provider(settings, as_of, watchlist, urlopen),
-        gdelt_provider(settings, as_of, watchlist, urlopen),
         sec_company_provider(config, settings, as_of, watchlist, urlopen),
         eia_provider(settings, as_of, urlopen),
         finra_short_interest_provider(settings, as_of, watchlist, urlopen),
         cftc_cot_provider(settings, as_of, urlopen),
+        gdelt_provider(settings, as_of, watchlist, urlopen),
     ]
     providers = [provider for provider in providers if provider.get("status") != "disabled"]
-    signals = [signal for provider in providers for signal in provider.get("signals", [])]
+    raw_signals = [signal for provider in providers for signal in provider.get("signals", [])]
+    signals = dedupe_signals(raw_signals)
+    duplicate_signal_count = len(raw_signals) - len(signals)
     symbol_features = aggregate_symbol_features(watchlist, signals)
     global_features = aggregate_global_features(signals)
     status_counts = status_counter(providers)
     status = overall_status(status_counts, signals)
+    ok_count = status_counts.get("ok", 0)
     return {
         "version": EXTERNAL_SIGNALS_VERSION,
         "as_of": as_of.isoformat(),
+        "symbols": watchlist,
+        "symbol_count": len(watchlist),
         "status": status,
         "summary": external_summary(status_counts, signals),
         "provider_count": len(providers),
+        "provider_status_counts": status_counts,
+        "provider_ok_count": ok_count,
+        "provider_ok_ratio": round(ok_count / len(providers), 4) if providers else 0.0,
         "signal_count": len(signals),
+        "duplicate_signal_count": duplicate_signal_count,
         "source_statuses": [
             {
                 "source": row.get("source", ""),
@@ -183,6 +194,7 @@ def alpha_vantage_news_provider(
         )
     max_symbols = clamp_int(settings.get("alpha_vantage_news_max_symbols"), 1, 50, 35)
     limit = clamp_int(settings.get("alpha_vantage_news_limit"), 10, 200, 50)
+    timespan_days = clamp_int(settings.get("alpha_vantage_news_timespan_days"), 1, 14, 3)
     timeout = provider_timeout(settings)
     tickers = ",".join(symbols[:max_symbols])
     if not tickers:
@@ -194,6 +206,7 @@ def alpha_vantage_news_provider(
             "sort": "LATEST",
             "limit": limit,
             "apikey": api_key,
+            **alpha_vantage_news_window(as_of, timespan_days),
         }
     )
     try:
@@ -278,6 +291,15 @@ def parse_alpha_vantage_news(
     return items, signals
 
 
+def alpha_vantage_news_window(as_of: date, timespan_days: int) -> dict[str, str]:
+    days = clamp_int(timespan_days, 1, 14, 3)
+    start = as_of - timedelta(days=days - 1)
+    return {
+        "time_from": f"{start.strftime('%Y%m%d')}T0000",
+        "time_to": f"{as_of.strftime('%Y%m%d')}T2359",
+    }
+
+
 def gdelt_provider(
     settings: dict[str, Any],
     as_of: date,
@@ -291,14 +313,18 @@ def gdelt_provider(
     queries = [str(q) for q in settings.get("gdelt_queries") or DEFAULT_GDELT_QUERIES]
     max_records = clamp_int(settings.get("gdelt_max_records"), 5, 75, 25)
     timespan_days = clamp_int(settings.get("gdelt_timespan_days"), 1, 14, 3)
-    timeout = provider_timeout(settings)
+    timeout = min(provider_timeout(settings), clamp_int(settings.get("gdelt_timeout_seconds"), 1, 15, 4))
+    max_failures = clamp_int(settings.get("gdelt_max_failures"), 1, 5, 2)
+    query_windows = queries[:5]
     all_items: list[dict[str, Any]] = []
     all_signals: list[dict[str, Any]] = []
     failures = 0
-    skipped = 0
-    for query in queries[:5]:
+    failure_skipped = 0
+    runtime_skipped = 0
+    failure_details: list[str] = []
+    for index, query in enumerate(query_windows):
         if budget_exhausted(settings):
-            skipped += 1
+            runtime_skipped = len(query_windows) - index
             break
         params = urllib.parse.urlencode(
             {
@@ -306,23 +332,35 @@ def gdelt_provider(
                 "mode": "ArtList",
                 "format": "json",
                 "maxrecords": max_records,
-                "timespan": f"{timespan_days}d",
+                **gdelt_as_of_window(as_of, timespan_days),
             }
         )
         try:
             payload = fetch_json(f"{GDELT_DOC_URL}?{params}", urlopen=urlopen, timeout=timeout)
-        except Exception:
+        except Exception as exc:
             failures += 1
+            if len(failure_details) < 2:
+                failure_details.append(f"{type(exc).__name__}: {short_error(exc)}")
+            if failures >= max_failures:
+                failure_skipped = len(query_windows) - index - 1
+                break
             continue
         items, signals = parse_gdelt_articles(payload, query, set(symbols), as_of)
         all_items.extend(items)
         all_signals.extend(signals)
     status = "ok" if all_items else "limited"
-    detail = f"{len(all_items)} global articles parsed across {len(queries[:5])} configured queries."
+    window = gdelt_as_of_window(as_of, timespan_days)
+    detail = (
+        f"{len(all_items)} global articles parsed across {len(query_windows)} configured queries "
+        f"for {window['startdatetime']}..{window['enddatetime']}."
+    )
     if failures:
-        detail += f" {failures} query windows failed."
-    if skipped:
-        detail += " Remaining query windows skipped by runtime budget."
+        summary = f" ({'; '.join(failure_details)})" if failure_details else ""
+        detail += f" {failures} query windows failed{summary}."
+    if failure_skipped:
+        detail += f" {failure_skipped} remaining query windows skipped after failure cap."
+    if runtime_skipped:
+        detail += f" {runtime_skipped} remaining query windows skipped by runtime budget."
     return provider_status(
         "gdelt_global_news",
         "GDELT global news/events",
@@ -398,6 +436,15 @@ def parse_gdelt_articles(
     return items, signals
 
 
+def gdelt_as_of_window(as_of: date, timespan_days: int) -> dict[str, str]:
+    days = clamp_int(timespan_days, 1, 14, 3)
+    start = as_of - timedelta(days=days - 1)
+    return {
+        "startdatetime": f"{start.strftime('%Y%m%d')}000000",
+        "enddatetime": f"{as_of.strftime('%Y%m%d')}235959",
+    }
+
+
 def sec_company_provider(
     config: AppConfig,
     settings: dict[str, Any],
@@ -427,8 +474,9 @@ def sec_company_provider(
     attempted = 0
     failures = 0
     skipped = 0
+    tail_reserve = tail_provider_reserve_seconds(settings)
     for symbol in symbols[:max_symbols]:
-        if budget_exhausted(settings):
+        if budget_exhausted(settings, reserve_seconds=tail_reserve):
             skipped = len(symbols[:max_symbols]) - attempted
             break
         cik = str(cik_map.get(symbol) or "").strip()
@@ -443,6 +491,13 @@ def sec_company_provider(
         items.append(company_item)
         signals.extend(company_signals)
     if attempted == 0:
+        if skipped:
+            return provider_status(
+                "sec_company_data",
+                "SEC company facts and Form 4",
+                "limited",
+                f"Skipped {skipped} companies to preserve tail-provider runtime budget.",
+            )
         return provider_status(
             "sec_company_data",
             "SEC company facts and Form 4",
@@ -503,10 +558,10 @@ def fetch_sec_company_signals(
         timeout=timeout,
     )
     recent = submissions.get("filings", {}).get("recent", {})
-    latest_result = latest_recent_filing(recent, {"10-Q", "10-K", "8-K"})
-    form4_count = count_recent_forms(recent, "4", as_of - timedelta(days=45))
-    revenue_trend = latest_revenue_trend(facts)
-    net_income_trend = latest_fact_trend(facts, ["NetIncomeLoss"])
+    latest_result = latest_recent_filing(recent, {"10-Q", "10-K", "8-K"}, as_of=as_of)
+    form4_count = count_recent_forms(recent, "4", as_of - timedelta(days=45), as_of=as_of)
+    revenue_trend = latest_revenue_trend(facts, as_of=as_of)
+    net_income_trend = latest_fact_trend(facts, ["NetIncomeLoss"], as_of=as_of)
     signals: list[dict[str, Any]] = []
     if latest_result:
         filed = parse_date(latest_result.get("filingDate")) or as_of
@@ -623,6 +678,12 @@ def eia_provider(settings: dict[str, Any], as_of: date, urlopen: UrlOpen) -> dic
 def parse_eia_signals(rows: list[dict[str, Any]], as_of: date) -> list[dict[str, Any]]:
     if not rows:
         return []
+    rows = [
+        row for row in rows
+        if not parse_period_date(row.get("period")) or parse_period_date(row.get("period")) <= as_of
+    ]
+    if not rows:
+        return []
     values = []
     for row in rows[:60]:
         value = first_numeric(row, ["generation", "value", "sales", "demand", "customers", "price"])
@@ -679,13 +740,22 @@ def finra_short_interest_provider(
             f"Fetch failed or endpoint needs credentials: {short_error(exc)}",
         )
     rows = payload if isinstance(payload, list) else payload.get("data") or []
-    items, signals = parse_finra_short_interest(rows, set(symbols), as_of)
+    max_age_days = clamp_int(
+        settings.get("finra_short_interest_max_age_days"),
+        14,
+        365,
+        FINRA_SHORT_INTEREST_DEFAULT_MAX_AGE_DAYS,
+    )
+    items, signals = parse_finra_short_interest(rows, set(symbols), as_of, max_age_days=max_age_days)
     status = "ok" if signals else "limited"
+    detail = f"{len(rows)} FINRA rows parsed; {len(signals)} current watchlist risk signals within {max_age_days} days."
+    if rows and not signals:
+        detail += " Stale or undated settlement rows were ignored."
     return provider_status(
         "finra_short_interest",
         "FINRA short interest",
         status,
-        f"{len(rows)} FINRA rows parsed; {len(signals)} watchlist risk signals.",
+        detail,
         items=items[:50],
         signals=signals,
     )
@@ -695,7 +765,10 @@ def parse_finra_short_interest(
     rows: list[dict[str, Any]],
     allowed_symbols: set[str],
     as_of: date,
+    max_age_days: int = FINRA_SHORT_INTEREST_DEFAULT_MAX_AGE_DAYS,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    max_age_days = clamp_int(max_age_days, 1, 3650, FINRA_SHORT_INTEREST_DEFAULT_MAX_AGE_DAYS)
+    oldest_settlement = as_of - timedelta(days=max_age_days)
     by_symbol: dict[str, dict[str, Any]] = {}
     for row in rows:
         symbol = normalize_symbol(
@@ -712,8 +785,11 @@ def parse_finra_short_interest(
             or row.get("recordDate")
             or row.get("date")
         )
+        if settlement is None or settlement < oldest_settlement or settlement > as_of:
+            continue
         current = by_symbol.get(symbol)
-        if current is None or (settlement and settlement > (parse_date(current.get("settlement_date")) or date.min)):
+        current_settlement = current.get("_settlement") if current else None
+        if current is None or settlement > (current_settlement if isinstance(current_settlement, date) else date.min):
             by_symbol[symbol] = dict(row, _symbol=symbol, _settlement=settlement)
     items: list[dict[str, Any]] = []
     signals: list[dict[str, Any]] = []
@@ -786,25 +862,34 @@ def cftc_cot_provider(settings: dict[str, Any], as_of: date, urlopen: UrlOpen) -
         )
     if not isinstance(rows, list):
         rows = []
-    items, signals = parse_cftc_cot(rows, as_of)
+    max_age_days = clamp_int(settings.get("cftc_cot_max_age_days"), 7, 365, CFTC_COT_DEFAULT_MAX_AGE_DAYS)
+    items, signals = parse_cftc_cot(rows, as_of, max_age_days=max_age_days)
     status = "ok" if signals else "limited"
     return provider_status(
         "cftc_cot",
         "CFTC Commitments of Traders",
         status,
-        f"{len(rows)} CFTC COT rows parsed; {len(signals)} macro positioning signals.",
+        f"{len(rows)} CFTC COT rows parsed; {len(signals)} macro positioning signals within {max_age_days} days.",
         items=items,
         signals=signals,
     )
 
 
-def parse_cftc_cot(rows: list[dict[str, Any]], as_of: date) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def parse_cftc_cot(
+    rows: list[dict[str, Any]],
+    as_of: date,
+    max_age_days: int = CFTC_COT_DEFAULT_MAX_AGE_DAYS,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    oldest_report = as_of - timedelta(days=clamp_int(max_age_days, 1, 3650, CFTC_COT_DEFAULT_MAX_AGE_DAYS))
     seen_markets: set[str] = set()
     items: list[dict[str, Any]] = []
     signals: list[dict[str, Any]] = []
     for row in rows:
         market = clean_text(row.get("market_and_exchange_names") or row.get("market") or "")
         if not market or market in seen_markets:
+            continue
+        report_date = parse_date(row.get("report_date_as_yyyy_mm_dd") or row.get("report_date"))
+        if report_date is None or report_date > as_of or report_date < oldest_report:
             continue
         seen_markets.add(market)
         open_interest = first_numeric(row, ["open_interest_all", "open_interest"])
@@ -814,7 +899,6 @@ def parse_cftc_cot(rows: list[dict[str, Any]], as_of: date) -> tuple[list[dict[s
             continue
         net_ratio = (noncomm_long - noncomm_short) / open_interest
         score = clamp_score(net_ratio * 24.0)
-        report_date = parse_date(row.get("report_date_as_yyyy_mm_dd") or row.get("report_date"))
         label = cftc_label_for_market(market)
         signals.append(
             signal_payload(
@@ -843,12 +927,19 @@ def parse_cftc_cot(rows: list[dict[str, Any]], as_of: date) -> tuple[list[dict[s
     return items[:20], signals
 
 
-def latest_recent_filing(recent: dict[str, Any], forms_allowed: set[str]) -> dict[str, Any] | None:
+def latest_recent_filing(
+    recent: dict[str, Any],
+    forms_allowed: set[str],
+    as_of: date | None = None,
+) -> dict[str, Any] | None:
     forms = recent.get("form") or []
     filing_dates = recent.get("filingDate") or []
     accessions = recent.get("accessionNumber") or []
     primary_docs = recent.get("primaryDocument") or []
     for form, filing_date, accession, primary_doc in zip(forms, filing_dates, accessions, primary_docs):
+        parsed = parse_date(filing_date)
+        if as_of and parsed and parsed > as_of:
+            continue
         if form in forms_allowed:
             return {
                 "form": form,
@@ -859,16 +950,16 @@ def latest_recent_filing(recent: dict[str, Any], forms_allowed: set[str]) -> dic
     return None
 
 
-def count_recent_forms(recent: dict[str, Any], target_form: str, since: date) -> int:
+def count_recent_forms(recent: dict[str, Any], target_form: str, since: date, as_of: date | None = None) -> int:
     count = 0
     for form, filing_date in zip(recent.get("form") or [], recent.get("filingDate") or []):
         parsed = parse_date(filing_date)
-        if form == target_form and parsed and parsed >= since:
+        if form == target_form and parsed and parsed >= since and (as_of is None or parsed <= as_of):
             count += 1
     return count
 
 
-def latest_revenue_trend(facts: dict[str, Any]) -> dict[str, Any]:
+def latest_revenue_trend(facts: dict[str, Any], as_of: date | None = None) -> dict[str, Any]:
     return latest_fact_trend(
         facts,
         [
@@ -876,10 +967,11 @@ def latest_revenue_trend(facts: dict[str, Any]) -> dict[str, Any]:
             "RevenueFromContractWithCustomerExcludingAssessedTax",
             "SalesRevenueNet",
         ],
+        as_of=as_of,
     )
 
 
-def latest_fact_trend(facts: dict[str, Any], tags: list[str]) -> dict[str, Any]:
+def latest_fact_trend(facts: dict[str, Any], tags: list[str], as_of: date | None = None) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     us_gaap = facts.get("facts", {}).get("us-gaap", {})
     for tag in tags:
@@ -893,6 +985,8 @@ def latest_fact_trend(facts: dict[str, Any], tags: list[str]) -> dict[str, Any]:
                 fy = row.get("fy")
                 fp = row.get("fp")
                 if value is None or not filed or not end or form not in {"10-K", "10-Q"}:
+                    continue
+                if as_of and filed > as_of:
                     continue
                 rows.append({"tag": tag, "value": value, "filed_at": filed.isoformat(), "end": end, "form": form, "fy": fy, "fp": fp})
     rows.sort(key=lambda row: (row["end"], row["filed_at"]), reverse=True)
@@ -1051,9 +1145,16 @@ def status_counter(providers: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def overall_status(status_counts: dict[str, int], signals: list[dict[str, Any]]) -> str:
-    if status_counts.get("ok", 0) >= 2 or (status_counts.get("ok", 0) and signals):
+    if not status_counts:
+        return "missing"
+    ok_count = status_counts.get("ok", 0)
+    weak_count = sum(
+        status_counts.get(status, 0)
+        for status in ("limited", "missing", "failed", "error", "unknown")
+    )
+    if ok_count and not weak_count:
         return "ok"
-    if status_counts.get("ok") or status_counts.get("limited"):
+    if ok_count or status_counts.get("limited") or signals:
         return "limited"
     return "missing"
 
@@ -1063,6 +1164,46 @@ def external_summary(status_counts: dict[str, int], signals: list[dict[str, Any]
         f"{status_counts.get('ok', 0)} providers ok, {status_counts.get('limited', 0)} limited, "
         f"{len(signals)} normalized external signals."
     )
+
+
+def external_provider_health_detail(external_signals: dict[str, Any], degraded_limit: int = 3) -> str:
+    source_statuses = external_signals.get("source_statuses") or []
+    provider_count = int(external_signals.get("provider_count") or len(source_statuses) or 0)
+    if source_statuses:
+        ok_count = sum(1 for row in source_statuses if row.get("status") == "ok")
+        limited_count = sum(1 for row in source_statuses if row.get("status") == "limited")
+    else:
+        ok_count = int(external_signals.get("provider_ok_count") or 0)
+        status_counts = external_signals.get("provider_status_counts") or {}
+        limited_count = int(status_counts.get("limited", 0))
+    detail = (
+        f"{external_signals.get('signal_count', 0)} normalized signals; "
+        f"{ok_count}/{provider_count} providers ok, {limited_count} limited."
+    )
+    degraded = degraded_provider_summary(source_statuses, limit=degraded_limit)
+    return f"{detail} {degraded}" if degraded else detail
+
+
+def degraded_provider_summary(source_statuses: list[dict[str, Any]], limit: int = 3) -> str:
+    rows = [
+        row for row in source_statuses
+        if str((row or {}).get("status") or "unknown") not in {"ok", "disabled"}
+    ]
+    if not rows:
+        return ""
+    parts = [
+        f"{row.get('label') or row.get('source') or 'provider'}: {short_provider_detail(row.get('detail') or row.get('status') or 'limited')}"
+        for row in rows[:limit]
+    ]
+    suffix = f"; +{len(rows) - limit} more" if len(rows) > limit else ""
+    return "Provider gaps: " + "; ".join(parts) + suffix + "."
+
+
+def short_provider_detail(detail: Any, max_length: int = 90) -> str:
+    text = " ".join(str(detail or "").split())
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 3].rstrip() + "..."
 
 
 def dedupe_signals(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1116,6 +1257,21 @@ def date_from_gdelt(value: Any) -> str:
     return ""
 
 
+def parse_period_date(value: Any) -> date | None:
+    parsed = parse_date(value)
+    if parsed:
+        return parsed
+    text = str(value or "").strip()
+    match = re.match(r"^(\d{4})-(\d{2})$", text)
+    if match:
+        return date(int(match.group(1)), int(match.group(2)), 1)
+    match = re.match(r"^(\d{4})Q([1-4])$", text, flags=re.IGNORECASE)
+    if match:
+        month = (int(match.group(2)) - 1) * 3 + 1
+        return date(int(match.group(1)), month, 1)
+    return None
+
+
 def cftc_label_for_market(market: str) -> str:
     upper = market.upper()
     if "NASDAQ" in upper:
@@ -1166,12 +1322,16 @@ def provider_timeout(settings: dict[str, Any]) -> int:
 
 
 def runtime_budget_seconds(settings: dict[str, Any]) -> int:
-    return clamp_int(settings.get("max_runtime_seconds"), 10, 180, 45)
+    return clamp_int(settings.get("max_runtime_seconds"), 10, 180, 30)
 
 
-def budget_exhausted(settings: dict[str, Any]) -> bool:
+def tail_provider_reserve_seconds(settings: dict[str, Any]) -> int:
+    return clamp_int(settings.get("tail_provider_reserve_seconds"), 0, 60, 8)
+
+
+def budget_exhausted(settings: dict[str, Any], reserve_seconds: int | float = 0) -> bool:
     deadline = settings.get("_deadline_monotonic")
-    return bool(deadline and time.monotonic() >= float(deadline))
+    return bool(deadline and time.monotonic() >= float(deadline) - float(reserve_seconds or 0))
 
 
 def fetch_json(

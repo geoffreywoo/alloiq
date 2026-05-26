@@ -1,7 +1,7 @@
 from datetime import date
 import unittest
 
-from invest.engine import ENGINE_POLICY_VERSION, build_engine_snapshot, build_learning_state
+from invest.engine import ENGINE_POLICY_VERSION, build_engine_features, build_engine_snapshot, build_learning_state, rank_candidates
 
 
 class EngineTests(unittest.TestCase):
@@ -59,6 +59,183 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(learning["status"], "baseline_fallback")
         self.assertEqual(learning["outcome_count"], 0)
         self.assertEqual(learning["short_horizon_outcome_count"], 25)
+
+    def test_learning_uses_signal_family_outcomes_without_expected_scores(self):
+        outcomes = [
+            {"horizon": "1m", "forward_return_pct": 14, "signal_families": ["manager"]}
+            for _ in range(10)
+        ] + [
+            {"horizon": "1m", "forward_return_pct": -6, "signal_families": ["price_action"]}
+            for _ in range(10)
+        ]
+
+        learning = build_learning_state(outcomes)
+
+        self.assertEqual(learning["status"], "history_adjusted")
+        self.assertEqual(learning["outcome_count"], 20)
+        self.assertEqual(learning["expected_scored_outcome_count"], 0)
+        self.assertGreater(learning["weight_adjustments"]["manager"], 0)
+        self.assertLess(learning["weight_adjustments"]["price_action"], 0)
+        self.assertEqual(learning["minimum_family_outcomes"], 3)
+
+    def test_learning_prefers_residual_alpha_when_expected_returns_exist(self):
+        outcomes = [
+            {
+                "horizon": "1m",
+                "forward_return_pct": 18,
+                "expected_return_score": None,
+                "risk_adjusted_expected_return": 25,
+                "signal_families": ["manager"],
+            }
+            for _ in range(5)
+        ] + [
+            {
+                "horizon": "1m",
+                "forward_return_pct": 18,
+                "expected_return_score": 25,
+                "signal_families": ["manager"],
+            }
+            for _ in range(5)
+        ] + [
+            {
+                "horizon": "1m",
+                "forward_return_pct": 4,
+                "risk_adjusted_expected_return": -5,
+                "signal_families": ["price_action"],
+            }
+            for _ in range(10)
+        ]
+
+        learning = build_learning_state(outcomes)
+
+        self.assertEqual(learning["status"], "history_adjusted")
+        self.assertEqual(learning["expected_scored_outcome_count"], 20)
+        self.assertLess(learning["weight_adjustments"]["manager"], 0)
+        self.assertGreater(learning["weight_adjustments"]["price_action"], 0)
+
+    def test_learning_caps_extreme_residual_returns(self):
+        outcomes = (
+            [{"horizon": "1m", "forward_return_pct": 120, "risk_adjusted_expected_return": 0, "signal_families": ["manager"]}]
+            + [{"horizon": "1m", "forward_return_pct": 0, "risk_adjusted_expected_return": 0, "signal_families": ["manager"]} for _ in range(2)]
+            + [{"horizon": "1m", "forward_return_pct": 0, "risk_adjusted_expected_return": 0, "signal_families": ["price_action"]} for _ in range(17)]
+        )
+
+        learning = build_learning_state(outcomes)
+
+        self.assertEqual(learning["status"], "history_adjusted")
+        self.assertEqual(learning["learning_return_cap"], 40.0)
+        self.assertLess(learning["weight_adjustments"]["manager"], 1.0)
+
+    def test_learning_shrinks_weight_adjustments_for_low_sample_families(self):
+        outcomes = (
+            [{"horizon": "1m", "forward_return_pct": 20, "signal_families": ["manager"]} for _ in range(3)]
+            + [{"horizon": "1m", "forward_return_pct": 20, "signal_families": ["quality"]} for _ in range(10)]
+            + [{"horizon": "1m", "forward_return_pct": 0, "signal_families": ["price_action"]} for _ in range(10)]
+        )
+
+        learning = build_learning_state(outcomes)
+
+        self.assertEqual(learning["status"], "history_adjusted")
+        self.assertEqual(learning["full_family_confidence_outcomes"], 10)
+        self.assertEqual(learning["family_confidence"]["manager"], 0.3)
+        self.assertEqual(learning["family_confidence"]["quality"], 1.0)
+        self.assertLess(learning["weight_adjustments"]["manager"], learning["weight_adjustments"]["quality"])
+
+    def test_rank_candidates_caps_total_learning_adjustment(self):
+        ranked = rank_candidates(
+            [
+                {"symbol": "STACK", "expected_return_score": 0, "signal_families": ["manager", "quality", "timing"]},
+                {"symbol": "BASE", "expected_return_score": 5, "signal_families": []},
+            ],
+            {"weight_adjustments": {"manager": 1, "quality": 1, "timing": 1}},
+        )
+
+        by_symbol = {row["symbol"]: row for row in ranked}
+        self.assertEqual(by_symbol["STACK"]["learning_adjustment"], 6.0)
+        self.assertEqual(by_symbol["STACK"]["learning_adjustment_cap"], 6.0)
+        self.assertEqual(by_symbol["STACK"]["expected_return_rank_score"], 6.0)
+        self.assertEqual(by_symbol["BASE"]["expected_return_rank_score"], 5.0)
+
+    def test_learning_ignores_sparse_signal_family_outliers(self):
+        outcomes = (
+            [{"horizon": "1m", "forward_return_pct": 6, "signal_families": ["manager"]} for _ in range(10)]
+            + [{"horizon": "1m", "forward_return_pct": 2, "signal_families": ["price_action"]} for _ in range(10)]
+            + [{"horizon": "1m", "forward_return_pct": 80, "signal_families": ["one_off"]}]
+        )
+
+        learning = build_learning_state(outcomes)
+
+        self.assertEqual(learning["status"], "history_adjusted")
+        self.assertEqual(learning["family_sample_counts"]["one_off"], 1)
+        self.assertNotIn("one_off", learning["weight_adjustments"])
+
+    def test_learning_falls_back_when_all_families_are_sparse(self):
+        outcomes = [
+            {"horizon": "1m", "forward_return_pct": index, "signal_families": [f"family_{index}"]}
+            for index in range(20)
+        ]
+
+        learning = build_learning_state(outcomes)
+
+        self.assertEqual(learning["status"], "baseline_fallback")
+        self.assertEqual(learning["outcome_count"], 20)
+        self.assertEqual(learning["minimum_family_outcomes"], 3)
+        self.assertEqual(learning["weight_adjustments"], {})
+        self.assertIn("no signal family has enough samples", learning["message"])
+
+    def test_engine_features_use_ex_cash_comparison_weights(self):
+        features = build_engine_features(
+            date(2026, 5, 24),
+            [
+                {"symbol": "NVDA", "bucket": "semis_networking_hbm", "score": 50},
+                {"symbol": "CASH", "bucket": "cash_reserves", "score": 1},
+            ],
+            {
+                "by_symbol": [
+                    {"symbol": "NVDA", "weight": 0.08, "comparison_weight": 0.10},
+                    {"symbol": "CASH", "weight": 0.20, "comparison_weight": 0.0, "is_cash": True},
+                ]
+            },
+            {"exposure_gaps": []},
+        )
+
+        by_symbol = {row["symbol"]: row for row in features}
+        self.assertEqual(by_symbol["NVDA"]["current_weight"], 0.10)
+        self.assertEqual(by_symbol["CASH"]["current_weight"], 0.0)
+
+    def test_matrix_engine_features_explain_coverage_adjusted_external_signals(self):
+        features = build_engine_features(
+            date(2026, 5, 24),
+            [],
+            {},
+            {},
+            {
+                "rows": [
+                    {
+                        "symbol": "NVDA",
+                        "bucket": "semis_networking_hbm",
+                        "external_signal_score": 20.0,
+                        "coverage_adjusted_external_signal_score": 5.0,
+                        "external_coverage_multiplier": 0.25,
+                        "external_feed_status": "limited",
+                        "external_provider_count": 6,
+                        "external_provider_ok_count": 1,
+                        "external_provider_ok_ratio": 0.1667,
+                    }
+                ]
+            },
+        )
+
+        nvda = features[0]
+        self.assertEqual(nvda["external_signal_score"], 20.0)
+        self.assertEqual(nvda["coverage_adjusted_external_signal_score"], 5.0)
+        self.assertEqual(nvda["external_coverage_multiplier"], 0.25)
+        self.assertEqual(nvda["external_feed_status"], "limited")
+        self.assertEqual(nvda["external_provider_count"], 6)
+        self.assertEqual(nvda["external_provider_ok_count"], 1)
+        self.assertEqual(nvda["external_provider_ok_ratio"], 0.1667)
+        self.assertEqual(nvda["component_scores"]["external_signals"], 5.0)
+        self.assertEqual(nvda["component_scores"]["external_signals_raw"], 20.0)
 
 
 if __name__ == "__main__":

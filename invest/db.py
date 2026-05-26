@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .models import Filing, Holding, NewsItem, Position, Transaction
@@ -197,7 +197,7 @@ def upsert_filing(conn: sqlite3.Connection, filing: Filing, holdings: list[Holdi
             filing.report_date.isoformat() if filing.report_date else None,
             filing.url,
             json_dumps(filing.raw),
-            datetime.utcnow().isoformat(timespec="seconds"),
+            datetime.now(timezone.utc).isoformat(timespec="seconds"),
         ),
     )
     filing_id = conn.execute(

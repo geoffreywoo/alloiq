@@ -12,6 +12,12 @@ from .util import stable_id
 ENGINE_POLICY_VERSION = "2026-05-bottom-up-first-v1"
 ENGINE_MODE = "approval_plus_paper"
 OBJECTIVE = "maximize_expected_3_12m_forward_return"
+MIN_LEARNING_OUTCOMES = 20
+MIN_FAMILY_OUTCOMES = 3
+FULL_FAMILY_CONFIDENCE_OUTCOMES = 10
+MAX_LEARNING_RETURN_ABS = 40.0
+LEARNING_RANK_MULTIPLIER = 4.0
+MAX_RANK_LEARNING_ADJUSTMENT = 6.0
 
 
 def build_engine_snapshot(
@@ -61,8 +67,11 @@ def build_engine_features(
         return build_engine_features_from_matrix(as_of, feature_matrix, research_book or {})
     current_weights: dict[str, float] = {}
     for row in portfolio.get("by_symbol", []):
+        if row.get("is_cash"):
+            continue
         for candidate in equivalent_symbols(row.get("symbol")):
-            current_weights[candidate] = current_weights.get(candidate, 0.0) + float(row.get("weight") or 0)
+            weight = float(row.get("comparison_weight", row.get("ex_cash_weight", row.get("weight") or 0)) or 0)
+            current_weights[candidate] = current_weights.get(candidate, 0.0) + weight
     peer_weight_by_symbol = {
         str(row.get("symbol") or "").upper(): float(row.get("peer_avg_weight") or 0)
         for row in portfolio_benchmark.get("exposure_gaps", [])
@@ -112,6 +121,7 @@ def build_engine_features_from_matrix(
             continue
         research = research_by_symbol.get(symbol, {})
         expected = float(research.get("risk_adjusted_expected_return", feature.get("expected_return_score") or 0) or 0)
+        adjusted_external_score = adjusted_external_signal_score(feature)
         rows.append(
             {
                 "feature_id": feature.get("feature_id") or stable_id([as_of.isoformat(), ENGINE_POLICY_VERSION, symbol]),
@@ -147,6 +157,12 @@ def build_engine_features_from_matrix(
                 "sector_headwind": feature.get("sector_headwind"),
                 "sector_tailwind": feature.get("sector_tailwind"),
                 "external_signal_score": feature.get("external_signal_score"),
+                "coverage_adjusted_external_signal_score": adjusted_external_score,
+                "external_coverage_multiplier": feature.get("external_coverage_multiplier"),
+                "external_feed_status": feature.get("external_feed_status"),
+                "external_provider_count": feature.get("external_provider_count"),
+                "external_provider_ok_count": feature.get("external_provider_ok_count"),
+                "external_provider_ok_ratio": feature.get("external_provider_ok_ratio"),
                 "external_signal_count": feature.get("external_signal_count"),
                 "external_source_count": feature.get("external_source_count"),
                 "component_scores": {
@@ -157,11 +173,19 @@ def build_engine_features_from_matrix(
                     "valuation_support": feature.get("valuation_support"),
                     "company_underwriting": feature.get("company_underwriting_score"),
                     "sector_setup": feature.get("sector_setup_score"),
-                    "external_signals": feature.get("external_signal_score"),
+                    "external_signals": adjusted_external_score,
+                    "external_signals_raw": feature.get("external_signal_score"),
                 },
             }
         )
     return rows
+
+
+def adjusted_external_signal_score(feature: dict[str, Any]) -> Any:
+    adjusted = feature.get("coverage_adjusted_external_signal_score")
+    if adjusted is not None:
+        return adjusted
+    return feature.get("external_signal_score")
 
 
 def expected_forward_return_score(card: dict[str, Any], peer_weight: float, risk_penalty: float) -> float:
@@ -189,54 +213,122 @@ def build_learning_state(outcomes: list[dict[str, Any]]) -> dict[str, Any]:
     completed = [
         row
         for row in outcomes
-        if row.get("forward_return_pct") is not None and row.get("expected_return_score") is not None
+        if row.get("forward_return_pct") is not None and row.get("signal_families")
     ]
     short_horizon = [row for row in completed if row.get("horizon") == "5d"]
     completed = [row for row in completed if row.get("horizon") != "5d"]
-    if len(completed) < 20:
+    expected_scored = [row for row in completed if expected_score(row) is not None]
+    if len(completed) < MIN_LEARNING_OUTCOMES:
         return {
             "status": "baseline_fallback",
             "outcome_count": len(completed),
             "short_horizon_outcome_count": len(short_horizon),
-            "minimum_required": 20,
+            "expected_scored_outcome_count": len(expected_scored),
+            "minimum_required": MIN_LEARNING_OUTCOMES,
+            "minimum_family_outcomes": MIN_FAMILY_OUTCOMES,
+            "full_family_confidence_outcomes": FULL_FAMILY_CONFIDENCE_OUTCOMES,
+            "learning_return_cap": MAX_LEARNING_RETURN_ABS,
+            "rank_learning_multiplier": LEARNING_RANK_MULTIPLIER,
+            "rank_learning_adjustment_cap": MAX_RANK_LEARNING_ADJUSTMENT,
+            "family_sample_counts": {},
+            "family_confidence": {},
             "weight_adjustments": {},
-            "message": "Insufficient completed 1-12 month outcomes; 5-day labels are tracked for fast diagnostics but do not adjust ranking weights.",
+            "message": "Insufficient completed 1-12 month signal-family outcomes; 5-day labels are tracked for fast diagnostics but do not adjust ranking weights.",
         }
     by_family: dict[str, list[float]] = {}
     for row in completed:
-        forward = float(row.get("forward_return_pct") or 0)
+        forward = learning_return(row)
         for family in row.get("signal_families") or []:
             by_family.setdefault(str(family), []).append(forward)
-    averages = {family: mean(values) for family, values in by_family.items() if values}
+    family_counts = {family: len(values) for family, values in by_family.items()}
+    averages = {family: mean(values) for family, values in by_family.items() if len(values) >= MIN_FAMILY_OUTCOMES}
+    if not averages:
+        return {
+            "status": "baseline_fallback",
+            "outcome_count": len(completed),
+            "short_horizon_outcome_count": len(short_horizon),
+            "expected_scored_outcome_count": len(expected_scored),
+            "minimum_required": MIN_LEARNING_OUTCOMES,
+            "minimum_family_outcomes": MIN_FAMILY_OUTCOMES,
+            "full_family_confidence_outcomes": FULL_FAMILY_CONFIDENCE_OUTCOMES,
+            "learning_return_cap": MAX_LEARNING_RETURN_ABS,
+            "rank_learning_multiplier": LEARNING_RANK_MULTIPLIER,
+            "rank_learning_adjustment_cap": MAX_RANK_LEARNING_ADJUSTMENT,
+            "family_sample_counts": family_counts,
+            "family_confidence": {},
+            "weight_adjustments": {},
+            "message": "Completed outcomes exist, but no signal family has enough samples to adjust ranking weights.",
+        }
     cross_avg = mean(averages.values()) if averages else 0.0
+    family_confidence = {
+        family: sample_confidence(family_counts[family])
+        for family in averages
+    }
     adjustments = {
-        family: round(max(-8.0, min(8.0, value - cross_avg)) / 8.0, 3)
+        family: round(max(-8.0, min(8.0, value - cross_avg)) / 8.0 * family_confidence[family], 3)
         for family, value in averages.items()
     }
     return {
         "status": "history_adjusted",
         "outcome_count": len(completed),
         "short_horizon_outcome_count": len(short_horizon),
-        "minimum_required": 20,
+        "expected_scored_outcome_count": len(expected_scored),
+        "minimum_required": MIN_LEARNING_OUTCOMES,
+        "minimum_family_outcomes": MIN_FAMILY_OUTCOMES,
+        "full_family_confidence_outcomes": FULL_FAMILY_CONFIDENCE_OUTCOMES,
+        "learning_return_cap": MAX_LEARNING_RETURN_ABS,
+        "rank_learning_multiplier": LEARNING_RANK_MULTIPLIER,
+        "rank_learning_adjustment_cap": MAX_RANK_LEARNING_ADJUSTMENT,
+        "family_sample_counts": family_counts,
+        "family_confidence": family_confidence,
         "weight_adjustments": adjustments,
         "message": "Signal-family weights adjusted from completed recommendation outcomes.",
     }
+
+
+def expected_score(row: dict[str, Any]) -> Any:
+    expected = row.get("risk_adjusted_expected_return")
+    if expected is not None:
+        return expected
+    return row.get("expected_return_score")
+
+
+def learning_return(row: dict[str, Any]) -> float:
+    forward = float(row.get("forward_return_pct") or 0)
+    expected = expected_score(row)
+    if expected is None:
+        return capped_learning_return(forward)
+    return capped_learning_return(forward - float(expected or 0))
+
+
+def capped_learning_return(value: float) -> float:
+    return max(-MAX_LEARNING_RETURN_ABS, min(MAX_LEARNING_RETURN_ABS, value))
+
+
+def sample_confidence(count: int) -> float:
+    return round(min(1.0, max(0.0, count / FULL_FAMILY_CONFIDENCE_OUTCOMES)), 3)
 
 
 def rank_candidates(features: list[dict[str, Any]], learning: dict[str, Any]) -> list[dict[str, Any]]:
     adjustments = learning.get("weight_adjustments") or {}
     ranked = []
     for row in features:
-        learning_delta = sum(float(adjustments.get(family, 0)) for family in row.get("signal_families", [])) * 4.0
+        learning_delta = rank_learning_adjustment(row.get("signal_families", []), adjustments)
         expected = float(row.get("risk_adjusted_expected_return", row.get("expected_return_score") or 0) or 0) + learning_delta
         item = dict(row)
         item["learning_adjustment"] = round(learning_delta, 2)
+        item["learning_adjustment_cap"] = MAX_RANK_LEARNING_ADJUSTMENT
         item["expected_return_rank_score"] = round(expected, 2)
         ranked.append(item)
     ranked.sort(key=lambda item: item["expected_return_rank_score"], reverse=True)
     for index, item in enumerate(ranked, start=1):
         item["rank"] = index
     return ranked
+
+
+def rank_learning_adjustment(signal_families: list[Any], adjustments: dict[str, Any]) -> float:
+    raw = sum(float(adjustments.get(family, 0)) for family in signal_families) * LEARNING_RANK_MULTIPLIER
+    return max(-MAX_RANK_LEARNING_ADJUSTMENT, min(MAX_RANK_LEARNING_ADJUSTMENT, raw))
 
 
 def build_allocator_output(

@@ -232,6 +232,160 @@ class InstrumentationAuditTests(unittest.TestCase):
 
         self.assertEqual(audit["status"], "ok")
 
+    def test_flags_stale_external_signal_and_backtest_schema(self):
+        payload = {
+            "as_of": "2026-05-24",
+            "session": "postmarket",
+            "portfolio": {"by_symbol": [{"symbol": "NVDA", "weight": 1.0}]},
+            "feature_matrix": {"feature_count": 1, "rows": [{"symbol": "NVDA"}]},
+            "research_book": {"item_count": 1, "items": [{"symbol": "NVDA"}]},
+            "portfolio_benchmark": {
+                "primary_horizon": "3m",
+                "primary_portfolio_return": 10,
+                "primary_price_coverage_pct": 100,
+                "horizon_returns": [{"key": "3m", "portfolio_return": 10, "price_coverage_pct": 100}],
+                "sizing_plan": {
+                    "target_count": 0,
+                    "action_count": 0,
+                    "limits": {"max_one_ticket_delta": 0.03, "max_daily_turnover": 0.08, "max_single_name_weight": 0.15},
+                    "targets": [],
+                },
+                "action_queue": [],
+            },
+            "approval_tickets": [],
+            "engine": {"feature_count": 1, "ranked_candidates": [{"symbol": "NVDA"}]},
+            "external_signals": {
+                "status": "ok",
+                "provider_count": 6,
+                "signal_count": 20,
+            },
+            "backtest": {
+                "outcome_count": 1,
+                "completed_outcome_count": 1,
+                "pending_outcome_count": 0,
+                "missing_price_count": 0,
+                "outcomes": [{"status": "complete", "symbol": "NVDA"}],
+            },
+        }
+
+        audit = build_instrumentation_audit(payload)
+        failure_names = {row["name"] for row in audit["failures"]}
+
+        self.assertEqual(audit["status"], "attention")
+        self.assertIn("external_signals_provider_ok_count_present", failure_names)
+        self.assertIn("external_signals_provider_ok_ratio_present", failure_names)
+        self.assertIn("external_signals_provider_status_counts_present", failure_names)
+        self.assertIn("feature_matrix_external_reliability_fields_present", failure_names)
+        self.assertIn("engine_external_reliability_fields_present", failure_names)
+        self.assertIn("backtest_external_feed_status_groups_present", failure_names)
+        self.assertIn("backtest_external_coverage_groups_present", failure_names)
+
+    def test_accepts_external_signal_and_backtest_schema_fields(self):
+        external_reliability = {
+            "external_signal_score": 20,
+            "coverage_adjusted_external_signal_score": 5,
+            "external_coverage_multiplier": 0.25,
+            "external_feed_status": "limited",
+            "external_provider_count": 6,
+            "external_provider_ok_count": 2,
+            "external_provider_ok_ratio": 0.3333,
+            "external_signal_count": 4,
+            "external_source_count": 3,
+        }
+        payload = {
+            "as_of": "2026-05-24",
+            "session": "postmarket",
+            "portfolio": {"by_symbol": [{"symbol": "NVDA", "weight": 1.0}]},
+            "feature_matrix": {"feature_count": 1, "rows": [{"symbol": "NVDA", **external_reliability}]},
+            "research_book": {"item_count": 1, "items": [{"symbol": "NVDA"}]},
+            "portfolio_benchmark": {
+                "primary_horizon": "3m",
+                "primary_portfolio_return": 10,
+                "primary_price_coverage_pct": 100,
+                "horizon_returns": [{"key": "3m", "portfolio_return": 10, "price_coverage_pct": 100}],
+                "sizing_plan": {
+                    "target_count": 0,
+                    "action_count": 0,
+                    "limits": {"max_one_ticket_delta": 0.03, "max_daily_turnover": 0.08, "max_single_name_weight": 0.15},
+                    "targets": [],
+                },
+                "action_queue": [],
+            },
+            "approval_tickets": [],
+            "engine": {"feature_count": 1, "ranked_candidates": [{"symbol": "NVDA", **external_reliability}]},
+            "external_signals": {
+                "status": "limited",
+                "provider_count": 6,
+                "provider_ok_count": 2,
+                "provider_ok_ratio": 0.3333,
+                "provider_status_counts": {"ok": 2, "limited": 4},
+                "signal_count": 20,
+            },
+            "backtest": {
+                "outcome_count": 1,
+                "completed_outcome_count": 1,
+                "pending_outcome_count": 0,
+                "missing_price_count": 0,
+                "outcomes": [{"status": "complete", "symbol": "NVDA"}],
+                "by_external_feed_status": [{"key": "limited", "completed_count": 1}],
+                "by_external_coverage": [{"key": "thin_coverage", "completed_count": 1}],
+            },
+        }
+
+        audit = build_instrumentation_audit(payload)
+
+        self.assertEqual(audit["status"], "ok")
+
+    def test_flags_engine_external_reliability_that_does_not_trace_to_features(self):
+        feature_reliability = {
+            "external_signal_score": 20,
+            "coverage_adjusted_external_signal_score": 5,
+            "external_coverage_multiplier": 0.25,
+            "external_feed_status": "limited",
+            "external_provider_count": 6,
+            "external_provider_ok_count": 2,
+            "external_provider_ok_ratio": 0.3333,
+            "external_signal_count": 4,
+            "external_source_count": 3,
+        }
+        engine_reliability = dict(feature_reliability, coverage_adjusted_external_signal_score=20)
+        payload = {
+            "as_of": "2026-05-24",
+            "session": "postmarket",
+            "portfolio": {"by_symbol": [{"symbol": "NVDA", "weight": 1.0}]},
+            "feature_matrix": {"feature_count": 1, "rows": [{"symbol": "NVDA", **feature_reliability}]},
+            "research_book": {"item_count": 1, "items": [{"symbol": "NVDA"}]},
+            "portfolio_benchmark": {
+                "primary_horizon": "3m",
+                "primary_portfolio_return": 10,
+                "primary_price_coverage_pct": 100,
+                "horizon_returns": [{"key": "3m", "portfolio_return": 10, "price_coverage_pct": 100}],
+                "sizing_plan": {
+                    "target_count": 0,
+                    "action_count": 0,
+                    "limits": {"max_one_ticket_delta": 0.03, "max_daily_turnover": 0.08, "max_single_name_weight": 0.15},
+                    "targets": [],
+                },
+                "action_queue": [],
+            },
+            "approval_tickets": [],
+            "engine": {"feature_count": 1, "ranked_candidates": [{"symbol": "NVDA", **engine_reliability}]},
+            "external_signals": {
+                "status": "limited",
+                "provider_count": 6,
+                "provider_ok_count": 2,
+                "provider_ok_ratio": 0.3333,
+                "provider_status_counts": {"ok": 2, "limited": 4},
+                "signal_count": 20,
+            },
+            "backtest": {"outcome_count": 0, "completed_outcome_count": 0, "pending_outcome_count": 0, "missing_price_count": 0, "outcomes": []},
+        }
+
+        audit = build_instrumentation_audit(payload)
+
+        self.assertEqual(audit["status"], "attention")
+        self.assertTrue(any(row["name"] == "engine_external_reliability_mirrors_feature_matrix" for row in audit["failures"]))
+
 
 if __name__ == "__main__":
     unittest.main()

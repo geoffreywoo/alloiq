@@ -21,8 +21,9 @@ def build_sizing_plan(
     component_by_symbol = {str(row.get("symbol") or "").upper(): row for row in components}
     gap_by_symbol = {str(row.get("symbol") or "").upper(): row for row in gaps}
     bucket_weights = {
-        str(row.get("bucket") or "unmapped"): float(row.get("weight") or 0)
+        str(row.get("bucket") or "unmapped"): float(row.get("comparison_weight", row.get("ex_cash_weight", row.get("weight") or 0)) or 0)
         for row in portfolio.get("by_bucket", [])
+        if str(row.get("bucket") or "unmapped") != "cash_reserves"
     }
     targets = [
         target_for_item(item, proxied_lookup(component_by_symbol, item.get("symbol"), {}), proxied_lookup(gap_by_symbol, item.get("symbol"), {}), bucket_weights, normalized_limits)
@@ -91,7 +92,7 @@ def held_symbol_by_proxy(portfolio: dict[str, Any]) -> dict[str, str]:
         if is_cash_position(row):
             continue
         symbol = str(row.get("symbol") or "").upper()
-        weight = float(row.get("weight") or 0)
+        weight = float(row.get("comparison_weight", row.get("ex_cash_weight", row.get("weight") or 0)) or 0)
         if not symbol or weight <= 0:
             continue
         key = symbol_proxy_key(symbol)
@@ -202,6 +203,8 @@ def target_for_item(
 
 
 def portfolio_target_total(portfolio: dict[str, Any]) -> float:
+    if portfolio.get("comparison_weight_basis") == "invested_equity_ex_cash":
+        return 1.0
     if "equity_weight" in portfolio:
         total = float(portfolio.get("equity_weight") or 0)
         return max(0.0, total)
@@ -233,7 +236,16 @@ def normalize_model_targets(targets: list[dict[str, Any]], target_total: float =
     raw_total = sum(float(row.get("unscaled_model_target_weight", row.get("model_target_weight") or 0) or 0) for row in targets)
     if raw_total <= 0:
         return
-    scale = target_total / raw_total
+    preserved_total = 0.0
+    scalable_raw_total = 0.0
+    for row in targets:
+        raw = float(row.get("unscaled_model_target_weight", row.get("model_target_weight") or 0) or 0)
+        current = float(row.get("current_weight") or 0)
+        if row.get("company_trim_signal") or row.get("verdict") == "trim":
+            preserved_total += min(raw, current)
+        else:
+            scalable_raw_total += raw
+    scale = max(0.0, target_total - preserved_total) / scalable_raw_total if scalable_raw_total > 0 else 1.0
     for row in targets:
         raw = float(row.get("unscaled_model_target_weight", row.get("model_target_weight") or 0) or 0)
         current = float(row.get("current_weight") or 0)

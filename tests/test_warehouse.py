@@ -1,3 +1,4 @@
+from decimal import Decimal
 import unittest
 
 from invest import warehouse
@@ -14,6 +15,8 @@ class FakeCursor:
         return False
 
     def execute(self, sql, params=None):
+        if params is not None and sql.count("%s") != len(params):
+            raise AssertionError(f"placeholder mismatch: {sql.count('%s')} placeholders for {len(params)} params")
         self.executed.append((sql, params))
 
     def fetchone(self):
@@ -35,6 +38,12 @@ class WarehouseTests(unittest.TestCase):
     def test_schema_contains_expected_private_tables(self):
         for table in warehouse.warehouse_tables():
             self.assertIn(f"CREATE TABLE IF NOT EXISTS {table}", warehouse.WAREHOUSE_SCHEMA_SQL)
+        self.assertIn("coverage_adjusted_external_signal_score NUMERIC", warehouse.WAREHOUSE_SCHEMA_SQL)
+        self.assertIn("external_feed_status TEXT NOT NULL DEFAULT ''", warehouse.WAREHOUSE_SCHEMA_SQL)
+        self.assertIn("ALTER TABLE engine_features ADD COLUMN IF NOT EXISTS external_provider_ok_ratio", warehouse.WAREHOUSE_SCHEMA_SQL)
+        self.assertIn("ALTER TABLE engine_features ADD COLUMN IF NOT EXISTS coverage_adjusted_external_signal_score", warehouse.WAREHOUSE_SCHEMA_SQL)
+        self.assertIn("ALTER TABLE backtest_outcomes ADD COLUMN IF NOT EXISTS external_coverage_multiplier", warehouse.WAREHOUSE_SCHEMA_SQL)
+        self.assertIn("ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS external_provider_ok_ratio", warehouse.WAREHOUSE_SCHEMA_SQL)
 
     def test_sync_upserts_private_snapshot_shapes(self):
         conn = FakeConnection()
@@ -102,7 +111,26 @@ class WarehouseTests(unittest.TestCase):
                 "mode": "approval_plus_paper",
                 "universe": "equities_only",
                 "objective": "maximize_expected_3_12m_forward_return",
-                "ranked_candidates": [{"feature_id": "feature-1", "symbol": "NVDA", "bucket": "semis_networking_hbm", "expected_return_score": 55, "expected_return_rank_score": 60, "signal_family_count": 3, "current_weight": 0.1}],
+                "ranked_candidates": [
+                    {
+                        "feature_id": "feature-1",
+                        "symbol": "NVDA",
+                        "bucket": "semis_networking_hbm",
+                        "expected_return_score": 55,
+                        "expected_return_rank_score": 60,
+                        "signal_family_count": 3,
+                        "current_weight": 0.1,
+                        "external_signal_score": 20,
+                        "coverage_adjusted_external_signal_score": 5,
+                        "external_coverage_multiplier": 0.25,
+                        "external_feed_status": "limited",
+                        "external_provider_count": 6,
+                        "external_provider_ok_count": 1,
+                        "external_provider_ok_ratio": 0.1667,
+                        "external_signal_count": 4,
+                        "external_source_count": 3,
+                    }
+                ],
                 "recommendation_provenance": [{"symbol": "NVDA", "model_policy_version": "2026-05-equity-max-return-v1", "expected_return_rank_score": 60, "current_weight": 0.1, "recommended_delta_weight": 0.01, "target_weight": 0.11}],
             },
             "paper_portfolio": {
@@ -110,7 +138,7 @@ class WarehouseTests(unittest.TestCase):
                 "snapshots": [{"symbol": "NVDA", "current_weight": 0.1, "paper_target_weight": 0.11, "paper_delta_weight": 0.01}],
             },
             "backtest": {
-                "version": "2026-05-recommendation-backtest-v1",
+                "version": "2026-05-recommendation-backtest-v2",
                 "model_policy_version": "2026-05-scenario-sizing-v1",
                 "as_of": "2026-05-24",
                 "source_report_count": 1,
@@ -119,6 +147,8 @@ class WarehouseTests(unittest.TestCase):
                 "pending_outcome_count": 3,
                 "calibration": {"status": "available", "mean_error": 2},
                 "horizons": [{"horizon": "1m", "completed_count": 1}],
+                "by_external_feed_status": [{"key": "limited", "completed_count": 1}],
+                "by_external_coverage": [{"key": "thin_coverage", "completed_count": 1}],
                 "outcomes": [
                     {
                         "outcome_id": "outcome-1",
@@ -140,6 +170,15 @@ class WarehouseTests(unittest.TestCase):
                         "risk_adjusted_expected_return": 8,
                         "expected_vs_realized_error": 2,
                         "signal_families": ["manager"],
+                        "external_signal_score": 20,
+                        "coverage_adjusted_external_signal_score": 5,
+                        "external_coverage_multiplier": 0.25,
+                        "external_feed_status": "limited",
+                        "external_provider_count": 6,
+                        "external_provider_ok_count": 1,
+                        "external_provider_ok_ratio": 0.1667,
+                        "external_signal_count": 4,
+                        "external_source_count": 3,
                     }
                 ],
             },
@@ -157,6 +196,15 @@ class WarehouseTests(unittest.TestCase):
                     "recommended_delta_weight": 0.01,
                     "target_weight": 0.11,
                     "risk_adjusted_expected_return": 22,
+                    "external_signal_score": 20,
+                    "coverage_adjusted_external_signal_score": 5,
+                    "external_coverage_multiplier": 0.25,
+                    "external_feed_status": "limited",
+                    "external_provider_count": 6,
+                    "external_provider_ok_count": 1,
+                    "external_provider_ok_ratio": 0.1667,
+                    "external_signal_count": 4,
+                    "external_source_count": 3,
                     "forward_return_labels": {"3m": None},
                 }
             ],
@@ -184,6 +232,21 @@ class WarehouseTests(unittest.TestCase):
         self.assertEqual(counts["recommendation_training_examples"], 1)
         self.assertEqual(counts["model_policy_versions"], 1)
         self.assertTrue(any("INSERT INTO trade_recommendations" in sql for sql, _ in conn.executed))
+        engine_feature = next((sql, params) for sql, params in conn.executed if "INSERT INTO engine_features" in sql)
+        self.assertIn("coverage_adjusted_external_signal_score", engine_feature[0])
+        self.assertIn("external_provider_ok_ratio", engine_feature[0])
+        self.assertIn(Decimal("5"), engine_feature[1])
+        self.assertIn("limited", engine_feature[1])
+        backtest_run = next((sql, params) for sql, params in conn.executed if "INSERT INTO backtest_runs" in sql)
+        self.assertIn("external_feed_status_summary", backtest_run[0])
+        self.assertTrue(any("thin_coverage" in str(param) for param in backtest_run[1]))
+        backtest_outcome = next((sql, params) for sql, params in conn.executed if "INSERT INTO backtest_outcomes" in sql)
+        self.assertIn("coverage_adjusted_external_signal_score", backtest_outcome[0])
+        self.assertIn(Decimal("5"), backtest_outcome[1])
+        self.assertIn("limited", backtest_outcome[1])
+        training_example = next((sql, params) for sql, params in conn.executed if "INSERT INTO recommendation_training_examples" in sql)
+        self.assertIn("external_provider_ok_ratio", training_example[0])
+        self.assertIn(Decimal("0.1667"), training_example[1])
 
 
 if __name__ == "__main__":

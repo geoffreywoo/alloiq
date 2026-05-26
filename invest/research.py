@@ -153,7 +153,7 @@ def scenario_returns(feature: dict[str, Any], bucket: str) -> dict[str, float]:
     company_bonus = (company_score - 50.0) * 0.38
     sector_bonus = (sector_score - 50.0) * 0.18
     evidence_bonus = (float(feature.get("evidence_quality") or 0) - 50.0) * 0.12
-    external_bonus = max(-4.0, min(4.0, float(feature.get("external_signal_score") or 0) * 0.14))
+    external_bonus = max(-4.0, min(4.0, external_scenario_score(feature) * 0.14))
     tier1_bonus = min(float(feature.get("tier1_manager_count") or 0) * 1.25, 3.75)
     catalyst_bonus = min(float(feature.get("event_score") or 0) * 0.55, 6.5)
     valuation_penalty = max(0.0, 50.0 - float(feature.get("valuation_support") or 50.0)) * 0.22
@@ -171,6 +171,13 @@ def scenario_returns(feature: dict[str, Any], bucket: str) -> dict[str, float]:
         "base_return_12m": base["base"] + company_bonus * 0.62 + sector_bonus * 0.70 + evidence_bonus * 0.55 + external_bonus * 0.55 + tier1_bonus * 0.35 + catalyst_bonus * 0.40 - valuation_penalty - risk_penalty - macro_penalty,
         "bear_return_12m": base["bear"] + min(0.0, company_bonus * 0.45) + min(0.0, sector_bonus * 0.65) + min(0.0, external_bonus * 0.5) - risk_penalty - max(0.0, valuation_penalty * 0.8) - macro_penalty * 1.35,
     }
+
+
+def external_scenario_score(feature: dict[str, Any]) -> float:
+    adjusted = feature.get("coverage_adjusted_external_signal_score")
+    if adjusted is not None:
+        return float(adjusted or 0)
+    return float(feature.get("external_signal_score") or 0)
 
 
 def macro_forward_return_penalty(feature: dict[str, Any], bucket: str) -> float:

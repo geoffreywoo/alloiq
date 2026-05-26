@@ -41,17 +41,44 @@
 
       <main>
         <section class="home-page">
-          <section class="home-hero">
-          <p class="eyebrow">alloiq.com</p>
-          <h1>AI markets intelligence for portfolio-weight decisions.</h1>
-          <p>
-            AlloIQ turns public filings, prices, news, macro, and Geoffrey Woo Portfolio ex-cash weights
-            into daily add, trim, hold, and study calls.
-          </p>
-          <div class="home-actions">
-            <a class="primary-button" href="/dashboard">Open Today</a>
-            <a class="secondary-button" href="/portfolio">View Portfolio</a>
+          <section class="home-terminal-hero">
+          <div class="home-hero-copy">
+            <p class="eyebrow">geoffrey woo portfolio</p>
+            <h1>Geoffrey Woo Portfolio</h1>
+            <p>
+              Public, weights-only AI markets intelligence tracking Geoffrey's AI-max public-equity
+              allocation, latest portfolio-weight calls, and evidence quality.
+            </p>
+            <div class="home-actions">
+              <a class="primary-button" href="/dashboard">Open Today</a>
+              <a class="secondary-button" href="/portfolio">View Portfolio</a>
+            </div>
           </div>
+
+          <section class="terminal-panel home-proof-panel" aria-label="Geoffrey Woo Portfolio proof">
+            <div class="terminal-panel-head">
+              <div>
+                <span>return proxy</span>
+                <strong id="homeProofTitle">Loading</strong>
+              </div>
+              <small id="homeProofMeta">Public ex-cash weights</small>
+            </div>
+            <div id="homeReturnCurve" class="home-return-curve"></div>
+            <div id="homeDriverWaterfall" class="home-driver-waterfall"></div>
+          </section>
+
+          <aside class="terminal-panel home-trade-panel" aria-label="Latest portfolio-weight call">
+            <div class="terminal-panel-head">
+              <div>
+                <span>latest call</span>
+                <strong id="homeHeroTrade">Loading</strong>
+              </div>
+              <small id="homeHeroRisk">Checking risk gate</small>
+            </div>
+            <p id="homeHeroTradeDetail">Waiting for trade feed.</p>
+            <div id="homeHeroTradeStats" class="home-mini-stats"></div>
+            <div id="homeDecisionList" class="home-decision-list"></div>
+          </aside>
           </section>
 
           <section class="home-decision-band" aria-label="Live AlloIQ snapshot">

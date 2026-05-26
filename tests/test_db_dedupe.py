@@ -15,20 +15,23 @@ class DbDedupeTests(unittest.TestCase):
 
             with tempfile.TemporaryDirectory() as tmp:
                 conn = connect(Path(tmp) / "invest.db")
-                init_db(conn)
-                tx = Transaction(
-                    broker="ibkr",
-                    account="U123",
-                    trade_date=date(2026, 5, 7),
-                    action="BUY",
-                    symbol="NVDA",
-                    quantity=Decimal("1"),
-                    price=Decimal("900"),
-                    external_id="T1",
-                )
+                try:
+                    init_db(conn)
+                    tx = Transaction(
+                        broker="ibkr",
+                        account="U123",
+                        trade_date=date(2026, 5, 7),
+                        action="BUY",
+                        symbol="NVDA",
+                        quantity=Decimal("1"),
+                        price=Decimal("900"),
+                        external_id="T1",
+                    )
 
-                self.assertEqual(insert_transactions(conn, [tx]), 1)
-                self.assertEqual(insert_transactions(conn, [tx]), 0)
+                    self.assertEqual(insert_transactions(conn, [tx]), 1)
+                    self.assertEqual(insert_transactions(conn, [tx]), 0)
+                finally:
+                    conn.close()
 
     def test_duplicate_filing_holdings_are_coalesced_before_insert(self):
         holdings = [

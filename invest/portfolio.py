@@ -79,6 +79,16 @@ def build_portfolio_exposure(
     top_positions = sorted(by_symbol.values(), key=lambda item: abs(item["market_value"]), reverse=True)
     bucket_rows = sorted(by_bucket.items(), key=lambda item: abs(item[1]), reverse=True)
     broker_rows = sorted(by_broker.items(), key=lambda item: abs(item[1]), reverse=True)
+    equity_denominator = equity_exposure if equity_exposure else Decimal("0")
+
+    def total_weight(value: Decimal) -> float:
+        return float(abs(value) / gross_exposure) if gross_exposure else 0.0
+
+    def equity_weight(value: Decimal, is_cash: bool = False) -> float:
+        if is_cash or equity_denominator <= 0:
+            return 0.0
+        return float(abs(value) / equity_denominator)
+
     return {
         "position_count": len(rows),
         "symbol_count": len(by_symbol),
@@ -93,10 +103,11 @@ def build_portfolio_exposure(
             "symbol": "CASH",
             "bucket": CASH_BUCKET,
             "asset_class": "cash",
-            "weight": float(abs(cash_exposure) / gross_exposure) if gross_exposure else 0.0,
+            "weight": total_weight(cash_exposure),
             "policy": "available_for_capped_high_conviction_adds",
         },
         "weight_basis": "total_portfolio_including_cash",
+        "comparison_weight_basis": "invested_equity_ex_cash",
         "by_symbol": [
             {
                 "symbol": row["symbol"],
@@ -106,7 +117,10 @@ def build_portfolio_exposure(
                 "market_value": float(row["market_value"]),
                 "quantity": float(row["quantity"]),
                 "cost_basis": float(row["cost_basis"]),
-                "weight": float(abs(row["market_value"]) / gross_exposure) if gross_exposure else 0.0,
+                "weight": total_weight(row["market_value"]),
+                "total_weight": total_weight(row["market_value"]),
+                "ex_cash_weight": equity_weight(row["market_value"], bool(row["is_cash"])),
+                "comparison_weight": equity_weight(row["market_value"], bool(row["is_cash"])),
                 "brokers": sorted(row["brokers"]),
                 "accounts": sorted(row["accounts"]),
             }
@@ -116,7 +130,10 @@ def build_portfolio_exposure(
             {
                 "bucket": bucket,
                 "market_value": float(value),
-                "weight": float(abs(value) / gross_exposure) if gross_exposure else 0.0,
+                "weight": total_weight(value),
+                "total_weight": total_weight(value),
+                "ex_cash_weight": equity_weight(value, bucket == CASH_BUCKET),
+                "comparison_weight": equity_weight(value, bucket == CASH_BUCKET),
             }
             for bucket, value in bucket_rows
         ],
@@ -124,7 +141,7 @@ def build_portfolio_exposure(
             {
                 "broker": broker,
                 "market_value": float(value),
-                "weight": float(abs(value) / gross_exposure) if gross_exposure else 0.0,
+                "weight": total_weight(value),
             }
             for broker, value in broker_rows
         ],

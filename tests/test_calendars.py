@@ -40,6 +40,38 @@ class CalendarTests(unittest.TestCase):
         self.assertEqual(snapshot["earnings"]["source_quality"], "ok")
         self.assertEqual(snapshot["filings_13f"]["rule_source"], "https://www.sec.gov/divisions/investment/13ffaq.htm")
 
+    def test_earnings_calendar_counts_catalyst_markers_separately_from_dates(self):
+        config = AppConfig(path=Path("config/invest.toml"), data={"managers": []})
+        snapshot = build_calendar_snapshot(
+            config,
+            date(2026, 5, 24),
+            {},
+            [
+                {
+                    "symbol": "MRVL",
+                    "event_date": "2026-05-27",
+                    "event_type": "earnings",
+                    "source": "nasdaq_earnings_calendar",
+                    "status": "estimated",
+                    "days_until": 3,
+                },
+                {
+                    "symbol": "NVDA",
+                    "event_date": "2026-05-24",
+                    "event_type": "earnings_catalyst",
+                    "source": "news",
+                    "status": "detected",
+                    "days_until": 0,
+                },
+            ],
+        )
+
+        earnings = snapshot["earnings"]
+        self.assertEqual(earnings["event_count"], 2)
+        self.assertEqual(earnings["provider_date_count"], 1)
+        self.assertEqual(earnings["estimated_count"], 1)
+        self.assertEqual(earnings["catalyst_marker_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

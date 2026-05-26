@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from .config import AppConfig
-from .earnings import earnings_source_quality
+from .earnings import earnings_source_quality, is_forward_earnings_date
 from .scheduler import EASTERN, is_nyse_trading_day
 
 
@@ -42,11 +42,14 @@ def normalize_earnings_calendar(events: list[dict[str, Any]], as_of: date) -> di
         row["risk_window"] = earnings_risk_window(days_until)
         enriched.append(row)
     enriched.sort(key=lambda row: (abs(int(row.get("days_until") or 9999)), row.get("symbol", "")))
+    date_events = [row for row in enriched if is_forward_earnings_date(row)]
     return {
         "events": enriched,
         "event_count": len(enriched),
-        "confirmed_count": sum(1 for row in enriched if row.get("confirmed_or_estimated") == "confirmed"),
-        "estimated_count": sum(1 for row in enriched if row.get("confirmed_or_estimated") == "estimated"),
+        "confirmed_count": sum(1 for row in date_events if row.get("confirmed_or_estimated") == "confirmed"),
+        "estimated_count": sum(1 for row in date_events if row.get("confirmed_or_estimated") == "estimated"),
+        "provider_date_count": len(date_events),
+        "catalyst_marker_count": len(enriched) - len(date_events),
         "source_quality": earnings_source_quality(enriched),
         "missing_confidence_count": missing_confidence,
         "policy": "Manual and company IR dates are canonical; Alpha Vantage and Nasdaq provide estimated forward dates; SEC/result markers and news-derived events enrich risk windows.",

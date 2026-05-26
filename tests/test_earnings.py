@@ -7,6 +7,7 @@ from invest.config import AppConfig
 from invest.earnings import (
     build_earnings_events,
     dedupe_events,
+    earnings_health_summary,
     event_payload,
     ir_feed_item_event,
     parse_alpha_vantage_calendar,
@@ -167,6 +168,28 @@ class EarningsTests(unittest.TestCase):
 
         self.assertEqual(len([row for row in events if row["symbol"] == "NVDA" and row["event_type"] == "earnings"]), 1)
         self.assertEqual(events[0]["source"], "manual")
+
+    def test_earnings_health_counts_only_forward_dates_as_estimated_dates(self):
+        summary = earnings_health_summary(
+            [
+                {
+                    "symbol": "MRVL",
+                    "event_type": "earnings",
+                    "source": "nasdaq_earnings_calendar",
+                    "confirmed_or_estimated": "estimated",
+                },
+                {
+                    "symbol": "NVDA",
+                    "event_type": "earnings_catalyst",
+                    "source": "news",
+                    "confirmed_or_estimated": "estimated",
+                },
+            ]
+        )
+
+        self.assertEqual(summary["provider_date_count"], 1)
+        self.assertEqual(summary["estimated_count"], 1)
+        self.assertEqual(summary["catalyst_marker_count"], 1)
 
 
 if __name__ == "__main__":

@@ -3,8 +3,8 @@ from decimal import Decimal
 import unittest
 
 from invest.features import build_feature_matrix
-from invest.outcomes import build_outcome_diagnostics, build_training_examples
-from invest.research import build_research_book
+from invest.outcomes import build_outcome_diagnostics, build_training_examples, learning_readiness_projection, pending_label_schedule
+from invest.research import build_research_book, scenario_returns
 from invest.sizing import build_sizing_plan, target_for_item
 
 
@@ -109,6 +109,30 @@ class ResearchEngineTests(unittest.TestCase):
         self.assertEqual(stressed_crwv["macro_credit_stress"], 12.0)
         self.assertGreater(stressed_crwv["drawdown_risk"], next(row for row in calm["rows"] if row["symbol"] == "CRWV")["drawdown_risk"])
         self.assertLess(stressed_item["risk_adjusted_expected_return"], calm_item["risk_adjusted_expected_return"])
+
+    def test_research_scenarios_use_coverage_adjusted_external_score(self):
+        base_feature = {
+            "bucket": "semis_networking_hbm",
+            "company_underwriting_score": 50,
+            "sector_setup_score": 50,
+            "evidence_quality": 50,
+            "valuation_support": 50,
+            "drawdown_risk": 45,
+            "external_signal_score": 20.0,
+        }
+
+        raw = scenario_returns(base_feature, "semis_networking_hbm")
+        adjusted = scenario_returns(
+            dict(base_feature, coverage_adjusted_external_signal_score=5.0),
+            "semis_networking_hbm",
+        )
+        same_as_adjusted_input = scenario_returns(
+            dict(base_feature, external_signal_score=5.0),
+            "semis_networking_hbm",
+        )
+
+        self.assertGreater(raw["base_return_12m"], adjusted["base_return_12m"])
+        self.assertEqual(adjusted["base_return_12m"], same_as_adjusted_input["base_return_12m"])
 
     def test_research_book_and_sizing_create_target_weights(self):
         features = build_feature_matrix(
@@ -387,7 +411,24 @@ class ResearchEngineTests(unittest.TestCase):
                 }
             ]
         }
-        features = {"rows": [{"symbol": "NVDA", "signal_families": ["manager"], "event_types": ["capex_signal"]}]}
+        features = {
+            "rows": [
+                {
+                    "symbol": "NVDA",
+                    "signal_families": ["manager"],
+                    "event_types": ["capex_signal"],
+                    "external_signal_score": 20.0,
+                    "coverage_adjusted_external_signal_score": 5.0,
+                    "external_coverage_multiplier": 0.25,
+                    "external_feed_status": "limited",
+                    "external_provider_count": 6,
+                    "external_provider_ok_count": 1,
+                    "external_provider_ok_ratio": 0.1667,
+                    "external_signal_count": 4,
+                    "external_source_count": 3,
+                }
+            ]
+        }
         examples = build_training_examples(
             date(2026, 5, 24),
             "premarket",
@@ -397,10 +438,145 @@ class ResearchEngineTests(unittest.TestCase):
         )
         diagnostics = build_outcome_diagnostics(date(2026, 5, 24), examples)
 
+        self.assertEqual(examples[0]["external_signal_score"], 20.0)
+        self.assertEqual(examples[0]["coverage_adjusted_external_signal_score"], 5.0)
+        self.assertEqual(examples[0]["external_coverage_multiplier"], 0.25)
+        self.assertEqual(examples[0]["external_feed_status"], "limited")
+        self.assertEqual(examples[0]["external_provider_count"], 6)
+        self.assertEqual(examples[0]["external_provider_ok_count"], 1)
+        self.assertEqual(examples[0]["external_provider_ok_ratio"], 0.1667)
+        self.assertEqual(examples[0]["external_signal_count"], 4)
+        self.assertEqual(examples[0]["external_source_count"], 3)
         self.assertEqual(examples[0]["forward_return_labels"]["5d"], None)
         self.assertEqual(examples[0]["forward_return_labels"]["3m"], None)
         self.assertEqual(diagnostics["status"], "awaiting_forward_returns")
         self.assertEqual(diagnostics["current_training_example_count"], 1)
+        self.assertEqual(diagnostics["pending_outcome_count"], 5)
+        self.assertFalse(diagnostics["label_maturity"]["learning_ready"])
+
+    def test_outcome_diagnostics_surface_label_maturity_from_backtest(self):
+        history = [
+            {
+                "symbol": "NVDA",
+                "horizon": "5d",
+                "forward_return_pct": 4,
+                "risk_adjusted_expected_return": 10,
+                "signal_families": ["manager"],
+                "trade_action": "add",
+                "bucket": "semis_networking_hbm",
+            },
+            {
+                "symbol": "NVDA",
+                "horizon": "1m",
+                "forward_return_pct": 12,
+                "risk_adjusted_expected_return": 10,
+                "signal_families": ["manager"],
+                "trade_action": "add",
+                "bucket": "semis_networking_hbm",
+            },
+        ]
+        backtest = {
+            "outcome_count": 7,
+            "pending_outcome_count": 4,
+            "missing_price_count": 1,
+            "horizons": [
+                {"horizon": "5d", "completed_count": 1, "pending_count": 0, "missing_price_count": 0},
+                {"horizon": "1m", "completed_count": 1, "pending_count": 1, "missing_price_count": 0},
+                {"horizon": "3m", "completed_count": 0, "pending_count": 1, "missing_price_count": 0},
+            ],
+            "outcomes": [
+                {
+                    "symbol": "NVDA",
+                    "horizon": "5d",
+                    "status": "pending",
+                    "due_date": "2026-05-31",
+                    "external_feed_status": "limited",
+                    "external_coverage_multiplier": 0.25,
+                },
+                {
+                    "symbol": "NVDA",
+                    "horizon": "1m",
+                    "status": "pending",
+                    "due_date": "2026-06-24",
+                    "external_feed_status": "limited",
+                    "external_coverage_multiplier": 0.25,
+                },
+                {"symbol": "AMD", "horizon": "1m", "status": "pending", "due_date": "2026-06-24"},
+                {
+                    "symbol": "NVDA",
+                    "horizon": "3m",
+                    "status": "pending",
+                    "due_date": "2026-08-24",
+                    "external_feed_status": "limited",
+                    "external_coverage_multiplier": 0.25,
+                },
+            ],
+        }
+
+        diagnostics = build_outcome_diagnostics(date(2026, 5, 24), [], history, backtest)
+
+        self.assertEqual(diagnostics["total_outcome_count"], 7)
+        self.assertEqual(diagnostics["completed_outcome_count"], 2)
+        self.assertEqual(diagnostics["pending_outcome_count"], 4)
+        self.assertEqual(diagnostics["missing_price_count"], 1)
+        self.assertEqual(diagnostics["horizon_label_counts"][0]["horizon"], "5d")
+        self.assertEqual(diagnostics["label_maturity"]["completed_long_horizon_count"], 1)
+        self.assertEqual(diagnostics["label_maturity"]["short_horizon_completed_count"], 1)
+        self.assertEqual(diagnostics["label_maturity"]["additional_long_horizon_needed"], 19)
+        self.assertEqual(diagnostics["learning_readiness_projection"]["projected_long_horizon_count_30d"], 1)
+        self.assertEqual(diagnostics["learning_readiness_projection"]["projected_additional_needed_30d"], 19)
+        self.assertEqual(diagnostics["learning_readiness_projection"]["next_learning_label_due_date"], "2026-06-24")
+        self.assertEqual(diagnostics["learning_readiness_projection"]["next_learning_label_due_count"], 2)
+        self.assertEqual(diagnostics["learning_readiness_projection"]["projected_long_horizon_count_next_learning_label"], 3)
+        self.assertEqual(diagnostics["learning_readiness_projection"]["projected_additional_needed_next_learning_label"], 17)
+        self.assertFalse(diagnostics["learning_readiness_projection"]["learning_ready_after_30d_due_window"])
+        self.assertFalse(diagnostics["learning_readiness_projection"]["learning_ready_after_next_learning_label"])
+        self.assertEqual(diagnostics["pending_label_schedule"]["next_label_due_date"], "2026-05-31")
+        self.assertEqual(diagnostics["pending_label_schedule"]["next_learning_label_due_date"], "2026-06-24")
+        self.assertEqual(diagnostics["pending_label_schedule"]["next_label"]["days_until_due"], 7)
+        self.assertEqual(diagnostics["pending_label_schedule"]["next_learning_label"]["days_until_due"], 31)
+        self.assertEqual(diagnostics["pending_label_schedule"]["next_learning_label"]["due_count"], 2)
+        self.assertEqual(diagnostics["pending_label_schedule"]["overdue_label_count"], 0)
+        self.assertEqual(diagnostics["pending_label_schedule"]["due_window_counts"]["due_next_7d"], 1)
+        self.assertEqual(diagnostics["pending_label_schedule"]["due_window_counts"]["due_next_30d"], 1)
+        self.assertEqual(diagnostics["pending_label_schedule"]["learning_due_window_counts"]["due_next_7d"], 0)
+        self.assertEqual(diagnostics["pending_label_schedule"]["learning_due_window_counts"]["due_next_30d"], 0)
+        external_projection = diagnostics["external_learning_readiness_projection"]
+        self.assertEqual(external_projection["pending_external_learning_label_count"], 2)
+        self.assertEqual(external_projection["next_external_learning_label_due_date"], "2026-06-24")
+        self.assertEqual(external_projection["next_external_learning_label_due_count"], 1)
+        self.assertEqual(external_projection["projected_external_long_horizon_count_all_scheduled"], 2)
+        self.assertEqual(external_projection["projected_external_additional_needed_all_scheduled"], 18)
+        self.assertEqual(external_projection["pending_external_fast_label_count"], 1)
+        self.assertEqual(external_projection["next_external_fast_label_due_date"], "2026-05-31")
+        self.assertEqual(external_projection["next_external_fast_label_due_count"], 1)
+        self.assertEqual(external_projection["external_fast_labels_due_next_7d"], 1)
+        self.assertFalse(external_projection["external_learning_ready_with_scheduled_pending_labels"])
+        self.assertEqual(diagnostics["calibration"]["mean_error"], -2.0)
+        self.assertEqual(diagnostics["calibration"]["mean_absolute_error"], 4.0)
+        self.assertEqual(diagnostics["calibration"]["underprediction_count"], 1)
+        self.assertEqual(diagnostics["calibration"]["overprediction_count"], 1)
+        self.assertFalse(diagnostics["calibration"]["calibration_ready"])
+        self.assertEqual(diagnostics["calibration"]["minimum_calibration_samples"], 20)
+        self.assertEqual(diagnostics["calibration"]["additional_samples_needed"], 18)
+
+    def test_learning_projection_estimates_ready_date_from_cumulative_pending_labels(self):
+        rows = (
+            [{"symbol": f"A{index}", "horizon": "1m", "status": "pending", "due_date": "2026-06-24"} for index in range(3)]
+            + [{"symbol": f"B{index}", "horizon": "3m", "status": "pending", "due_date": "2026-07-24"} for index in range(4)]
+            + [{"symbol": f"C{index}", "horizon": "6m", "status": "pending", "due_date": "2026-08-24"} for index in range(6)]
+        )
+        schedule = pending_label_schedule({"outcomes": rows}, date(2026, 5, 24))
+
+        projection = learning_readiness_projection(
+            {"completed_long_horizon_count": 10, "minimum_long_horizon_required": 20},
+            schedule,
+        )
+
+        self.assertEqual(schedule["learning_due_dates"][0]["cumulative_due_count"], 3)
+        self.assertEqual(projection["estimated_learning_ready_date"], "2026-08-24")
+        self.assertEqual(projection["estimated_learning_ready_projected_count"], 23)
+        self.assertTrue(projection["learning_ready_with_scheduled_pending_labels"])
 
 
 if __name__ == "__main__":

@@ -11,13 +11,13 @@ from typing import Any
 from .util import decimal_or_zero
 
 
-def fetch_daily_prices(symbols: list[str], range_: str = "5d", interval: str = "1d", max_workers: int = 8) -> dict[str, dict[str, Decimal]]:
+def fetch_daily_prices(symbols: list[str], range_: str = "5d", interval: str = "1d", max_workers: int = 16, timeout: int = 5) -> dict[str, dict[str, Decimal]]:
     prices: dict[str, dict[str, Decimal]] = {}
     unique = unique_symbols(symbols)
     if not unique:
         return prices
     with ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(unique)))) as pool:
-        futures = {pool.submit(fetch_chart, symbol, range_, interval): symbol for symbol in unique}
+        futures = {pool.submit(fetch_chart, symbol, range_, interval, timeout): symbol for symbol in unique}
         for future in as_completed(futures):
             symbol = futures[future]
             try:
@@ -29,13 +29,13 @@ def fetch_daily_prices(symbols: list[str], range_: str = "5d", interval: str = "
     return prices
 
 
-def fetch_return_windows(symbols: list[str], range_: str = "1y", interval: str = "1d", max_workers: int = 8) -> dict[str, dict[str, Decimal]]:
+def fetch_return_windows(symbols: list[str], range_: str = "1y", interval: str = "1d", max_workers: int = 16, timeout: int = 5) -> dict[str, dict[str, Decimal]]:
     windows: dict[str, dict[str, Decimal]] = {}
     unique = unique_symbols(symbols)
     if not unique:
         return windows
     with ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(unique)))) as pool:
-        futures = {pool.submit(fetch_chart_history, symbol, range_, interval): symbol for symbol in unique}
+        futures = {pool.submit(fetch_chart_history, symbol, range_, interval, timeout): symbol for symbol in unique}
         for future in as_completed(futures):
             symbol = futures[future]
             try:
@@ -58,13 +58,13 @@ def unique_symbols(symbols: list[str]) -> list[str]:
     return ordered
 
 
-def fetch_chart(symbol: str, range_: str = "5d", interval: str = "1d") -> dict[str, Decimal]:
+def fetch_chart(symbol: str, range_: str = "5d", interval: str = "1d", timeout: int = 6) -> dict[str, Decimal]:
     safe_symbol = urllib.parse.quote(symbol)
     params = urllib.parse.urlencode({"range": range_, "interval": interval})
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{safe_symbol}?{params}"
     req = urllib.request.Request(url, headers={"User-Agent": "autoinvestbot/0.1"})
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except Exception:
         return {}
@@ -84,13 +84,13 @@ def fetch_chart(symbol: str, range_: str = "5d", interval: str = "1d") -> dict[s
     return {"last": last, "change_pct": change, "five_day_pct": five_day}
 
 
-def fetch_chart_history(symbol: str, range_: str = "1y", interval: str = "1d") -> list[dict[str, Any]]:
+def fetch_chart_history(symbol: str, range_: str = "1y", interval: str = "1d", timeout: int = 6) -> list[dict[str, Any]]:
     safe_symbol = urllib.parse.quote(symbol)
     params = urllib.parse.urlencode({"range": range_, "interval": interval})
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{safe_symbol}?{params}"
     req = urllib.request.Request(url, headers={"User-Agent": "autoinvestbot/0.1"})
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except Exception:
         return []

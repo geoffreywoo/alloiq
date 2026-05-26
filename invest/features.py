@@ -94,6 +94,8 @@ def feature_row(
     company = company or {}
     sector = sector or {}
     external_score = float(external.get("external_signal_score") or 0)
+    external_coverage = external_coverage_multiplier(external)
+    coverage_adjusted_external_score = external_score * external_coverage
     if external.get("signal_count") and "external_feeds" not in signal_families:
         signal_families.append("external_feeds")
     returns = returns_for_symbol(return_windows, symbol)
@@ -101,6 +103,7 @@ def feature_row(
     bucket_weight = float(bucket_weights.get(bucket, 0.0))
     manager_count = int(card.get("consensus_manager_count") or 0)
     signal_count = max(int(card.get("signal_family_count") or 0), len(signal_families))
+    adjusted_signal_count = coverage_adjusted_signal_count(signal_count, signal_families, external_coverage)
     event_score = float(card.get("event_score") or 0)
     put_value = float(card.get("put_value") or 0)
     call_value = float(card.get("call_value") or 0)
@@ -116,7 +119,7 @@ def feature_row(
         bucket,
         external,
     )
-    timing = timing_score(event_score, returns, earnings_event, macro_scores, external_score)
+    timing = timing_score(event_score, returns, earnings_event, macro_scores, coverage_adjusted_external_score)
     raw_evidence = evidence_quality_score(signal_count, manager_count, event_score, source_tiers, returns, peer, external)
     company_evidence = numeric(company.get("evidence_quality"))
     evidence = bottom_up_weighted_evidence(raw_evidence, company_evidence)
@@ -143,6 +146,7 @@ def feature_row(
         "manager_reduction_signal": round(float(flow.get("manager_reduction_signal") or 0), 2),
         "option_tilt_score": round(option_score, 2),
         "signal_family_count": signal_count,
+        "coverage_adjusted_signal_family_count": round(adjusted_signal_count, 4),
         "signal_families": signal_families,
         "event_score": round(event_score, 2),
         "event_types": event_types,
@@ -165,6 +169,7 @@ def feature_row(
         "macro_yield_curve_inversion": numeric(macro_scores.get("yield_curve_inversion_score")),
         "macro_energy_pressure": numeric(macro_scores.get("energy_pressure_score")),
         "external_signal_score": round(external_score, 2),
+        "coverage_adjusted_external_signal_score": round(coverage_adjusted_external_score, 2),
         "alpha_news_sentiment": numeric(external.get("alpha_news_sentiment")),
         "sec_fundamental_score": numeric(external.get("sec_fundamental_score")),
         "sec_form4_activity_score": numeric(external.get("sec_form4_activity_score")),
@@ -172,6 +177,11 @@ def feature_row(
         "short_interest_risk_score": numeric(external.get("short_interest_risk_score")),
         "external_source_count": int(external.get("source_count") or 0),
         "external_signal_count": int(external.get("signal_count") or 0),
+        "external_provider_count": int(external.get("provider_count") or 0),
+        "external_provider_ok_count": int(external.get("provider_ok_count") or 0),
+        "external_provider_ok_ratio": round(float(external.get("provider_ok_ratio") or 0), 4),
+        "external_coverage_multiplier": round(external_coverage, 4),
+        "external_feed_status": external.get("external_status", external.get("status", "")),
         "company_underwriting_score": round(company_score if company_score is not None else 45.0, 2),
         "company_evidence_quality": round(company_evidence if company_evidence is not None else 0.0, 2),
         "company_source_quality": round(float(company.get("source_quality") or 0), 2),
@@ -204,7 +214,7 @@ def feature_row(
         "drawdown_risk": round(drawdown, 2),
         "timing_score": round(timing, 2),
         "evidence_quality": round(evidence, 2),
-        "data_quality": round(max(data_quality_score(returns, signal_count, source_tiers), float(company.get("data_quality") or 0)), 2),
+        "data_quality": round(max(data_quality_score(returns, adjusted_signal_count, source_tiers), float(company.get("data_quality") or 0)), 2),
     }
 
 
@@ -212,9 +222,9 @@ def weight_by_symbol(portfolio: dict[str, Any]) -> dict[str, float]:
     weights: dict[str, float] = {}
     for row in portfolio.get("by_symbol", []):
         symbol = str(row.get("symbol") or "").upper()
-        if not symbol:
+        if not symbol or row.get("is_cash"):
             continue
-        weight = float(row.get("weight") or 0)
+        weight = comparison_weight(row)
         for candidate in equivalent_symbols(symbol):
             weights[candidate] = weights.get(candidate, 0.0) + weight
     return weights
@@ -222,10 +232,14 @@ def weight_by_symbol(portfolio: dict[str, Any]) -> dict[str, float]:
 
 def weight_by_bucket(portfolio: dict[str, Any]) -> dict[str, float]:
     return {
-        str(row.get("bucket") or "unmapped"): float(row.get("weight") or 0)
+        str(row.get("bucket") or "unmapped"): comparison_weight(row)
         for row in portfolio.get("by_bucket", [])
-        if row.get("bucket")
+        if row.get("bucket") and row.get("bucket") != "cash_reserves"
     }
+
+
+def comparison_weight(row: dict[str, Any]) -> float:
+    return float(row.get("comparison_weight", row.get("ex_cash_weight", row.get("weight") or 0)) or 0)
 
 
 def peer_features(manager_radar: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -306,11 +320,21 @@ def nearest_earnings_by_symbol(events: list[dict[str, Any]]) -> dict[str, dict[s
 
 def external_features_by_symbol(external_signals: dict[str, Any]) -> dict[str, dict[str, Any]]:
     rows = external_signals.get("by_symbol") or {}
+    provider_count = int(external_signals.get("provider_count") or 0)
+    provider_ok_count = int(external_signals.get("provider_ok_count") or 0)
+    configured_ratio = numeric(external_signals.get("provider_ok_ratio"))
+    provider_ok_ratio = configured_ratio if configured_ratio is not None else (provider_ok_count / provider_count if provider_count else 0)
+    metadata = {
+        "external_status": external_signals.get("status", ""),
+        "provider_count": provider_count,
+        "provider_ok_count": provider_ok_count,
+        "provider_ok_ratio": provider_ok_ratio,
+    }
     normalized: dict[str, dict[str, Any]] = {}
     if isinstance(rows, dict):
         for symbol, row in rows.items():
             for candidate in equivalent_symbols(str(symbol).upper()):
-                normalized[candidate] = dict(row)
+                normalized[candidate] = {**dict(row), **metadata}
     return normalized
 
 
@@ -373,6 +397,7 @@ def evidence_quality_score(
     external = external or {}
     external_count = int(external.get("signal_count") or 0)
     external_score = max(0.0, float(external.get("external_signal_score") or 0))
+    coverage = external_coverage_multiplier(external)
     score = (
         signal_count * 16.0
         + min(manager_count, 6) * 6.0
@@ -380,10 +405,30 @@ def evidence_quality_score(
         + source_quality_score(source_tiers) * 0.18
         + (8.0 if returns.get("3m") is not None else 0.0)
         + min(float(peer.get("tier1_manager_count") or 0) * 5.0, 15.0)
-        + min(external_count * 4.0, 12.0)
-        + min(external_score * 0.35, 8.0)
+        + min(external_count * coverage * 4.0, 12.0)
+        + min(external_score * coverage * 0.35, 8.0)
     )
     return min(100.0, score)
+
+
+def external_coverage_multiplier(external: dict[str, Any]) -> float:
+    provider_count = int(external.get("provider_count") or 0)
+    provider_ok_count = int(external.get("provider_ok_count") or 0)
+    ratio_value = numeric(external.get("provider_ok_ratio"))
+    if ratio_value is None and provider_count:
+        ratio = provider_ok_count / provider_count
+    elif ratio_value is not None:
+        ratio = ratio_value
+    else:
+        status = str(external.get("external_status") or external.get("status") or "")
+        return 0.5 if status in {"limited", "missing", "failed", "error", "unknown"} else 1.0
+    return max(0.25, min(1.0, ratio))
+
+
+def coverage_adjusted_signal_count(signal_count: int, signal_families: list[str], external_coverage: float) -> float:
+    if "external_feeds" not in signal_families:
+        return float(signal_count)
+    return max(0.0, float(signal_count) - (1.0 - external_coverage))
 
 
 def bottom_up_weighted_evidence(existing: float, company_evidence: float | None) -> float:
@@ -392,7 +437,7 @@ def bottom_up_weighted_evidence(existing: float, company_evidence: float | None)
     return min(100.0, existing * 0.35 + company_evidence * 0.65)
 
 
-def data_quality_score(returns: dict[str, float | None], signal_count: int, source_tiers: list[str]) -> float:
+def data_quality_score(returns: dict[str, float | None], signal_count: float, source_tiers: list[str]) -> float:
     covered_returns = sum(1 for value in returns.values() if value is not None)
     return min(100.0, 35.0 + covered_returns * 8.0 + signal_count * 7.0 + source_quality_score(source_tiers) * 0.1)
 

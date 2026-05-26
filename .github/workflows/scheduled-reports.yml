@@ -3,7 +3,10 @@ name: Scheduled Reports
 on:
   schedule:
     - cron: "0 12,13 * * 1-5"
+    - cron: "30 13,14 * * 1-5"
+    - cron: "0 14-20 * * 1-5"
     - cron: "0 16,17 * * 1-5"
+    - cron: "0 20,21 * * 1-5"
     - cron: "30 20,21 * * 1-5"
     - cron: "0 14 * * 0"
   workflow_dispatch:
@@ -15,7 +18,10 @@ on:
         type: choice
         options:
           - premarket
+          - market_open
+          - intraday
           - midday
+          - market_close
           - postmarket
           - weekly
       force:
@@ -51,8 +57,17 @@ jobs:
               "0 12,13 * * 1-5")
                 echo "kind=premarket" >> "$GITHUB_OUTPUT"
                 ;;
+              "30 13,14 * * 1-5")
+                echo "kind=market_open" >> "$GITHUB_OUTPUT"
+                ;;
+              "0 14-20 * * 1-5")
+                echo "kind=intraday" >> "$GITHUB_OUTPUT"
+                ;;
               "0 16,17 * * 1-5")
                 echo "kind=midday" >> "$GITHUB_OUTPUT"
+                ;;
+              "0 20,21 * * 1-5")
+                echo "kind=market_close" >> "$GITHUB_OUTPUT"
                 ;;
               "30 20,21 * * 1-5")
                 echo "kind=postmarket" >> "$GITHUB_OUTPUT"
@@ -114,6 +129,10 @@ jobs:
           cp web/data/latest.json web/data/reports.json /tmp/alloiq-web-check/data/
           python3 -m invest site build --privacy public --out-dir /tmp/alloiq-web-check
 
+      - name: Preserve previous public snapshot
+        shell: bash
+        run: cp web/data/latest.json /tmp/alloiq-previous-latest.json || true
+
       - name: Run scheduled pipeline
         env:
           IBKR_FLEX_TOKEN: ${{ secrets.IBKR_FLEX_TOKEN }}
@@ -160,6 +179,14 @@ jobs:
             echo "Telegram briefing skipped: missing ALLOIQ_TELEGRAM_BOT_TOKEN or ALLOIQ_TELEGRAM_CHAT_ID."
             exit 0
           fi
-          python3 -m invest notify \
-            --session "${{ steps.pipeline.outputs.kind }}" \
-            --channel telegram
+          if [[ "${{ steps.pipeline.outputs.kind }}" =~ ^(premarket|midday|postmarket|weekly)$ ]]; then
+            python3 -m invest notify \
+              --session "${{ steps.pipeline.outputs.kind }}" \
+              --channel telegram
+          else
+            python3 -m invest notify \
+              --session "${{ steps.pipeline.outputs.kind }}" \
+              --channel telegram \
+              --urgent-only \
+              --compare-to /tmp/alloiq-previous-latest.json
+          fi

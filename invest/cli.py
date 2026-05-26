@@ -147,10 +147,11 @@ def main(argv: list[str] | None = None) -> int:
     filings.add_argument("--backfill", action="store_true", help="Process every recent SEC filing in the submissions feed")
 
     brief = sub.add_parser("brief", help="Generate a research brief")
-    brief.add_argument("--session", choices=["premarket", "midday", "postmarket", "weekly"], required=True)
+    report_kinds = ["premarket", "market_open", "intraday", "midday", "market_close", "postmarket", "weekly"]
+    brief.add_argument("--session", choices=report_kinds, required=True)
 
     pipeline = sub.add_parser("pipeline", help="Run the scheduled data, report, and public-site pipeline")
-    pipeline.add_argument("--kind", choices=["premarket", "midday", "postmarket", "weekly"], required=True)
+    pipeline.add_argument("--kind", choices=report_kinds, required=True)
     pipeline.add_argument("--privacy", choices=["public", "private"], default="public")
     pipeline.add_argument("--out-dir", default="web", help="Static output directory")
     pipeline.add_argument("--force", action="store_true", help="Bypass schedule/trading-day gating")
@@ -214,11 +215,13 @@ def main(argv: list[str] | None = None) -> int:
     tickets_export.add_argument("--format", choices=["markdown", "json"], default="markdown")
 
     notify = sub.add_parser("notify", help="Send the latest briefing to a configured notification channel")
-    notify.add_argument("--session", choices=["premarket", "midday", "postmarket", "weekly"], default="", help="Report session to send")
+    notify.add_argument("--session", choices=report_kinds, default="", help="Report session to send")
     notify.add_argument("--channel", choices=["telegram"], default="telegram")
     notify.add_argument("--reports-dir", default="", help="Override report JSON directory")
     notify.add_argument("--site-url", default="", help="Override dashboard URL used in the message")
     notify.add_argument("--dry-run", action="store_true", help="Print the message without sending it")
+    notify.add_argument("--urgent-only", action="store_true", help="Send only if the latest report has a new urgent trigger")
+    notify.add_argument("--compare-to", default="", help="Previous public snapshot used to suppress repeated urgent alerts")
 
     site = sub.add_parser("site", help="Build the AlloIQ static website")
     site_sub = site.add_subparsers(dest="site_command", required=True)
@@ -2180,7 +2183,15 @@ def coverage_gap_report_candidates(reports_dir: Path | None) -> list[dict]:
 
 
 def report_candidate_sort_key(candidate: dict) -> tuple:
-    session_order = {"premarket": 0, "midday": 1, "postmarket": 2, "weekly": 3}
+    session_order = {
+        "premarket": 0,
+        "market_open": 1,
+        "intraday": 2,
+        "midday": 3,
+        "market_close": 4,
+        "postmarket": 5,
+        "weekly": 6,
+    }
     return (
         str(candidate.get("as_of") or ""),
         session_order.get(str(candidate.get("session") or ""), 9),
@@ -3471,6 +3482,8 @@ def command_notify(args, config) -> int:
         reports_dir=Path(args.reports_dir) if args.reports_dir else None,
         dry_run=args.dry_run,
         site_url=args.site_url or None,
+        urgent_only=args.urgent_only,
+        compare_to=Path(args.compare_to) if args.compare_to else None,
     )
     if args.dry_run and result.get("message"):
         print(result["message"])

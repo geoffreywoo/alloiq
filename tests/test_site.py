@@ -494,6 +494,11 @@ class SiteTests(unittest.TestCase):
         self.assertEqual(status["expected_report_as_of"], "2026-05-22")
         self.assertEqual(status["report_age_days"], 0)
 
+    def test_intraday_stale_status_uses_short_freshness_window(self):
+        status = stale_status("intraday", "2026-05-26T17:00:00Z", "2026-05-26")
+
+        self.assertEqual(status["max_age_hours"], 2)
+
     def test_public_payload_adds_default_methodology(self):
         public = sanitize_payload(
             {

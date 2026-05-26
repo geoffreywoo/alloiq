@@ -12,11 +12,22 @@ from .config import AppConfig
 NOTIFICATION_VERSION = "2026-05-telegram-briefing-v1"
 SESSION_LABELS = {
     "premarket": "Pre-market",
+    "market_open": "Market Open",
+    "intraday": "Intraday",
     "midday": "Midday",
+    "market_close": "Market Close",
     "postmarket": "Post-market",
     "weekly": "Weekend",
 }
-SESSION_ORDER = {"premarket": 1, "midday": 2, "postmarket": 3, "weekly": 4}
+SESSION_ORDER = {
+    "premarket": 1,
+    "market_open": 2,
+    "intraday": 3,
+    "midday": 4,
+    "market_close": 5,
+    "postmarket": 6,
+    "weekly": 7,
+}
 TELEGRAM_MAX_MESSAGE_CHARS = 3900
 
 
@@ -27,6 +38,8 @@ def send_latest_briefing(
     reports_dir: Path | None = None,
     dry_run: bool = False,
     site_url: str | None = None,
+    urgent_only: bool = False,
+    compare_to: Path | None = None,
 ) -> dict[str, Any]:
     if channel != "telegram":
         return {"status": "failed", "reason": f"unsupported notification channel: {channel}"}
@@ -41,7 +54,24 @@ def send_latest_briefing(
         }
 
     resolved_site_url = site_url or configured_site_url(config)
-    message = format_briefing_message(payload, site_url=resolved_site_url)
+    previous_payload = load_payload(compare_to)
+    urgent_items = urgent_alert_items(payload, previous_payload=previous_payload)
+    if urgent_only and not urgent_items:
+        return {
+            "status": "skipped",
+            "reason": "no new urgent alerts",
+            "channel": channel,
+            "session": payload.get("session") or session or "",
+            "as_of": payload.get("as_of") or "",
+            "report": str(report_path),
+            "site_url": resolved_site_url,
+            "urgent_item_count": 0,
+        }
+    message = (
+        format_urgent_alert_message(payload, urgent_items, site_url=resolved_site_url)
+        if urgent_only
+        else format_briefing_message(payload, site_url=resolved_site_url)
+    )
     result: dict[str, Any] = {
         "status": "dry_run" if dry_run else "pending",
         "version": NOTIFICATION_VERSION,
@@ -51,6 +81,8 @@ def send_latest_briefing(
         "report": str(report_path),
         "site_url": resolved_site_url,
         "message_chars": len(message),
+        "urgent_only": urgent_only,
+        "urgent_item_count": len(urgent_items),
     }
     if dry_run:
         result["message"] = message
@@ -71,6 +103,16 @@ def send_latest_briefing(
         timeout_seconds=float(telegram.get("timeout_seconds") or 10),
     )
     return {**result, **sent}
+
+
+def load_payload(path: Path | None) -> dict[str, Any]:
+    if not path or not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def latest_report_payload(reports_dir: Path, session: str | None = None) -> tuple[Path | None, dict[str, Any]]:
@@ -125,6 +167,125 @@ def format_briefing_message(payload: dict[str, Any], site_url: str = "https://al
         lines.extend(["", freshness])
     lines.extend(["", f"Open: {site_url.rstrip('/')}/dashboard"])
     return truncate_message("\n".join(lines), TELEGRAM_MAX_MESSAGE_CHARS)
+
+
+def format_urgent_alert_message(payload: dict[str, Any], urgent_items: list[dict[str, Any]], site_url: str) -> str:
+    session = str(payload.get("session") or "")
+    label = SESSION_LABELS.get(session, session.title() or "Daily")
+    as_of = str(payload.get("as_of") or "latest")
+    lines = [f"AlloIQ Urgent Alert - {label} {as_of}"]
+    portfolio_lines = format_portfolio_lines(payload)
+    if portfolio_lines:
+        lines.extend(["", *portfolio_lines])
+    lines.extend(["", "Urgent Triggers"])
+    for item in urgent_items[:6]:
+        symbol = str(item.get("symbol") or "").upper()
+        reason = str(item.get("urgent_reason") or "urgent trigger")
+        severity = str(item.get("urgent_severity") or "urgent")
+        current = pct(number(item.get("current_weight", item.get("portfolio_weight"))))
+        target = pct(number(item.get("target_weight", item.get("trade_target_weight", item.get("post_action_weight")))))
+        expected = number(item.get("risk_adjusted_expected_return"))
+        parts = [f"{symbol}: {compact_action(item)}", f"{current} -> {target}", severity]
+        if expected is not None:
+            parts.append(f"ER {signed_percent_points(expected)}")
+        lines.append("; ".join(parts))
+        lines.append(f"  Why: {reason}")
+        company = first_sentence(str(item.get("company_reason") or item.get("why") or ""))
+        if company:
+            lines.append(f"  Company: {company}")
+        funding = compact_funding(item)
+        if funding:
+            lines.append(f"  Funding: {funding}")
+    lines.extend(["", f"Open: {site_url.rstrip('/')}/dashboard"])
+    return truncate_message("\n".join(lines), TELEGRAM_MAX_MESSAGE_CHARS)
+
+
+def urgent_alert_items(payload: dict[str, Any], previous_payload: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    items = [item for item in report_action_queue(payload) if isinstance(item, dict)]
+    previous_keys = {urgent_key(item) for item in previous_urgent_items(previous_payload or {})}
+    urgent: list[dict[str, Any]] = []
+    for item in items:
+        decorated = urgent_alert_item(item)
+        if not decorated:
+            continue
+        if urgent_key(decorated) in previous_keys:
+            continue
+        urgent.append(decorated)
+    return sorted(
+        urgent,
+        key=lambda item: (
+            -urgent_severity_rank(str(item.get("urgent_severity") or "")),
+            -abs(number(item.get("recommended_delta_weight")) or 0),
+            -float(number(item.get("confidence")) or 0),
+            str(item.get("symbol") or ""),
+        ),
+    )
+
+
+def previous_urgent_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return [item for item in report_action_queue(payload) if urgent_alert_item(item)]
+
+
+def report_action_queue(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    benchmark = payload.get("portfolio_benchmark") if isinstance(payload.get("portfolio_benchmark"), dict) else {}
+    queue = benchmark.get("action_queue") if isinstance(benchmark.get("action_queue"), list) else []
+    if queue:
+        return [row for row in queue if isinstance(row, dict)]
+    explanations = payload.get("recommendation_explanations") if isinstance(payload.get("recommendation_explanations"), list) else []
+    return [row for row in explanations if isinstance(row, dict)]
+
+
+def urgent_alert_item(item: dict[str, Any]) -> dict[str, Any] | None:
+    symbol = str(item.get("symbol") or "").upper()
+    if not symbol:
+        return None
+    delta = number(item.get("recommended_delta_weight", item.get("pre_funding_delta_weight"))) or 0
+    confidence = number(item.get("confidence")) or 0
+    current_weight = number(item.get("current_weight", item.get("portfolio_weight"))) or 0
+    expected_return = number(item.get("risk_adjusted_expected_return")) or 0
+    action = str(item.get("trade_action") or item.get("verdict") or "").lower()
+    constraints = {str(value) for value in item.get("active_constraints") or [] if value}
+    five_day = abs(number(item.get("five_day_pct")) or 0)
+
+    reason = ""
+    severity = ""
+    if action in {"add", "starter", "trim"} and abs(delta) >= 0.015 and confidence >= 75:
+        reason = f"{compact_action(item)} ticket crossed the 1.5% portfolio-weight urgent threshold with {confidence:.0f} confidence."
+        severity = "high"
+    elif action == "trim" and delta <= -0.01 and current_weight >= 0.05 and constraints.intersection({"hard_cap", "drawdown_risk", "valuation_support_weak", "company_trim_signal"}):
+        reason = "Trim pressure on a material holding crossed the risk/crowding guardrail."
+        severity = "high"
+    elif action in {"add", "starter"} and delta >= 0.01 and expected_return >= 25 and confidence >= 80:
+        reason = f"High-expected-return add surfaced at {signed_percent_points(expected_return)} risk-adjusted expected return."
+        severity = "medium"
+    elif current_weight >= 0.05 and five_day >= 8:
+        reason = f"Material holding moved {five_day:.1f}% over the 5D tape and needs review."
+        severity = "medium"
+
+    if not reason:
+        return None
+    return {
+        **item,
+        "urgent_reason": reason,
+        "urgent_severity": severity,
+    }
+
+
+def urgent_key(item: dict[str, Any]) -> tuple[str, str, int, int]:
+    return (
+        str(item.get("symbol") or "").upper(),
+        str(item.get("trade_action") or item.get("verdict") or "").lower(),
+        round_basis_points(number(item.get("recommended_delta_weight", item.get("pre_funding_delta_weight")))),
+        round_basis_points(number(item.get("target_weight", item.get("trade_target_weight", item.get("post_action_weight"))))),
+    )
+
+
+def urgent_severity_rank(severity: str) -> int:
+    return {"high": 2, "medium": 1}.get(severity, 0)
+
+
+def round_basis_points(value: float | None) -> int:
+    return round((value or 0) * 10_000)
 
 
 def format_portfolio_lines(payload: dict[str, Any]) -> list[str]:

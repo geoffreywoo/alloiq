@@ -1516,11 +1516,14 @@ def build_methodology(
         "pipeline": {
             "commands": [
                 f"python3 -m invest pipeline --kind {kind} --privacy public"
-                for kind in ["premarket", "midday", "postmarket", "weekly"]
+                for kind in ["premarket", "market_open", "intraday", "midday", "market_close", "postmarket", "weekly"]
             ],
             "cadence": [
                 {"kind": "premarket", "when": "8:00 AM ET on NYSE trading days", "purpose": "Refresh holdings, filings, overnight catalysts, macro tape, and trade tickets before the open."},
+                {"kind": "market_open", "when": "9:30 AM ET on NYSE trading days", "purpose": "Refresh live open prices, position weights, risk moves, and opening-bell add/trim changes."},
+                {"kind": "intraday", "when": "10:00 AM, 11:00 AM, 1:00 PM, 2:00 PM, and 3:00 PM ET on NYSE trading days", "purpose": "Refresh hourly price action, catalyst changes, risk gates, and recommendation deltas during market hours."},
                 {"kind": "midday", "when": "12:00 PM ET on NYSE trading days", "purpose": "Refresh intraday price moves, catalysts, risk gates, and add/trim tickets for midday trade decisions."},
+                {"kind": "market_close", "when": "4:00 PM ET on NYSE trading days", "purpose": "Refresh close-of-session prices, risk changes, and urgent add/trim alerts before the post-close brief."},
                 {"kind": "postmarket", "when": "4:30 PM ET on NYSE trading days", "purpose": "Refresh end-of-day price action, attribution, catalysts, and follow-up ticket state."},
                 {"kind": "weekly", "when": "Sunday morning ET", "purpose": "Run full idea research, thesis/falsifier review, and weekly opportunity/risk queue."},
             ],

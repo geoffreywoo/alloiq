@@ -29,6 +29,27 @@ class SchedulerTests(unittest.TestCase):
         self.assertFalse(decision.should_run)
         self.assertIn("outside", decision.reason)
 
+    def test_market_open_runs_at_open_during_dst(self):
+        decision = should_run_pipeline("market_open", datetime(2026, 7, 6, 13, 30, tzinfo=timezone.utc))
+
+        self.assertTrue(decision.should_run)
+        self.assertTrue(decision.trading_day)
+
+    def test_intraday_runs_on_hourly_windows(self):
+        eleven = should_run_pipeline("intraday", datetime(2026, 7, 6, 15, 0, tzinfo=timezone.utc))
+        noon = should_run_pipeline("intraday", datetime(2026, 7, 6, 16, 0, tzinfo=timezone.utc))
+        three = should_run_pipeline("intraday", datetime(2026, 1, 5, 20, 0, tzinfo=timezone.utc))
+
+        self.assertTrue(eleven.should_run)
+        self.assertFalse(noon.should_run)
+        self.assertTrue(three.should_run)
+
+    def test_market_close_runs_at_close_during_standard_time(self):
+        decision = should_run_pipeline("market_close", datetime(2026, 1, 5, 21, 0, tzinfo=timezone.utc))
+
+        self.assertTrue(decision.should_run)
+        self.assertTrue(decision.trading_day)
+
     def test_postmarket_runs_at_close_window_in_standard_time(self):
         decision = should_run_pipeline("postmarket", datetime(2026, 1, 5, 21, 30, tzinfo=timezone.utc))
 

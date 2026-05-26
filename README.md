@@ -16,13 +16,18 @@ python3 -m invest init
 python3 -m invest filings --manager all --max-filings 2
 python3 -m invest sync --broker ibkr
 python3 -m invest brief --session premarket
+python3 -m invest brief --session market_open
+python3 -m invest brief --session intraday
 python3 -m invest brief --session midday
+python3 -m invest brief --session market_close
 python3 -m invest brief --session postmarket
 python3 -m invest site build --privacy public
 ```
 
 Reports are written to `reports/YYYY-MM-DD-premarket.md` and
-`reports/YYYY-MM-DD-midday.md` / `reports/YYYY-MM-DD-postmarket.md`, with JSON sidecars beside them.
+`reports/YYYY-MM-DD-market_open.md` / `reports/YYYY-MM-DD-intraday.md` /
+`reports/YYYY-MM-DD-midday.md` / `reports/YYYY-MM-DD-market_close.md` /
+`reports/YYYY-MM-DD-postmarket.md`, with JSON sidecars beside them.
 
 The public website is built into `web/`. In public mode, broker transactions,
 accounts, quantities, costs, and dollar values are redacted. IBKR positions and
@@ -131,7 +136,7 @@ python3 -m invest ibkr status
 python3 -m invest ibkr validate --import
 python3 -m invest filings --manager all --max-filings 2
 python3 -m invest filings --manager situational-awareness --backfill
-python3 -m invest brief --session premarket|midday|postmarket
+python3 -m invest brief --session premarket|market_open|intraday|midday|market_close|postmarket
 python3 -m invest site build --privacy public
 python3 -m invest backtest run
 python3 -m invest backtest-signal --signal ai-infra-momentum
@@ -145,12 +150,14 @@ The AlloIQ daily pipeline is intentionally read-only:
 python3 -m invest filings --manager all --max-filings 2
 python3 -m invest sync --broker ibkr
 python3 -m invest brief --session premarket
+python3 -m invest brief --session intraday
 python3 -m invest brief --session midday
 python3 -m invest brief --session postmarket
 python3 -m invest site build --privacy public
 ```
 
-Use `midday` for intraday information changes and add/trim decisions, and `postmarket` for the end-of-day report.
+Use `market_open`, `intraday`, and `market_close` for site refreshes around the
+live trading session. Use `midday` and `postmarket` for full briefing messages.
 
 ## Scheduled Live Updates
 
@@ -159,7 +166,10 @@ sanitized public data snapshot in `web/data/`:
 
 ```bash
 python3 -m invest pipeline --kind premarket --privacy public
+python3 -m invest pipeline --kind market_open --privacy public
+python3 -m invest pipeline --kind intraday --privacy public
 python3 -m invest pipeline --kind midday --privacy public
+python3 -m invest pipeline --kind market_close --privacy public
 python3 -m invest pipeline --kind postmarket --privacy public
 python3 -m invest pipeline --kind weekly --privacy public
 ```
@@ -167,7 +177,10 @@ python3 -m invest pipeline --kind weekly --privacy public
 Schedules are defined in `.github/workflows/scheduled-reports.yml`:
 
 - Premarket: 8:00 AM ET on NYSE trading days.
+- Market open: 9:30 AM ET on NYSE trading days.
+- Intraday refresh: 10:00 AM, 11:00 AM, 1:00 PM, 2:00 PM, and 3:00 PM ET on NYSE trading days.
 - Midday: 12:00 PM ET on NYSE trading days.
+- Market close: 4:00 PM ET on NYSE trading days.
 - Post-close: 4:30 PM ET on NYSE trading days.
 - Weekly idea research: Sunday morning ET.
 
@@ -202,12 +215,19 @@ python3 -m invest notify --session premarket --channel telegram --dry-run
 python3 -m invest notify --session midday --channel telegram
 python3 -m invest notify --session postmarket --channel telegram
 python3 -m invest notify --session weekly --channel telegram
+python3 -m invest notify --session intraday --channel telegram --urgent-only --compare-to web/data/latest.json
 ```
 
 The message is generated from the latest private report JSON and includes only
 weights, add/trim deltas, expected-return estimates, catalysts, constraints,
 data health, and an AlloIQ link. It does not publish quantities, account values,
 broker names, cost basis, raw account ids, or tokens.
+
+Regular Telegram briefings are sent for premarket, midday, postmarket, and
+weekly runs. Market-open, hourly intraday, and market-close runs update the
+website but only send Telegram when a new urgent trigger appears, such as a
+high-confidence add/trim above the urgent sizing threshold or a material risk
+move in a large holding.
 
 The workflow never commits `.env`, `config/invest.toml`, `data/`, or `reports/`.
 It runs tests, builds the public site, scans for private fields, and commits only

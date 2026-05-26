@@ -7,11 +7,14 @@ from zoneinfo import ZoneInfo
 
 EASTERN = ZoneInfo("America/New_York")
 DAILY_RUN_WINDOWS = {
-    "premarket": (8, 0),
-    "midday": (12, 0),
-    "postmarket": (16, 30),
+    "premarket": [(8, 0)],
+    "market_open": [(9, 30)],
+    "intraday": [(10, 0), (11, 0), (13, 0), (14, 0), (15, 0)],
+    "midday": [(12, 0)],
+    "market_close": [(16, 0)],
+    "postmarket": [(16, 30)],
 }
-PIPELINE_KINDS = {"premarket", "midday", "postmarket", "weekly"}
+PIPELINE_KINDS = {"premarket", "market_open", "intraday", "midday", "market_close", "postmarket", "weekly"}
 
 
 @dataclass(frozen=True)
@@ -51,12 +54,12 @@ def should_run_pipeline(kind: str, scheduled_at: datetime | None = None, force: 
     trading_day = is_nyse_trading_day(now_et)
     if not trading_day:
         return decision(kind, False, "not an NYSE trading day", now_utc, now_et, False)
-    expected_hour, expected_minute = DAILY_RUN_WINDOWS[kind]
-    if (now_et.hour, now_et.minute) != (expected_hour, expected_minute):
+    expected_windows = DAILY_RUN_WINDOWS[kind]
+    if (now_et.hour, now_et.minute) not in expected_windows:
         return decision(
             kind,
             False,
-            f"outside {expected_hour:02d}:{expected_minute:02d} ET run window",
+            f"outside {format_run_windows(expected_windows)} ET run window",
             now_utc,
             now_et,
             True,
@@ -86,6 +89,10 @@ def trading_day_for(kind: str, scheduled_at_et: datetime) -> bool | None:
     if kind in DAILY_RUN_WINDOWS:
         return is_nyse_trading_day(scheduled_at_et)
     return None
+
+
+def format_run_windows(windows: list[tuple[int, int]]) -> str:
+    return ", ".join(f"{hour:02d}:{minute:02d}" for hour, minute in windows)
 
 
 def is_nyse_trading_day(value: datetime) -> bool:

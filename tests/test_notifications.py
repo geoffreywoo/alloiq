@@ -7,9 +7,11 @@ from unittest.mock import patch
 from invest.config import AppConfig
 from invest.notifications import (
     format_briefing_message,
+    format_urgent_alert_message,
     latest_report_payload,
     send_latest_briefing,
     send_telegram_message,
+    urgent_alert_items,
 )
 
 
@@ -106,6 +108,64 @@ class NotificationTests(unittest.TestCase):
 
         self.assertIn("AlloIQ Midday Brief - 2026-05-26", message)
 
+    def test_urgent_alert_items_detect_new_large_trade_and_dedup_previous(self):
+        payload = {
+            "portfolio_benchmark": {
+                "action_queue": [
+                    {
+                        "symbol": "AVGO",
+                        "trade_action": "add",
+                        "current_weight": 0.02,
+                        "target_weight": 0.04,
+                        "recommended_delta_weight": 0.02,
+                        "confidence": 82,
+                        "risk_adjusted_expected_return": 31,
+                        "company_reason": "Bottom-up evidence improved.",
+                    },
+                    {
+                        "symbol": "NVDA",
+                        "trade_action": "hold",
+                        "current_weight": 0.08,
+                        "target_weight": 0.08,
+                        "recommended_delta_weight": 0.0,
+                        "confidence": 90,
+                    },
+                ]
+            }
+        }
+
+        items = urgent_alert_items(payload)
+
+        self.assertEqual([item["symbol"] for item in items], ["AVGO"])
+        self.assertEqual(items[0]["urgent_severity"], "high")
+        self.assertEqual(urgent_alert_items(payload, previous_payload=payload), [])
+
+    def test_format_urgent_alert_message_is_compact_and_actionable(self):
+        payload = {
+            "as_of": "2026-05-26",
+            "session": "intraday",
+            "portfolio": {"cash_weight": 0.2, "equity_weight": 0.8},
+            "portfolio_benchmark": {},
+        }
+        item = {
+            "symbol": "GOOG",
+            "trade_action": "trim",
+            "current_weight": 0.19,
+            "target_weight": 0.16,
+            "recommended_delta_weight": -0.03,
+            "confidence": 83,
+            "risk_adjusted_expected_return": 1.0,
+            "urgent_reason": "Trim pressure crossed the urgent threshold.",
+            "urgent_severity": "high",
+            "company_reason": "Valuation support is weak.",
+        }
+
+        message = format_urgent_alert_message(payload, [item], site_url="https://alloiq.com")
+
+        self.assertIn("AlloIQ Urgent Alert - Intraday 2026-05-26", message)
+        self.assertIn("GOOG: Trim 3.0%; 19.0% -> 16.0%; high; ER +1.0%", message)
+        self.assertIn("Open: https://alloiq.com/dashboard", message)
+
     def test_send_latest_briefing_dry_run_does_not_require_credentials(self):
         with tempfile.TemporaryDirectory() as tmp:
             reports_dir = Path(tmp) / "reports"
@@ -134,8 +194,39 @@ class NotificationTests(unittest.TestCase):
             with patch.dict("os.environ", {}, clear=True):
                 result = send_latest_briefing(config, session="premarket")
 
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "missing telegram bot token or chat id")
+
+    def test_send_latest_briefing_urgent_only_skips_without_new_items(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            reports_dir = Path(tmp) / "reports"
+            current = reports_dir / "2026-05-26-intraday.json"
+            previous = Path(tmp) / "previous.json"
+            payload = {
+                "as_of": "2026-05-26",
+                "session": "intraday",
+                "portfolio_benchmark": {
+                    "action_queue": [
+                        {
+                            "symbol": "AVGO",
+                            "trade_action": "add",
+                            "current_weight": 0.02,
+                            "target_weight": 0.04,
+                            "recommended_delta_weight": 0.02,
+                            "confidence": 82,
+                            "risk_adjusted_expected_return": 31,
+                        }
+                    ]
+                },
+            }
+            write_report(current, payload)
+            write_report(previous, payload)
+            config = AppConfig(path=Path("config/invest.toml"), data={"reports": {"directory": str(reports_dir)}})
+
+            result = send_latest_briefing(config, session="intraday", dry_run=True, urgent_only=True, compare_to=previous)
+
             self.assertEqual(result["status"], "skipped")
-            self.assertEqual(result["reason"], "missing telegram bot token or chat id")
+            self.assertEqual(result["reason"], "no new urgent alerts")
 
     def test_send_telegram_message_posts_plain_text(self):
         class FakeResponse:

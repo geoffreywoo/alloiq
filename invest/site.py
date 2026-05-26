@@ -61,9 +61,12 @@ BENCHMARK_NAME_MAP = {
 }
 REPORT_SESSION_RANK = {
     "premarket": 1,
-    "midday": 2,
-    "intraday": 2,
-    "postmarket": 3,
+    "market_open": 2,
+    "intraday": 3,
+    "midday": 4,
+    "market_close": 5,
+    "postmarket": 6,
+    "weekly": 7,
 }
 ANTI_FUND_GROWTH_I = {
     "name": "Anti Fund Growth I, LP",
@@ -1134,7 +1137,10 @@ def default_methodology(payload: dict[str, Any]) -> dict[str, Any]:
         "pipeline": {
             "cadence": [
                 {"kind": "premarket", "when": "8:00 AM ET on NYSE trading days", "purpose": "Refresh holdings, filings, overnight catalysts, macro tape, and trade tickets before the open."},
+                {"kind": "market_open", "when": "9:30 AM ET on NYSE trading days", "purpose": "Refresh live open prices, position weights, risk moves, and opening-bell add/trim changes."},
+                {"kind": "intraday", "when": "10:00 AM, 11:00 AM, 1:00 PM, 2:00 PM, and 3:00 PM ET on NYSE trading days", "purpose": "Refresh hourly price action, catalyst changes, risk gates, and recommendation deltas during market hours."},
                 {"kind": "midday", "when": "12:00 PM ET on NYSE trading days", "purpose": "Refresh intraday price moves, catalysts, risk gates, and add/trim tickets for midday trade decisions."},
+                {"kind": "market_close", "when": "4:00 PM ET on NYSE trading days", "purpose": "Refresh close-of-session prices, risk changes, and urgent add/trim alerts before the post-close brief."},
                 {"kind": "postmarket", "when": "4:30 PM ET on NYSE trading days", "purpose": "Refresh end-of-day price action, attribution, catalysts, and follow-up ticket state."},
                 {"kind": "weekly", "when": "Sunday morning ET", "purpose": "Run full idea research, thesis/falsifier review, and weekly opportunity/risk queue."},
             ],
@@ -1514,7 +1520,12 @@ def public_trigger(card: dict[str, Any], action: str) -> str:
 
 
 def stale_status(run_kind: str, built_at: str, report_as_of: Any | None = None) -> dict[str, Any]:
-    max_age_hours = 192 if run_kind == "weekly" else 20
+    if run_kind in {"market_open", "intraday", "market_close"}:
+        max_age_hours = 2
+    elif run_kind == "weekly":
+        max_age_hours = 192
+    else:
+        max_age_hours = 20
     max_report_age_days = 7 if run_kind == "weekly" else 0
     status = {
         "status": "fresh",

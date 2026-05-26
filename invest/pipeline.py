@@ -22,6 +22,9 @@ class PortfolioSnapshotRegression(RuntimeError):
     pass
 
 
+BROKER_SYNC_KINDS = {"premarket", "midday", "postmarket", "weekly"}
+
+
 def run_pipeline(
     conn,
     config: AppConfig,
@@ -44,7 +47,11 @@ def run_pipeline(
         return result
 
     filing_result = refresh_filings(conn, config)
-    broker_result = sync_brokers(conn, config)
+    broker_result = (
+        sync_brokers(conn, config)
+        if kind in BROKER_SYNC_KINDS
+        else {"imported": 0, "status": "not_run", "reason": f"{kind} refresh reuses latest stored broker positions"}
+    )
     md_path, json_path = generate_brief(conn, config, kind)
     report_payload = json.loads(json_path.read_text(encoding="utf-8")) if json_path.exists() else {}
     regression_reason = public_portfolio_regression_reason(report_payload, broker_result, out_dir, privacy)

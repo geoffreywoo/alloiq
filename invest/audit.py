@@ -55,6 +55,7 @@ def schedule_health(session: str) -> dict[str, Any]:
         "current_run_kind": session,
         "expected_runs": [
             {"kind": "premarket", "cadence": "8:00 AM ET on NYSE trading days"},
+            {"kind": "midday", "cadence": "12:00 PM ET on NYSE trading days"},
             {"kind": "postmarket", "cadence": "4:30 PM ET on NYSE trading days"},
             {"kind": "weekly", "cadence": "Sunday morning ET"},
         ],

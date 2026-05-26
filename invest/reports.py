@@ -1516,10 +1516,11 @@ def build_methodology(
         "pipeline": {
             "commands": [
                 f"python3 -m invest pipeline --kind {kind} --privacy public"
-                for kind in ["premarket", "postmarket", "weekly"]
+                for kind in ["premarket", "midday", "postmarket", "weekly"]
             ],
             "cadence": [
                 {"kind": "premarket", "when": "8:00 AM ET on NYSE trading days", "purpose": "Refresh holdings, filings, overnight catalysts, macro tape, and trade tickets before the open."},
+                {"kind": "midday", "when": "12:00 PM ET on NYSE trading days", "purpose": "Refresh intraday price moves, catalysts, risk gates, and add/trim tickets for midday trade decisions."},
                 {"kind": "postmarket", "when": "4:30 PM ET on NYSE trading days", "purpose": "Refresh end-of-day price action, attribution, catalysts, and follow-up ticket state."},
                 {"kind": "weekly", "when": "Sunday morning ET", "purpose": "Run full idea research, thesis/falsifier review, and weekly opportunity/risk queue."},
             ],

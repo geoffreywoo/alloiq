@@ -9,6 +9,7 @@ path = "data/invest.db"
 directory = "reports"
 timezone = "America/Puerto_Rico"
 premarket_time = "08:00"
+midday_time = "12:00"
 postmarket_time = "17:00"
 
 [notifications]

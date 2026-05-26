@@ -17,6 +17,18 @@ class SchedulerTests(unittest.TestCase):
         self.assertFalse(decision.should_run)
         self.assertIn("outside", decision.reason)
 
+    def test_midday_runs_at_noon_eastern_during_dst(self):
+        decision = should_run_pipeline("midday", datetime(2026, 7, 6, 16, 0, tzinfo=timezone.utc))
+
+        self.assertTrue(decision.should_run)
+        self.assertTrue(decision.trading_day)
+
+    def test_midday_duplicate_standard_dst_window_is_skipped(self):
+        decision = should_run_pipeline("midday", datetime(2026, 7, 6, 17, 0, tzinfo=timezone.utc))
+
+        self.assertFalse(decision.should_run)
+        self.assertIn("outside", decision.reason)
+
     def test_postmarket_runs_at_close_window_in_standard_time(self):
         decision = should_run_pipeline("postmarket", datetime(2026, 1, 5, 21, 30, tzinfo=timezone.utc))
 

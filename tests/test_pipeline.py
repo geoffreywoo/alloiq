@@ -58,6 +58,25 @@ class PipelineTests(unittest.TestCase):
         brief.assert_not_called()
         site.assert_not_called()
 
+    def test_midday_pipeline_generates_midday_brief(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = AppConfig(
+                path=Path("config/invest.toml"),
+                data={"reports": {"directory": str(Path(tmp) / "reports")}},
+            )
+            with (
+                patch("invest.pipeline.refresh_filings", return_value={"stored": 1}),
+                patch("invest.pipeline.sync_brokers", return_value={"imported": 1}),
+                patch("invest.pipeline.generate_brief", return_value=(Path(tmp) / "midday.md", Path(tmp) / "midday.json")) as brief,
+                patch("invest.pipeline.build_site", return_value={"out_dir": str(Path(tmp) / "web")}),
+                patch("invest.pipeline.assert_public_assets_safe"),
+                patch("invest.pipeline.assert_public_snapshot_quality"),
+            ):
+                result = run_pipeline(None, config, "midday", out_dir=Path(tmp) / "web", force=True)
+
+        self.assertEqual(result["status"], "ran")
+        brief.assert_called_once_with(None, config, "midday")
+
     def test_public_pipeline_defers_publish_for_shrunken_portfolio_after_broker_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -41,7 +41,7 @@ def valuation_methodology() -> dict[str, Any]:
     return {
         "manager_entry_proxy": "Observed 13F share-delta weighted average. First observed position uses the quarter-end 13F implied mark; later additions use the quarter-end mark for added units; reductions reduce units at the running proxy basis.",
         "manager_current_value_proxy": "Latest reported 13F common-stock units multiplied by latest available free daily close.",
-        "portfolio_entry_proxy": "Broker cost basis divided by quantity when available; otherwise latest position mark is treated as a weak proxy.",
+        "portfolio_entry_proxy": "Broker cost basis divided by private position units when available; otherwise latest position mark is treated as a weak proxy.",
         "caveat": "13F filings do not disclose true entry price, intraday trading, shorts, private marks, or post-quarter changes.",
     }
 

@@ -37,6 +37,32 @@ class SiteTests(unittest.TestCase):
             self.assertEqual(latest["site"]["source_report"], "2026-05-24-premarket.json")
             self.assertEqual(latest["site"]["report_session"], "premarket")
 
+    def test_build_site_uses_midday_rank_when_report_mtime_matches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            out_dir = root / "web"
+            premarket_path = reports_dir / "2026-05-24-premarket.json"
+            midday_path = reports_dir / "2026-05-24-midday.json"
+            premarket_path.write_text(
+                json.dumps(minimal_report_payload("2026-05-24", "premarket")),
+                encoding="utf-8",
+            )
+            midday_path.write_text(
+                json.dumps(minimal_report_payload("2026-05-24", "midday")),
+                encoding="utf-8",
+            )
+            os.utime(premarket_path, (1_779_500_000, 1_779_500_000))
+            os.utime(midday_path, (1_779_500_000, 1_779_500_000))
+
+            result = build_site(reports_dir, out_dir=out_dir, privacy="public")
+
+            latest = json.loads((out_dir / "data" / "latest.json").read_text(encoding="utf-8"))
+            self.assertTrue(result["latest_report"].endswith("2026-05-24-midday.json"))
+            self.assertEqual(latest["site"]["source_report"], "2026-05-24-midday.json")
+            self.assertEqual(latest["site"]["report_session"], "midday")
+
     def test_public_payload_redacts_broker_data_and_adds_moves(self):
         payload = {
             "product": {"name": "Old", "domain": "old.example"},
@@ -278,6 +304,7 @@ class SiteTests(unittest.TestCase):
         self.assertNotIn("estimated_notional", json.dumps(public["methodology"]))
         self.assertNotIn("estimated_shares", json.dumps(public["methodology"]))
         self.assertNotIn('"quantity"', json.dumps(public["methodology"]))
+        self.assertNotIn("quantity", json.dumps(public["methodology"]))
         self.assertNotIn('"market_value"', json.dumps(public["methodology"]))
         self.assertEqual(public["data_health"]["sources"][0]["source"], "position_snapshot")
         self.assertNotIn("raw", json.dumps(public["audit"]))

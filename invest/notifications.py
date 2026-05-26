@@ -12,10 +12,11 @@ from .config import AppConfig
 NOTIFICATION_VERSION = "2026-05-telegram-briefing-v1"
 SESSION_LABELS = {
     "premarket": "Pre-market",
+    "midday": "Midday",
     "postmarket": "Post-market",
     "weekly": "Weekend",
 }
-SESSION_ORDER = {"premarket": 1, "postmarket": 2, "weekly": 3}
+SESSION_ORDER = {"premarket": 1, "midday": 2, "postmarket": 3, "weekly": 4}
 TELEGRAM_MAX_MESSAGE_CHARS = 3900
 
 

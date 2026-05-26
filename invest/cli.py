@@ -147,10 +147,10 @@ def main(argv: list[str] | None = None) -> int:
     filings.add_argument("--backfill", action="store_true", help="Process every recent SEC filing in the submissions feed")
 
     brief = sub.add_parser("brief", help="Generate a research brief")
-    brief.add_argument("--session", choices=["premarket", "postmarket", "weekly"], required=True)
+    brief.add_argument("--session", choices=["premarket", "midday", "postmarket", "weekly"], required=True)
 
     pipeline = sub.add_parser("pipeline", help="Run the scheduled data, report, and public-site pipeline")
-    pipeline.add_argument("--kind", choices=["premarket", "postmarket", "weekly"], required=True)
+    pipeline.add_argument("--kind", choices=["premarket", "midday", "postmarket", "weekly"], required=True)
     pipeline.add_argument("--privacy", choices=["public", "private"], default="public")
     pipeline.add_argument("--out-dir", default="web", help="Static output directory")
     pipeline.add_argument("--force", action="store_true", help="Bypass schedule/trading-day gating")
@@ -214,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
     tickets_export.add_argument("--format", choices=["markdown", "json"], default="markdown")
 
     notify = sub.add_parser("notify", help="Send the latest briefing to a configured notification channel")
-    notify.add_argument("--session", choices=["premarket", "postmarket", "weekly"], default="", help="Report session to send")
+    notify.add_argument("--session", choices=["premarket", "midday", "postmarket", "weekly"], default="", help="Report session to send")
     notify.add_argument("--channel", choices=["telegram"], default="telegram")
     notify.add_argument("--reports-dir", default="", help="Override report JSON directory")
     notify.add_argument("--site-url", default="", help="Override dashboard URL used in the message")
@@ -784,6 +784,7 @@ def build_external_alignment_review_plan_export(web_dir: Path) -> dict:
         "maturity_test_target_counts": review_maturity_test_target_counts(rows),
         "maturity_test_primary_metric_counts": review_maturity_test_primary_metric_counts(rows),
         "maturity_test_status_counts": review_maturity_test_status_counts(rows),
+        "maturity_test_blocker_counts": review_maturity_test_blocker_counts(rows),
         "maturity_test_result_counts": review_maturity_test_result_counts(rows),
         "due_dates": due_dates,
         "priority_rows": rows,
@@ -984,6 +985,17 @@ def review_maturity_test_result_counts(rows: list[dict]) -> dict[str, int]:
         if not outcome:
             continue
         counts[outcome] = counts.get(outcome, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def review_maturity_test_blocker_counts(rows: list[dict]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        for blocker in row.get("maturity_test_blockers") or []:
+            blocker_name = str(blocker or "")
+            if not blocker_name:
+                continue
+            counts[blocker_name] = counts.get(blocker_name, 0) + 1
     return dict(sorted(counts.items()))
 
 
@@ -2168,7 +2180,7 @@ def coverage_gap_report_candidates(reports_dir: Path | None) -> list[dict]:
 
 
 def report_candidate_sort_key(candidate: dict) -> tuple:
-    session_order = {"premarket": 0, "postmarket": 1, "weekly": 2}
+    session_order = {"premarket": 0, "midday": 1, "postmarket": 2, "weekly": 3}
     return (
         str(candidate.get("as_of") or ""),
         session_order.get(str(candidate.get("session") or ""), 9),
@@ -2777,6 +2789,9 @@ def format_external_alignment_review_plan_export(result: dict) -> str:
     maturity_status = result.get("maturity_test_status_counts") or {}
     if maturity_status:
         lines.append(f"- Maturity test status: {format_count_map(maturity_status)}")
+    maturity_blockers = result.get("maturity_test_blocker_counts") or {}
+    if maturity_blockers:
+        lines.append(f"- Maturity test blockers: {format_count_map(maturity_blockers)}")
     maturity_results = result.get("maturity_test_result_counts") or {}
     if maturity_results:
         lines.append(f"- Maturity test results: {format_count_map(maturity_results)}")

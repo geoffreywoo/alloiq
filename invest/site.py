@@ -61,6 +61,7 @@ BENCHMARK_NAME_MAP = {
 }
 REPORT_SESSION_RANK = {
     "premarket": 1,
+    "midday": 2,
     "intraday": 2,
     "postmarket": 3,
 }
@@ -836,6 +837,8 @@ def sanitize_manager_radar(radar: dict[str, Any]) -> dict[str, Any]:
     clean["focus_managers"] = [
         sanitize_focus_manager(row) for row in clean.get("focus_managers", [])
     ]
+    if isinstance(clean.get("ai_maxxi_valuation"), dict):
+        clean["ai_maxxi_valuation"] = sanitize_methodology_terms(strip_private_keys(clean["ai_maxxi_valuation"]))
     clean["focus_manager_groups"] = build_public_focus_manager_groups(clean["focus_managers"])
     return clean
 
@@ -1035,7 +1038,7 @@ def sanitize_methodology_terms(value: Any) -> Any:
         "accounts": "account identifiers",
         "broker": "broker names",
         "brokers": "broker names",
-        "quantity": "share quantities",
+        "quantity": "private position units",
         "shares": "share counts",
         "cost_basis": "cost basis",
         "market_value": "market value",
@@ -1048,7 +1051,9 @@ def sanitize_methodology_terms(value: Any) -> Any:
     if isinstance(value, list):
         return [sanitize_methodology_terms(item) for item in value]
     if isinstance(value, str):
-        return public_trading_copy(replacements.get(value, value))
+        clean = replacements.get(value, value)
+        clean = clean.replace("quantity", "private position units")
+        return public_trading_copy(clean)
     return value
 
 
@@ -1129,6 +1134,7 @@ def default_methodology(payload: dict[str, Any]) -> dict[str, Any]:
         "pipeline": {
             "cadence": [
                 {"kind": "premarket", "when": "8:00 AM ET on NYSE trading days", "purpose": "Refresh holdings, filings, overnight catalysts, macro tape, and trade tickets before the open."},
+                {"kind": "midday", "when": "12:00 PM ET on NYSE trading days", "purpose": "Refresh intraday price moves, catalysts, risk gates, and add/trim tickets for midday trade decisions."},
                 {"kind": "postmarket", "when": "4:30 PM ET on NYSE trading days", "purpose": "Refresh end-of-day price action, attribution, catalysts, and follow-up ticket state."},
                 {"kind": "weekly", "when": "Sunday morning ET", "purpose": "Run full idea research, thesis/falsifier review, and weekly opportunity/risk queue."},
             ],

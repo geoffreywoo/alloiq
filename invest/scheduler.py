@@ -8,9 +8,10 @@ from zoneinfo import ZoneInfo
 EASTERN = ZoneInfo("America/New_York")
 DAILY_RUN_WINDOWS = {
     "premarket": (8, 0),
+    "midday": (12, 0),
     "postmarket": (16, 30),
 }
-PIPELINE_KINDS = {"premarket", "postmarket", "weekly"}
+PIPELINE_KINDS = {"premarket", "midday", "postmarket", "weekly"}
 
 
 @dataclass(frozen=True)

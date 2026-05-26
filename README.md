@@ -16,12 +16,13 @@ python3 -m invest init
 python3 -m invest filings --manager all --max-filings 2
 python3 -m invest sync --broker ibkr
 python3 -m invest brief --session premarket
+python3 -m invest brief --session midday
 python3 -m invest brief --session postmarket
 python3 -m invest site build --privacy public
 ```
 
 Reports are written to `reports/YYYY-MM-DD-premarket.md` and
-`reports/YYYY-MM-DD-postmarket.md`, with JSON sidecars beside them.
+`reports/YYYY-MM-DD-midday.md` / `reports/YYYY-MM-DD-postmarket.md`, with JSON sidecars beside them.
 
 The public website is built into `web/`. In public mode, broker transactions,
 accounts, quantities, costs, and dollar values are redacted. IBKR positions and
@@ -130,7 +131,7 @@ python3 -m invest ibkr status
 python3 -m invest ibkr validate --import
 python3 -m invest filings --manager all --max-filings 2
 python3 -m invest filings --manager situational-awareness --backfill
-python3 -m invest brief --session premarket|postmarket
+python3 -m invest brief --session premarket|midday|postmarket
 python3 -m invest site build --privacy public
 python3 -m invest backtest run
 python3 -m invest backtest-signal --signal ai-infra-momentum
@@ -144,10 +145,12 @@ The AlloIQ daily pipeline is intentionally read-only:
 python3 -m invest filings --manager all --max-filings 2
 python3 -m invest sync --broker ibkr
 python3 -m invest brief --session premarket
+python3 -m invest brief --session midday
+python3 -m invest brief --session postmarket
 python3 -m invest site build --privacy public
 ```
 
-Use `postmarket` for the end-of-day report.
+Use `midday` for intraday information changes and add/trim decisions, and `postmarket` for the end-of-day report.
 
 ## Scheduled Live Updates
 
@@ -156,6 +159,7 @@ sanitized public data snapshot in `web/data/`:
 
 ```bash
 python3 -m invest pipeline --kind premarket --privacy public
+python3 -m invest pipeline --kind midday --privacy public
 python3 -m invest pipeline --kind postmarket --privacy public
 python3 -m invest pipeline --kind weekly --privacy public
 ```
@@ -163,6 +167,7 @@ python3 -m invest pipeline --kind weekly --privacy public
 Schedules are defined in `.github/workflows/scheduled-reports.yml`:
 
 - Premarket: 8:00 AM ET on NYSE trading days.
+- Midday: 12:00 PM ET on NYSE trading days.
 - Post-close: 4:30 PM ET on NYSE trading days.
 - Weekly idea research: Sunday morning ET.
 
@@ -194,6 +199,7 @@ Telegram delivery runs after the scheduled report if both secrets are present:
 
 ```bash
 python3 -m invest notify --session premarket --channel telegram --dry-run
+python3 -m invest notify --session midday --channel telegram
 python3 -m invest notify --session postmarket --channel telegram
 python3 -m invest notify --session weekly --channel telegram
 ```

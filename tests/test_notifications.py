@@ -18,6 +18,7 @@ class NotificationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             reports_dir = Path(tmp)
             write_report(reports_dir / "2026-05-25-premarket.json", {"as_of": "2026-05-25", "session": "premarket"})
+            write_report(reports_dir / "2026-05-26-midday.json", {"as_of": "2026-05-26", "session": "midday"})
             write_report(reports_dir / "2026-05-26-postmarket.json", {"as_of": "2026-05-26", "session": "postmarket"})
             write_report(reports_dir / "2026-05-26-premarket.json", {"as_of": "2026-05-26", "session": "premarket"})
 
@@ -25,6 +26,11 @@ class NotificationTests(unittest.TestCase):
 
             self.assertEqual(path.name, "2026-05-26-premarket.json")
             self.assertEqual(payload["session"], "premarket")
+
+            path, payload = latest_report_payload(reports_dir, session="midday")
+
+            self.assertEqual(path.name, "2026-05-26-midday.json")
+            self.assertEqual(payload["session"], "midday")
 
     def test_format_briefing_message_uses_public_safe_fields(self):
         payload = {
@@ -87,6 +93,18 @@ class NotificationTests(unittest.TestCase):
         self.assertNotIn("market_value", message)
         self.assertNotIn("1443.12", message)
         self.assertNotIn("ibkr", message.lower())
+
+    def test_format_midday_briefing_label(self):
+        payload = {
+            "as_of": "2026-05-26",
+            "session": "midday",
+            "portfolio": {"cash_weight": 0.2, "equity_weight": 0.8},
+            "portfolio_benchmark": {"action_queue": []},
+        }
+
+        message = format_briefing_message(payload, site_url="https://alloiq.com")
+
+        self.assertIn("AlloIQ Midday Brief - 2026-05-26", message)
 
     def test_send_latest_briefing_dry_run_does_not_require_credentials(self):
         with tempfile.TemporaryDirectory() as tmp:

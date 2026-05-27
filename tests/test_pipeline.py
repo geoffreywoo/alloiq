@@ -155,6 +155,16 @@ class PipelineTests(unittest.TestCase):
                             "model_target_weight": 0.03,
                             "max_allowed_weight": 0.15,
                         },
+                        {
+                            "symbol": "TSM",
+                            "portfolio_weight": 0.0,
+                            "current_weight": 0.0,
+                            "recommended_delta_weight": 0.03,
+                            "post_action_weight": 0.03,
+                            "target_weight": 0.03,
+                            "trade_target_weight": 0.03,
+                            "trade_action": "add",
+                        },
                     ],
                 },
                 "data_health": {
@@ -207,6 +217,10 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][0]["recommended_delta_weight"], 0.0)
             self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][0]["post_action_weight"], 0.25)
             self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][0]["trade_action"], "hold")
+            self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][1]["portfolio_weight"], 0.0)
+            self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][1]["recommended_delta_weight"], 0.0)
+            self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][1]["post_action_weight"], 0.0)
+            self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][1]["trade_action"], "hold")
             budget = updated_payload["portfolio_benchmark"]["sizing_plan"]["rebalance_budget"]
             self.assertEqual(budget["starting_cash_weight"], 0.2)
             self.assertEqual(budget["total_add_weight"], 0.0)

@@ -325,12 +325,13 @@ def update_portfolio_weight_fields(value: Any, fallback_weights: dict[str, float
     if not isinstance(value, dict):
         return
     symbol = str(value.get("symbol") or "").upper()
-    if symbol and symbol in fallback_weights:
-        current_weight = round(fallback_weights[symbol], 6)
+    is_action = action_weight_row(value)
+    if symbol and (symbol in fallback_weights or is_action):
+        current_weight = round(fallback_weights.get(symbol, 0.0), 6)
         for key in ("portfolio_weight", "current_weight", "current_portfolio_weight"):
             if key in value:
                 value[key] = current_weight
-        if action_weight_row(value):
+        if is_action:
             value["recommended_delta_weight"] = 0.0
             value["post_action_weight"] = current_weight
             value["target_weight"] = current_weight

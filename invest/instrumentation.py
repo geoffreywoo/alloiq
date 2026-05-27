@@ -65,6 +65,17 @@ APPROVAL_DATA_FRICTION_RESEARCH_FIELDS = APPROVAL_DATA_FRICTION_FEATURE_FIELDS +
 ]
 APPROVAL_DATA_FRICTION_OUTCOME_FIELDS = APPROVAL_DATA_FRICTION_RESEARCH_FIELDS
 APPROVAL_CHECK_FIELDS = ["check", "status", "detail"]
+LLM_REVIEW_ROW_FIELDS = [
+    "symbol",
+    "thesis_quality",
+    "evidence_gaps",
+    "contradictions",
+    "stale_assumptions",
+    "risk_questions",
+    "decision_usefulness_score",
+    "review_required",
+    "confidence",
+]
 
 
 def build_instrumentation_audit(payload: dict[str, Any]) -> dict[str, Any]:
@@ -76,6 +87,7 @@ def build_instrumentation_audit(payload: dict[str, Any]) -> dict[str, Any]:
     checks.extend(return_wiring_checks(payload))
     checks.extend(backtest_wiring_checks(payload))
     checks.extend(external_signal_schema_checks(payload))
+    checks.extend(llm_review_audit_checks(payload))
     checks.extend(external_reliability_wiring_checks(payload))
     checks.extend(approval_data_friction_feature_schema_checks(payload))
     checks.extend(earnings_action_wiring_checks(payload))
@@ -104,6 +116,10 @@ def build_instrumentation_audit(payload: dict[str, Any]) -> dict[str, Any]:
             "policy": "deterministic_scenario_sizing",
             "model_policy_version": ((payload.get("engine") or {}).get("version") or ""),
             "ml_model_active": False,
+            "llm_review_status": (payload.get("llm_review") or {}).get("status", "absent"),
+            "llm_review_mode": (payload.get("llm_review") or {}).get("mode", "disabled"),
+            "llm_review_affects_sizing": False,
+            "llm_review_affected_approval_gate": bool((payload.get("llm_review") or {}).get("affected_approval_gate", False)),
             "completed_backtest_label_count": int(backtest.get("completed_outcome_count") or 0),
             "note": "Expected returns and target weights are deterministic model outputs until enough forward labels mature for ML calibration.",
         },
@@ -260,6 +276,31 @@ def engine_wiring_checks(payload: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         checks.append(check_close(f"{symbol}_provenance_delta_mirrors_ticket", row.get("recommended_delta_weight"), ticket.get("recommended_delta_weight")))
         checks.append(check_close(f"{symbol}_provenance_target_mirrors_ticket", row.get("target_weight"), ticket.get("target_weight")))
+    return checks
+
+
+def llm_review_audit_checks(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    review = payload.get("llm_review") or {}
+    if not review:
+        return []
+    checks = [
+        check_present("llm_review_status_present", review.get("status")),
+        check_present("llm_review_mode_present", review.get("mode")),
+        check_present("llm_review_model_present", review.get("model")),
+        check_present("llm_review_prompt_version_present", review.get("prompt_version")),
+        check_present("llm_review_schema_version_present", review.get("schema_version")),
+        check_present("llm_review_redaction_status_present", review.get("redaction_status")),
+        check_present("llm_review_reviewed_symbol_count_present", review.get("reviewed_symbol_count")),
+        check_present("llm_review_schema_failure_count_present", review.get("schema_validation_failure_count")),
+        check_present("llm_review_approval_gate_effect_present", review.get("affected_approval_gate")),
+    ]
+    mode = str(review.get("mode") or "disabled")
+    if mode == "shadow":
+        checks.append(check_equal("llm_review_shadow_does_not_affect_approval_gate", bool(review.get("affected_approval_gate")), False))
+    if review.get("status") == "ok":
+        reviews = review.get("reviews") or []
+        checks.append(check_equal("llm_review_count_matches_reviews", review.get("reviewed_symbol_count"), len(reviews)))
+        checks.append(check_rows_have_fields("llm_review_rows_have_schema", reviews, LLM_REVIEW_ROW_FIELDS))
     return checks
 
 

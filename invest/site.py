@@ -275,6 +275,7 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
         public_payload.get("external_signals") or default_external_signals(public_payload)
     )
     public_payload["instrumentation_audit"] = sanitize_public_section(public_payload.get("instrumentation_audit") or {})
+    public_payload["llm_review"] = sanitize_public_section(public_payload.get("llm_review") or {})
     public_payload.pop("recommendation_training_examples", None)
     public_payload["decision_cards"] = [
         sanitize_card(card, portfolio_weights) for card in public_payload.get("decision_cards", [])
@@ -1729,7 +1730,10 @@ def strip_private_keys(value: Any) -> Any:
         "quantity",
         "raw",
         "raw_json",
+        "raw_prompt",
+        "request_payload",
         "shares",
+        "prompt_text",
         "transaction_id",
         "transactions",
     }

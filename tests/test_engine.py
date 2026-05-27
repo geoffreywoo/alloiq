@@ -156,6 +156,57 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(by_symbol["STACK"]["expected_return_rank_score"], 6.0)
         self.assertEqual(by_symbol["BASE"]["expected_return_rank_score"], 5.0)
 
+    def test_rank_candidates_collapses_equivalent_share_classes(self):
+        ranked = rank_candidates(
+            [
+                {"symbol": "GOOGL", "expected_return_score": 25.0, "current_weight": 0.0, "signal_families": []},
+                {"symbol": "GOOG", "expected_return_score": 25.0, "current_weight": 0.12, "signal_families": []},
+                {"symbol": "MSFT", "expected_return_score": 22.0, "current_weight": 0.05, "signal_families": []},
+            ],
+            {"weight_adjustments": {}},
+        )
+
+        self.assertEqual([row["symbol"] for row in ranked], ["GOOG", "MSFT"])
+        self.assertEqual(ranked[0]["symbol_proxy_key"], "GOOG")
+        self.assertEqual(ranked[0]["deduplicated_equivalent_symbols"], ["GOOGL"])
+        self.assertEqual(ranked[0]["rank"], 1)
+        self.assertEqual(ranked[1]["rank"], 2)
+
+    def test_rank_candidates_prefers_actionable_exact_ticket_for_equivalent_symbols(self):
+        ranked = rank_candidates(
+            [
+                {"symbol": "GOOG", "expected_return_score": 25.0, "current_weight": 0.12, "signal_families": []},
+                {"symbol": "GOOGL", "expected_return_score": 25.0, "current_weight": 0.0, "signal_families": []},
+            ],
+            {"weight_adjustments": {}},
+            [{"symbol": "GOOGL", "trade_action": "add", "recommended_delta_weight": 0.02}],
+        )
+
+        self.assertEqual([row["symbol"] for row in ranked], ["GOOGL"])
+        self.assertEqual(ranked[0]["deduplicated_equivalent_symbols"], ["GOOG"])
+
+    def test_engine_provenance_does_not_apply_proxy_ticket_after_deduping(self):
+        engine = build_engine_snapshot(
+            date(2026, 5, 24),
+            "postmarket",
+            [],
+            {},
+            {},
+            [{"symbol": "GOOGL", "trade_action": "hold", "recommended_delta_weight": 0.0, "target_weight": 0.0}],
+            feature_matrix={
+                "rows": [
+                    {"symbol": "GOOGL", "expected_return_score": 25.0, "current_weight": 0.0, "signal_families": []},
+                    {"symbol": "GOOG", "expected_return_score": 25.0, "current_weight": 0.12, "signal_families": []},
+                ]
+            },
+        )
+
+        provenance = engine["recommendation_provenance"][0]
+        self.assertEqual(provenance["symbol"], "GOOG")
+        self.assertEqual(provenance["recommended_delta_weight"], 0)
+        self.assertEqual(provenance["target_weight"], 0.12)
+        self.assertEqual(provenance["status"], "ranked")
+
     def test_learning_ignores_sparse_signal_family_outliers(self):
         outcomes = (
             [{"horizon": "1m", "forward_return_pct": 6, "signal_families": ["manager"]} for _ in range(10)]

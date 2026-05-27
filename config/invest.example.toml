@@ -69,6 +69,18 @@ earnings_risk_window_days = 7
 no_add_symbols = []
 watch_only_symbols = []
 
+[llm]
+# Optional evidence-review layer. Disabled by default; it never ranks, sizes,
+# or executes trades. In shadow mode, reviews are recorded but do not affect
+# approval tickets. In review_gate mode, review_required=true adds a human
+# approval check only.
+enabled = false
+provider = "openai"
+model = "gpt-4o-mini"
+api_key_env = "OPENAI_API_KEY"
+max_symbols_per_run = 12
+mode = "shadow"
+
 [earnings]
 # Free-first provider layer. Manual dates and company IR feeds are treated as
 # canonical when present. Alpha Vantage is optional and uses a free API key from

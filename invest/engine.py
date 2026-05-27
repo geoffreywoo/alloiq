@@ -5,11 +5,11 @@ from statistics import mean
 from typing import Any
 
 from .risk import normalize_limits
-from .symbols import equivalent_symbols, proxied_lookup, proxy_index
+from .symbols import equivalent_symbols, proxied_lookup, proxy_index, symbol_proxy_key
 from .util import stable_id
 
 
-ENGINE_POLICY_VERSION = "2026-05-bottom-up-first-v2"
+ENGINE_POLICY_VERSION = "2026-05-bottom-up-first-v3"
 ENGINE_MODE = "approval_plus_paper"
 OBJECTIVE = "maximize_expected_3_12m_forward_return"
 MIN_LEARNING_OUTCOMES = 20
@@ -31,13 +31,21 @@ def build_engine_snapshot(
     outcome_history: list[dict[str, Any]] | None = None,
     feature_matrix: dict[str, Any] | None = None,
     research_book: dict[str, Any] | None = None,
+    llm_review: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     features = build_engine_features(as_of, cards, portfolio, portfolio_benchmark, feature_matrix, research_book)
     learning = build_learning_state(outcome_history or [])
-    ranked = rank_candidates(features, learning)
+    ranked = rank_candidates(features, learning, approval_tickets)
     optimizer = build_allocator_output(ranked, portfolio, approval_tickets, risk_limits)
-    ticket_by_symbol = proxy_index(approval_tickets)
-    provenance = [recommendation_provenance(row, ticket_by_symbol.get(row["symbol"])) for row in ranked[:20]]
+    ticket_by_symbol = {str(ticket.get("symbol") or "").upper(): ticket for ticket in approval_tickets}
+    llm_review_by_symbol = {
+        str(row.get("symbol") or "").upper(): row
+        for row in (llm_review or {}).get("reviews") or []
+    }
+    provenance = [
+        recommendation_provenance(row, ticket_by_symbol.get(row["symbol"]), llm_review_by_symbol.get(row["symbol"]))
+        for row in ranked[:20]
+    ]
     return {
         "version": ENGINE_POLICY_VERSION,
         "mode": ENGINE_MODE,
@@ -317,21 +325,86 @@ def sample_confidence(count: int) -> float:
     return round(min(1.0, max(0.0, count / FULL_FAMILY_CONFIDENCE_OUTCOMES)), 3)
 
 
-def rank_candidates(features: list[dict[str, Any]], learning: dict[str, Any]) -> list[dict[str, Any]]:
+def rank_candidates(
+    features: list[dict[str, Any]],
+    learning: dict[str, Any],
+    tickets: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     adjustments = learning.get("weight_adjustments") or {}
-    ranked = []
-    for row in features:
+    exact_ticket_by_symbol = {str(ticket.get("symbol") or "").upper(): ticket for ticket in tickets or []}
+    scored = []
+    for input_index, row in enumerate(features):
         learning_delta = rank_learning_adjustment(row.get("signal_families", []), adjustments)
         expected = float(row.get("risk_adjusted_expected_return", row.get("expected_return_score") or 0) or 0) + learning_delta
         item = dict(row)
+        item["symbol_proxy_key"] = symbol_proxy_key(item.get("symbol"))
         item["learning_adjustment"] = round(learning_delta, 2)
         item["learning_adjustment_cap"] = MAX_RANK_LEARNING_ADJUSTMENT
         item["expected_return_rank_score"] = round(expected, 2)
-        ranked.append(item)
+        item["_rank_input_index"] = input_index
+        scored.append(item)
+    ranked = dedupe_equivalent_candidates(scored, exact_ticket_by_symbol)
     ranked.sort(key=lambda item: item["expected_return_rank_score"], reverse=True)
     for index, item in enumerate(ranked, start=1):
         item["rank"] = index
+        item.pop("_rank_input_index", None)
     return ranked
+
+
+def dedupe_equivalent_candidates(
+    candidates: list[dict[str, Any]],
+    exact_ticket_by_symbol: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    by_proxy: dict[str, dict[str, Any]] = {}
+    duplicate_symbols: dict[str, list[str]] = {}
+    for item in candidates:
+        proxy_key = str(item.get("symbol_proxy_key") or item.get("symbol") or "")
+        existing = by_proxy.get(proxy_key)
+        if existing is None:
+            by_proxy[proxy_key] = item
+            duplicate_symbols.setdefault(proxy_key, [])
+            continue
+        preferred, duplicate = preferred_equivalent_candidate(existing, item, exact_ticket_by_symbol)
+        by_proxy[proxy_key] = preferred
+        duplicate_symbols.setdefault(proxy_key, [])
+        duplicate_symbols[proxy_key].append(str(duplicate.get("symbol") or ""))
+    for proxy_key, item in by_proxy.items():
+        symbols = sorted({symbol for symbol in duplicate_symbols.get(proxy_key, []) if symbol and symbol != item.get("symbol")})
+        if symbols:
+            item["deduplicated_equivalent_symbols"] = symbols
+    return list(by_proxy.values())
+
+
+def preferred_equivalent_candidate(
+    left: dict[str, Any],
+    right: dict[str, Any],
+    exact_ticket_by_symbol: dict[str, dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    left_key = equivalent_candidate_key(left, exact_ticket_by_symbol)
+    right_key = equivalent_candidate_key(right, exact_ticket_by_symbol)
+    if right_key > left_key:
+        return right, left
+    return left, right
+
+
+def equivalent_candidate_key(item: dict[str, Any], exact_ticket_by_symbol: dict[str, dict[str, Any]]) -> tuple[float, int, float, int]:
+    symbol = str(item.get("symbol") or "").upper()
+    return (
+        float(item.get("expected_return_rank_score") or 0),
+        actionable_ticket_priority(exact_ticket_by_symbol.get(symbol)),
+        float(item.get("current_weight") or 0),
+        -int(item.get("_rank_input_index") or 0),
+    )
+
+
+def actionable_ticket_priority(ticket: dict[str, Any] | None) -> int:
+    if not ticket:
+        return 0
+    delta = abs(float(ticket.get("recommended_delta_weight") or 0))
+    action = str(ticket.get("trade_action") or "").lower()
+    if delta > 0 or action in {"add", "trim", "reduce", "sell"}:
+        return 1
+    return 0
 
 
 def rank_learning_adjustment(signal_families: list[Any], adjustments: dict[str, Any]) -> float:
@@ -397,8 +470,12 @@ def build_allocator_output(
     }
 
 
-def recommendation_provenance(feature: dict[str, Any], ticket: dict[str, Any] | None) -> dict[str, Any]:
-    return {
+def recommendation_provenance(
+    feature: dict[str, Any],
+    ticket: dict[str, Any] | None,
+    llm_review: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    provenance = {
         "symbol": feature["symbol"],
         "rank": feature["rank"],
         "model_policy_version": ENGINE_POLICY_VERSION,
@@ -417,3 +494,15 @@ def recommendation_provenance(feature: dict[str, Any], ticket: dict[str, Any] | 
         "paper_tested": True,
         "status": ticket.get("status", "research_only") if ticket else "ranked",
     }
+    if llm_review:
+        provenance["llm_review"] = {
+            "thesis_quality": llm_review.get("thesis_quality"),
+            "decision_usefulness_score": llm_review.get("decision_usefulness_score"),
+            "review_required": bool(llm_review.get("review_required")),
+            "confidence": llm_review.get("confidence"),
+            "evidence_gap_count": len(llm_review.get("evidence_gaps") or []),
+            "contradiction_count": len(llm_review.get("contradictions") or []),
+            "stale_assumption_count": len(llm_review.get("stale_assumptions") or []),
+            "risk_question_count": len(llm_review.get("risk_questions") or []),
+        }
+    return provenance

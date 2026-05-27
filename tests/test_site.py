@@ -1458,6 +1458,40 @@ class SiteTests(unittest.TestCase):
         self.assertIn("Current px vs inferred 13F entry", core_script)
         self.assertIn("since_entry_est_return_pct", core_script)
 
+    def test_public_payload_sanitizes_llm_review_request_fields(self):
+        payload = minimal_report_payload("2026-05-24", "postmarket")
+        payload["llm_review"] = {
+            "status": "ok",
+            "mode": "shadow",
+            "model": "gpt-4o-mini",
+            "raw_prompt": "private prompt",
+            "request_payload": {"api_key": "secret"},
+            "prompt_text": "private prompt text",
+            "reviews": [
+                {
+                    "symbol": "NVDA",
+                    "thesis_quality": "mixed",
+                    "decision_usefulness_score": 75,
+                    "review_required": True,
+                    "confidence": 0.8,
+                    "evidence_gaps": ["Refresh margin evidence."],
+                    "contradictions": [],
+                    "stale_assumptions": [],
+                    "risk_questions": [],
+                }
+            ],
+        }
+
+        public = sanitize_payload(payload)
+        text = json.dumps(public["llm_review"])
+
+        self.assertEqual(public["llm_review"]["status"], "ok")
+        self.assertIn("reviews", public["llm_review"])
+        self.assertNotIn("raw_prompt", text)
+        self.assertNotIn("request_payload", text)
+        self.assertNotIn("api_key", text)
+        self.assertNotIn("prompt_text", text)
+
 
 def minimal_report_payload(as_of: str, session: str) -> dict:
     return {

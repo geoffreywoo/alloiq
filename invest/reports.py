@@ -21,6 +21,11 @@ from .external_signals import build_external_signal_snapshot, external_provider_
 from .features import build_feature_matrix
 from .instrumentation import build_instrumentation_audit
 from .ideas import build_idea_book
+from .llm_review import (
+    apply_llm_review_to_approval_tickets,
+    attach_llm_review_to_data_health,
+    build_llm_review_snapshot,
+)
 from .macro import DEFAULT_MACRO_SYMBOLS, build_macro_dashboard
 from .macro_fred import DEFAULT_FRED_SERIES, build_fred_macro_snapshot
 from .managers import build_manager_radar
@@ -236,6 +241,18 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         external_signals=external_signals,
         price_audit=price_audit,
     )
+    llm_review = build_llm_review_snapshot(
+        config,
+        as_of,
+        session,
+        feature_matrix,
+        research_book,
+        data_health,
+        cards,
+        approval_tickets,
+    )
+    apply_llm_review_to_approval_tickets(approval_tickets, llm_review)
+    attach_llm_review_to_data_health(data_health, llm_review)
     attach_data_health_approval_blocker_summary(data_health, approval_tickets)
     calendars = build_calendar_snapshot(config, as_of, manager_radar, earnings_events)
     recommendation_training_examples = build_training_examples(
@@ -262,6 +279,7 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         outcome_history=outcome_history,
         feature_matrix=feature_matrix,
         research_book=research_book,
+        llm_review=llm_review,
     )
     outcome_diagnostics = build_outcome_diagnostics(
         as_of,
@@ -310,6 +328,7 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         "research_book": research_book,
         "portfolio_benchmark": portfolio_benchmark,
         "approval_tickets": approval_tickets,
+        "llm_review": llm_review,
         "recommendation_explanations": build_recommendation_explanations(as_of, portfolio_benchmark, research_book, company_underwriting, sector_underwriting),
         "review_queue": build_review_queue(research_book, portfolio_benchmark),
         "recommendation_training_examples": recommendation_training_examples,

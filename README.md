@@ -204,6 +204,10 @@ Optional data-source secrets:
   provider for 3/6/12 month expected earnings dates. Without it, AlloIQ still
   uses manual dates, company IR RSS/Atom feeds, Nasdaq's public earnings
   calendar fallback, SEC result markers, and news-derived catalyst detection.
+- `OPENAI_API_KEY`: enables the optional LLM evidence-review layer when
+  `[llm].enabled = true` in `ALLOIQ_CONFIG_TOML`. Start with `[llm].mode =
+  "shadow"` so reviews are published as evidence only and cannot block approval
+  tickets.
 
 Optional briefing delivery secrets:
 

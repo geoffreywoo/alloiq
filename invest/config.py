@@ -79,6 +79,10 @@ class AppConfig:
         return dict(self.data.get("external_signals", {}))
 
     @property
+    def llm_settings(self) -> dict[str, Any]:
+        return dict(self.data.get("llm", {}))
+
+    @property
     def risk_limits(self) -> dict[str, Any]:
         risk = dict(self.data.get("risk", {}))
         risk.setdefault("max_single_name_weight", 0.15)

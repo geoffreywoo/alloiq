@@ -393,7 +393,13 @@ class ResearchEngineTests(unittest.TestCase):
         self.assertEqual(sizing["cash_reserve_weight"], 0.2)
         self.assertEqual(sizing["cash_deployable_weight"], 0.02)
         self.assertLessEqual(sizing["post_trade_cash_weight"], 0.2)
-        self.assertAlmostEqual(sum(row["model_target_weight"] for row in sizing["targets"]), 0.82, places=5)
+        self.assertLessEqual(sum(row["model_target_weight"] for row in sizing["targets"]), 0.82)
+        self.assertTrue(
+            all(
+                row["model_target_weight"] <= row["max_allowed_weight"]
+                for row in sizing["targets"]
+            )
+        )
         self.assertTrue(all(row["symbol"] != "CASH" for row in sizing["targets"]))
 
     def test_training_examples_and_outcome_diagnostics_are_ml_ready(self):

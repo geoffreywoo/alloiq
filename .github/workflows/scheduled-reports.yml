@@ -167,10 +167,26 @@ jobs:
           python3 -m invest pipeline "${args[@]}" | tee /tmp/alloiq-pipeline-result.json
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
+          from pathlib import Path
 
-          result = json.load(open("/tmp/alloiq-pipeline-result.json", encoding="utf-8"))
+          text = Path("/tmp/alloiq-pipeline-result.json").read_text(encoding="utf-8")
+          decoder = json.JSONDecoder()
+          result = None
+          for index, character in enumerate(text):
+              if character != "{":
+                  continue
+              try:
+                  candidate, _ = decoder.raw_decode(text[index:])
+              except json.JSONDecodeError:
+                  continue
+              if isinstance(candidate, dict) and "status" in candidate:
+                  result = candidate
+          if result is None:
+              raise SystemExit("No pipeline result JSON object found in pipeline output")
           print(f"status={result.get('status', 'unknown')}")
-          print(f"reason={result.get('reason', '')}")
+          print("reason<<PIPELINE_REASON")
+          print(str(result.get("reason", "")))
+          print("PIPELINE_REASON")
           PY
 
       - name: Privacy scan public assets
@@ -196,6 +212,9 @@ jobs:
         env:
           ALLOIQ_TELEGRAM_BOT_TOKEN: ${{ secrets.ALLOIQ_TELEGRAM_BOT_TOKEN }}
           ALLOIQ_TELEGRAM_CHAT_ID: ${{ secrets.ALLOIQ_TELEGRAM_CHAT_ID }}
+          PIPELINE_KIND: ${{ steps.pipeline.outputs.kind }}
+          PIPELINE_STATUS: ${{ steps.scheduled_pipeline.outputs.status }}
+          PIPELINE_REASON: ${{ steps.scheduled_pipeline.outputs.reason }}
         shell: bash
         run: |
           if [[ -z "${ALLOIQ_TELEGRAM_BOT_TOKEN:-}" || -z "${ALLOIQ_TELEGRAM_CHAT_ID:-}" ]]; then
@@ -213,3 +232,39 @@ jobs:
               --urgent-only \
               --compare-to /tmp/alloiq-previous-latest.json
           fi
+
+      - name: Send Telegram pipeline warning
+        if: steps.scheduled_pipeline.outputs.status != '' && steps.scheduled_pipeline.outputs.status != 'ran'
+        env:
+          ALLOIQ_TELEGRAM_BOT_TOKEN: ${{ secrets.ALLOIQ_TELEGRAM_BOT_TOKEN }}
+          ALLOIQ_TELEGRAM_CHAT_ID: ${{ secrets.ALLOIQ_TELEGRAM_CHAT_ID }}
+          PIPELINE_KIND: ${{ steps.pipeline.outputs.kind }}
+          PIPELINE_STATUS: ${{ steps.scheduled_pipeline.outputs.status }}
+          PIPELINE_REASON: ${{ steps.scheduled_pipeline.outputs.reason }}
+        shell: bash
+        run: |
+          if [[ -z "${ALLOIQ_TELEGRAM_BOT_TOKEN:-}" || -z "${ALLOIQ_TELEGRAM_CHAT_ID:-}" ]]; then
+            echo "Telegram pipeline warning skipped: missing ALLOIQ_TELEGRAM_BOT_TOKEN or ALLOIQ_TELEGRAM_CHAT_ID."
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json
+          import os
+
+          from invest.notifications import send_telegram_message
+
+          kind = os.environ.get("PIPELINE_KIND", "scheduled")
+          status = os.environ.get("PIPELINE_STATUS", "unknown")
+          reason = os.environ.get("PIPELINE_REASON", "")
+          message = (
+              f"AlloIQ {kind} pipeline {status}\n"
+              f"Reason: {reason or 'No reason emitted.'}\n"
+              "No public snapshot was published; the existing site remains unchanged."
+          )
+          result = send_telegram_message(
+              os.environ["ALLOIQ_TELEGRAM_BOT_TOKEN"],
+              os.environ["ALLOIQ_TELEGRAM_CHAT_ID"],
+              message,
+          )
+          print(json.dumps(result, indent=2, sort_keys=True))
+          PY

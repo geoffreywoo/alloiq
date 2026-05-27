@@ -54,6 +54,80 @@ class RiskControlTests(unittest.TestCase):
         self.assertEqual(controlled[0]["target_weight"], 0.01)
         self.assertIn("earnings_blackout", controlled[0]["risk_flags"])
 
+    def test_estimated_earnings_adds_require_confirmation(self):
+        actions = [
+            {
+                "symbol": "AVGO",
+                "trade_action": "add",
+                "portfolio_weight": 0.05,
+                "recommended_delta_weight": 0.03,
+                "target_weight": 0.08,
+                "signal_family_count": 3,
+            }
+        ]
+        controlled = apply_risk_controls(
+            actions,
+            {"by_bucket": [{"bucket": "semis_networking_hbm", "weight": 0.2}]},
+            [{"symbol": "AVGO", "bucket": "semis_networking_hbm", "score": 50}],
+            earnings_events=[
+                {
+                    "symbol": "AVGO",
+                    "event_type": "earnings",
+                    "event_date": "2026-06-03",
+                    "days_until": 8,
+                    "source": "nasdaq_earnings_calendar",
+                    "confirmed_or_estimated": "estimated",
+                    "risk_window": "clear",
+                }
+            ],
+            limits={"earnings_risk_window_days": 7, "max_one_ticket_delta": 0.03},
+        )
+
+        self.assertEqual(controlled[0]["trade_action"], "add")
+        self.assertEqual(controlled[0]["recommended_delta_weight"], 0.03)
+        self.assertIn("earnings_confirmation_required", controlled[0]["risk_flags"])
+        self.assertTrue(controlled[0]["earnings_confirmation_required"])
+        self.assertEqual(controlled[0]["earnings_event_date"], "2026-06-03")
+        self.assertEqual(controlled[0]["earnings_event_source"], "nasdaq_earnings_calendar")
+        self.assertEqual(controlled[0]["earnings_confirmed_or_estimated"], "estimated")
+        self.assertTrue(any("provider-estimated" in note for note in controlled[0]["constraint_notes"]))
+
+    def test_estimated_earnings_trims_require_confirmation(self):
+        actions = [
+            {
+                "symbol": "MRVL",
+                "trade_action": "trim",
+                "portfolio_weight": 0.06,
+                "recommended_delta_weight": -0.01,
+                "target_weight": 0.05,
+                "signal_family_count": 3,
+            }
+        ]
+        controlled = apply_risk_controls(
+            actions,
+            {"by_bucket": [{"bucket": "semis_networking_hbm", "weight": 0.2}]},
+            [{"symbol": "MRVL", "bucket": "semis_networking_hbm", "score": 50}],
+            earnings_events=[
+                {
+                    "symbol": "MRVL",
+                    "event_type": "earnings",
+                    "event_date": "2026-05-27",
+                    "days_until": 1,
+                    "source": "nasdaq_earnings_calendar",
+                    "confirmed_or_estimated": "estimated",
+                    "risk_window": "blackout",
+                }
+            ],
+        )
+
+        self.assertEqual(controlled[0]["trade_action"], "trim")
+        self.assertEqual(controlled[0]["recommended_delta_weight"], -0.01)
+        self.assertIn("earnings_confirmation_required", controlled[0]["risk_flags"])
+        self.assertTrue(controlled[0]["earnings_confirmation_required"])
+        self.assertEqual(controlled[0]["earnings_event_date"], "2026-05-27")
+        self.assertEqual(controlled[0]["earnings_risk_window"], "blackout")
+        self.assertTrue(any("provider-estimated" in note for note in controlled[0]["constraint_notes"]))
+
 
 if __name__ == "__main__":
     unittest.main()

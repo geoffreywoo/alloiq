@@ -8,11 +8,13 @@ from .features import MODEL_POLICY_VERSION
 from .util import stable_id
 
 
-OUTCOME_VERSION = "2026-05-outcome-diagnostics-v1"
-TRAINING_EXAMPLE_VERSION = "2026-05-recommendation-training-example-v2"
+OUTCOME_VERSION = "2026-05-outcome-diagnostics-v4"
+TRAINING_EXAMPLE_VERSION = "2026-05-recommendation-training-example-v5"
 FORWARD_HORIZONS = ["5d", "1m", "3m", "6m", "12m"]
 MIN_LONG_HORIZON_LEARNING_LABELS = 20
 MIN_CALIBRATION_SAMPLES = 20
+APPROVAL_NON_BLOCKING_BUCKETS = {"", "unknown", "no_approval_context", "ready"}
+APPROVAL_DATA_FRICTION_NON_ACTIONABLE_BUCKETS = {"", "unknown", "clear", "no_friction", "none"}
 
 
 def build_training_examples(
@@ -37,6 +39,7 @@ def build_training_examples(
             continue
         research = research_by_symbol.get(symbol, {})
         feature = feature_by_symbol.get(symbol, {})
+        approval_blocking_checks = approval_blocking_check_names(ticket.get("approval_checks"))
         examples.append(
             {
                 "example_id": stable_id([as_of.isoformat(), session, symbol, ticket.get("ticket_id"), TRAINING_EXAMPLE_VERSION]),
@@ -73,13 +76,67 @@ def build_training_examples(
                 "external_provider_count": feature.get("external_provider_count"),
                 "external_provider_ok_count": feature.get("external_provider_ok_count"),
                 "external_provider_ok_ratio": feature.get("external_provider_ok_ratio"),
+                "external_provider_gap_count": feature.get("external_provider_gap_count"),
+                "external_provider_configuration_gap_count": feature.get("external_provider_configuration_gap_count"),
+                "external_provider_transient_gap_count": feature.get("external_provider_transient_gap_count"),
+                "external_provider_stale_gap_count": feature.get("external_provider_stale_gap_count"),
+                "external_provider_runtime_gap_count": feature.get("external_provider_runtime_gap_count"),
+                "external_provider_other_gap_count": feature.get("external_provider_other_gap_count"),
+                "external_provider_primary_gap_severity": feature.get("external_provider_primary_gap_severity"),
+                "external_provider_gap_severity_score": feature.get("external_provider_gap_severity_score"),
                 "external_signal_count": feature.get("external_signal_count"),
                 "external_source_count": feature.get("external_source_count"),
+                "approval_data_friction_score": research.get("approval_data_friction_score", feature.get("approval_data_friction_score")),
+                "approval_data_friction_bucket": research.get("approval_data_friction_bucket", feature.get("approval_data_friction_bucket", "clear")),
+                "approval_data_friction_reasons": research.get("approval_data_friction_reasons", feature.get("approval_data_friction_reasons", [])),
+                "approval_data_friction_penalty": research.get("approval_data_friction_penalty"),
+                "earnings_days_until": ticket.get("earnings_days_until", research.get("earnings_days_until", feature.get("earnings_days_until"))),
+                "earnings_event_date": ticket.get("earnings_event_date", research.get("earnings_event_date", feature.get("earnings_event_date", ""))),
+                "earnings_event_source": ticket.get("earnings_event_source", research.get("earnings_event_source", feature.get("earnings_event_source", ""))),
+                "earnings_confirmed_or_estimated": ticket.get(
+                    "earnings_confirmed_or_estimated",
+                    research.get("earnings_confirmed_or_estimated", feature.get("earnings_confirmed_or_estimated", "")),
+                ),
+                "earnings_risk_window": ticket.get("earnings_risk_window", research.get("earnings_risk_window", feature.get("earnings_risk_window", ""))),
+                "earnings_confirmation_required": bool(
+                    ticket.get(
+                        "earnings_confirmation_required",
+                        research.get("earnings_confirmation_required", feature.get("earnings_confirmation_required", False)),
+                    )
+                ),
+                "approval_required": bool(ticket.get("approval_required", bool(ticket.get("approval_checks") or ticket.get("approval_gate_status")))),
+                "approval_gate_status": str(ticket.get("approval_gate_status") or ""),
+                "approval_open_check_count": approval_open_check_count(ticket, approval_blocking_checks),
+                "approval_blocking_checks": approval_blocking_checks,
                 "forward_return_labels": {horizon: None for horizon in FORWARD_HORIZONS},
                 "label_status": "pending_forward_returns",
             }
         )
     return examples
+
+
+def approval_blocking_check_names(checks: Any) -> list[str]:
+    if not isinstance(checks, list):
+        return []
+    names = []
+    for check in checks:
+        if not isinstance(check, dict) or check.get("status") == "passed":
+            continue
+        name = str(check.get("check") or "").strip()
+        if name:
+            names.append(name)
+    return sorted(set(names))
+
+
+def approval_open_check_count(ticket: dict[str, Any], blocking_checks: list[str] | None = None) -> int | None:
+    value = ticket.get("approval_open_check_count")
+    if value not in (None, ""):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            pass
+    checks = blocking_checks if blocking_checks is not None else approval_blocking_check_names(ticket.get("approval_checks"))
+    return len(checks) if checks else None
 
 
 def build_outcome_diagnostics(
@@ -113,12 +170,16 @@ def build_outcome_diagnostics(
         "label_maturity": maturity,
         "learning_readiness_projection": learning_readiness_projection(maturity, schedule),
         "external_learning_readiness_projection": external_learning_readiness_projection(backtest, as_of),
+        "approval_learning_readiness_projection": approval_learning_readiness_projection(backtest, as_of),
+        "approval_data_friction_learning_readiness_projection": approval_data_friction_learning_readiness_projection(backtest, as_of),
         "status": "tracking" if completed else "awaiting_forward_returns",
         "hit_rate": hit_rate(completed),
         "average_forward_return": average_forward_return(completed),
         "by_signal_family": group_forward_returns(completed, "signal_families"),
         "by_trade_action": group_forward_returns(completed, "trade_action"),
         "by_bucket": group_forward_returns(completed, "bucket"),
+        "by_approval_gate_status": group_forward_returns(completed, "approval_gate_status"),
+        "by_approval_blocker_bucket": group_forward_returns(completed, "approval_blocker_bucket"),
         "calibration": calibration(completed),
     }
 
@@ -370,6 +431,208 @@ def external_learning_readiness_projection(backtest: dict[str, Any] | None, as_o
         "estimated_external_learning_ready_projected_count": completed + int(readiness_date.get("cumulative_due_count") or 0),
         "external_learning_ready_with_scheduled_pending_labels": bool(readiness_date) or completed >= required,
     }
+
+
+def approval_learning_readiness_projection(backtest: dict[str, Any] | None, as_of: date) -> dict[str, Any]:
+    rows = approval_pending_rows(backtest)
+    if rows:
+        bucket_rows = approval_pending_bucket_summaries(rows)
+        schedule = pending_label_schedule({"outcomes": rows}, as_of)
+        due_windows = schedule.get("due_window_counts") or {}
+        learning_windows = schedule.get("learning_due_window_counts") or {}
+        next_label = schedule.get("next_label") or {}
+        next_learning = schedule.get("next_learning_label") or {}
+        pending_count = len(rows)
+        learning_count = int(schedule.get("pending_learning_label_count") or 0)
+        return {
+            "pending_approval_label_count": pending_count,
+            "pending_approval_learning_label_count": learning_count,
+            "pending_approval_fast_label_count": pending_count - learning_count,
+            "pending_approval_blocker_bucket_count": len(bucket_rows),
+            "pending_approval_blocker_buckets": bucket_rows,
+            "approval_labels_due_next_7d": int(due_windows.get("due_next_7d") or 0),
+            "approval_labels_due_next_30d": int(due_windows.get("due_next_30d") or 0),
+            "approval_learning_labels_due_next_7d": int(learning_windows.get("due_next_7d") or 0),
+            "approval_learning_labels_due_next_30d": int(learning_windows.get("due_next_30d") or 0),
+            "next_approval_label_due_date": next_label.get("due_date"),
+            "next_approval_label_days_until_due": next_label.get("days_until_due"),
+            "next_approval_label_due_count": int(next_label.get("due_count") or 0),
+            "next_approval_learning_label_due_date": next_learning.get("due_date"),
+            "next_approval_learning_label_days_until_due": next_learning.get("days_until_due"),
+            "next_approval_learning_label_due_count": int(next_learning.get("due_count") or 0),
+            "primary_approval_blocker_bucket": bucket_rows[0].get("key") if bucket_rows else None,
+            "message": "Approval-gated pending labels are queued for forward-return learning.",
+        }
+    bucket_rows = [
+        row for row in (backtest or {}).get("pending_by_approval_blocker_bucket") or []
+        if approval_bucket_is_learning_blocker(row.get("key")) and int(row.get("pending_count") or 0) > 0
+    ]
+    if not bucket_rows:
+        return {}
+    next_due_date = min(
+        (str(row.get("next_due_date") or "")[:10] for row in bucket_rows if row.get("next_due_date")),
+        default=None,
+    )
+    return {
+        "pending_approval_label_count": sum(int(row.get("pending_count") or 0) for row in bucket_rows),
+        "pending_approval_learning_label_count": None,
+        "pending_approval_fast_label_count": None,
+        "pending_approval_blocker_bucket_count": len(bucket_rows),
+        "pending_approval_blocker_buckets": bucket_rows,
+        "next_approval_label_due_date": next_due_date,
+        "next_approval_label_days_until_due": days_until_due(next_due_date, as_of) if next_due_date else None,
+        "next_approval_label_due_count": sum(
+            int(row.get("pending_count") or 0)
+            for row in bucket_rows
+            if next_due_date and str(row.get("next_due_date") or "")[:10] == next_due_date
+        ),
+        "primary_approval_blocker_bucket": bucket_rows[0].get("key") if bucket_rows else None,
+        "message": "Approval-gated pending labels are summarized from blocker buckets.",
+    }
+
+
+def approval_data_friction_learning_readiness_projection(backtest: dict[str, Any] | None, as_of: date) -> dict[str, Any]:
+    rows = approval_data_friction_pending_rows(backtest)
+    if rows:
+        bucket_rows = approval_data_friction_pending_bucket_summaries(rows)
+        schedule = pending_label_schedule({"outcomes": rows}, as_of)
+        due_windows = schedule.get("due_window_counts") or {}
+        learning_windows = schedule.get("learning_due_window_counts") or {}
+        next_label = schedule.get("next_label") or {}
+        next_learning = schedule.get("next_learning_label") or {}
+        pending_count = len(rows)
+        learning_count = int(schedule.get("pending_learning_label_count") or 0)
+        return {
+            "pending_approval_data_friction_label_count": pending_count,
+            "pending_approval_data_friction_learning_label_count": learning_count,
+            "pending_approval_data_friction_fast_label_count": pending_count - learning_count,
+            "pending_approval_data_friction_bucket_count": len(bucket_rows),
+            "pending_approval_data_friction_buckets": bucket_rows,
+            "approval_data_friction_labels_due_next_7d": int(due_windows.get("due_next_7d") or 0),
+            "approval_data_friction_labels_due_next_30d": int(due_windows.get("due_next_30d") or 0),
+            "approval_data_friction_learning_labels_due_next_7d": int(learning_windows.get("due_next_7d") or 0),
+            "approval_data_friction_learning_labels_due_next_30d": int(learning_windows.get("due_next_30d") or 0),
+            "next_approval_data_friction_label_due_date": next_label.get("due_date"),
+            "next_approval_data_friction_label_days_until_due": next_label.get("days_until_due"),
+            "next_approval_data_friction_label_due_count": int(next_label.get("due_count") or 0),
+            "next_approval_data_friction_learning_label_due_date": next_learning.get("due_date"),
+            "next_approval_data_friction_learning_label_days_until_due": next_learning.get("days_until_due"),
+            "next_approval_data_friction_learning_label_due_count": int(next_learning.get("due_count") or 0),
+            "primary_approval_data_friction_bucket": bucket_rows[0].get("key") if bucket_rows else None,
+            "message": "Approval data-friction pending labels are queued for segmented calibration.",
+        }
+    bucket_rows = [
+        row for row in (backtest or {}).get("pending_by_approval_data_friction_bucket") or []
+        if approval_data_friction_bucket_is_actionable(row.get("key")) and int(row.get("pending_count") or 0) > 0
+    ]
+    if not bucket_rows:
+        return {}
+    next_due_date = min(
+        (str(row.get("next_due_date") or "")[:10] for row in bucket_rows if row.get("next_due_date")),
+        default=None,
+    )
+    return {
+        "pending_approval_data_friction_label_count": sum(int(row.get("pending_count") or 0) for row in bucket_rows),
+        "pending_approval_data_friction_learning_label_count": None,
+        "pending_approval_data_friction_fast_label_count": None,
+        "pending_approval_data_friction_bucket_count": len(bucket_rows),
+        "pending_approval_data_friction_buckets": bucket_rows,
+        "next_approval_data_friction_label_due_date": next_due_date,
+        "next_approval_data_friction_label_days_until_due": days_until_due(next_due_date, as_of) if next_due_date else None,
+        "next_approval_data_friction_label_due_count": sum(
+            int(row.get("pending_count") or 0)
+            for row in bucket_rows
+            if next_due_date and str(row.get("next_due_date") or "")[:10] == next_due_date
+        ),
+        "primary_approval_data_friction_bucket": bucket_rows[0].get("key") if bucket_rows else None,
+        "message": "Approval data-friction pending labels are summarized from friction buckets.",
+    }
+
+
+def approval_data_friction_pending_rows(backtest: dict[str, Any] | None) -> list[dict[str, Any]]:
+    rows = []
+    for row in (backtest or {}).get("outcomes") or []:
+        if not isinstance(row, dict) or row.get("status") != "pending" or not row.get("due_date"):
+            continue
+        bucket = str(row.get("approval_data_friction_bucket") or "").strip()
+        if not approval_data_friction_bucket_is_actionable(bucket):
+            continue
+        enriched = dict(row)
+        enriched["approval_data_friction_bucket"] = bucket
+        rows.append(enriched)
+    return rows
+
+
+def approval_data_friction_pending_bucket_summaries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(str(row.get("approval_data_friction_bucket") or "unknown"), []).append(row)
+    summaries = []
+    for key, group in grouped.items():
+        due_dates = sorted(str(row.get("due_date") or "")[:10] for row in group if row.get("due_date"))
+        summaries.append(
+            {
+                "key": key,
+                "pending_count": len(group),
+                "learning_count": sum(1 for row in group if row.get("horizon") != "5d"),
+                "fast_count": sum(1 for row in group if row.get("horizon") == "5d"),
+                "next_due_date": due_dates[0] if due_dates else None,
+                "horizons": sorted({str(row.get("horizon") or "") for row in group if row.get("horizon")}),
+            }
+        )
+    return sorted(summaries, key=lambda row: (-int(row.get("pending_count") or 0), str(row.get("key") or "")))
+
+
+def approval_data_friction_bucket_is_actionable(bucket: Any) -> bool:
+    return str(bucket or "").strip().lower() not in APPROVAL_DATA_FRICTION_NON_ACTIONABLE_BUCKETS
+
+
+def approval_pending_rows(backtest: dict[str, Any] | None) -> list[dict[str, Any]]:
+    rows = []
+    for row in (backtest or {}).get("outcomes") or []:
+        if not isinstance(row, dict) or row.get("status") != "pending" or not row.get("due_date"):
+            continue
+        blocker_bucket = approval_blocker_key(row)
+        if not approval_bucket_is_learning_blocker(blocker_bucket):
+            continue
+        enriched = dict(row)
+        enriched["approval_blocker_bucket"] = blocker_bucket
+        rows.append(enriched)
+    return rows
+
+
+def approval_pending_bucket_summaries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(str(row.get("approval_blocker_bucket") or "unknown"), []).append(row)
+    summaries = []
+    for key, group in grouped.items():
+        due_dates = sorted(str(row.get("due_date") or "")[:10] for row in group if row.get("due_date"))
+        summaries.append(
+            {
+                "key": key,
+                "pending_count": len(group),
+                "next_due_date": due_dates[0] if due_dates else None,
+                "horizons": sorted({str(row.get("horizon") or "") for row in group if row.get("horizon")}),
+            }
+        )
+    return sorted(summaries, key=lambda row: (-int(row.get("pending_count") or 0), str(row.get("key") or "")))
+
+
+def approval_blocker_key(row: dict[str, Any]) -> str:
+    blocker_bucket = str(row.get("approval_blocker_bucket") or "").strip()
+    if blocker_bucket:
+        return blocker_bucket
+    gate_status = str(row.get("approval_gate_status") or "").strip().lower()
+    if gate_status:
+        return gate_status
+    if row.get("approval_required"):
+        return "approval_required_unknown"
+    return "no_approval_context"
+
+
+def approval_bucket_is_learning_blocker(bucket: Any) -> bool:
+    return str(bucket or "").strip().lower() not in APPROVAL_NON_BLOCKING_BUCKETS
 
 
 def has_external_observation(row: dict[str, Any]) -> bool:

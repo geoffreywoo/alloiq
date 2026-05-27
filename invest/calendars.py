@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from .config import AppConfig
-from .earnings import earnings_source_quality, is_forward_earnings_date
+from .earnings import earnings_confirmation_gaps, earnings_source_quality, is_forward_earnings_date
 from .scheduler import EASTERN, is_nyse_trading_day
 
 
@@ -50,6 +50,8 @@ def normalize_earnings_calendar(events: list[dict[str, Any]], as_of: date) -> di
         "estimated_count": sum(1 for row in date_events if row.get("confirmed_or_estimated") == "estimated"),
         "provider_date_count": len(date_events),
         "catalyst_marker_count": len(enriched) - len(date_events),
+        "confirmation_gap_count": len(earnings_confirmation_gaps(enriched, limit=None)),
+        "confirmation_gaps": earnings_confirmation_gaps(enriched),
         "source_quality": earnings_source_quality(enriched),
         "missing_confidence_count": missing_confidence,
         "policy": "Manual and company IR dates are canonical; Alpha Vantage and Nasdaq provide estimated forward dates; SEC/result markers and news-derived events enrich risk windows.",

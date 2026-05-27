@@ -42,6 +42,7 @@ class PublicSnapshotQualityTests(unittest.TestCase):
             web_dir = Path(tmp) / "web"
             payload = valid_public_payload()
             payload["backtest"] = {
+                "as_of": "2026-05-24",
                 "outcome_count": 2,
                 "completed_outcome_count": 0,
                 "pending_outcome_count": 2,
@@ -68,7 +69,266 @@ class PublicSnapshotQualityTests(unittest.TestCase):
             self.assertTrue(any("pending outcomes require backtest.pending_by_external_feed_status" in failure for failure in failures))
             self.assertTrue(any("pending outcomes require backtest.pending_by_external_coverage" in failure for failure in failures))
             self.assertTrue(any("pending outcomes require backtest.pending_by_external_alignment" in failure for failure in failures))
+            self.assertTrue(any("pending outcomes require backtest.pending_by_approval_gate_status" in failure for failure in failures))
+            self.assertTrue(any("pending outcomes require backtest.pending_by_approval_blocker_bucket" in failure for failure in failures))
             self.assertTrue(any("pending outcomes require outcome_diagnostics.learning_readiness_projection" in failure for failure in failures))
+
+    def test_requires_pending_approval_summaries_to_cover_pending_outcomes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp) / "web"
+            payload = valid_public_payload()
+            payload["backtest"] = {
+                "version": BACKTEST_VERSION,
+                "due_date_policy_version": BACKTEST_VERSION,
+                "outcome_count": 2,
+                "completed_outcome_count": 0,
+                "pending_outcome_count": 2,
+                "missing_price_count": 0,
+                "outcomes": [
+                    {
+                        "status": "pending",
+                        "symbol": "NVDA",
+                        "horizon": "5d",
+                        "as_of": "2026-05-24",
+                        "due_date": "2026-06-02",
+                        "external_alignment": "unknown",
+                        "approval_gate_status": "review_required",
+                        "approval_blocker_bucket": "review_required",
+                    },
+                    {
+                        "status": "pending",
+                        "symbol": "AMD",
+                        "horizon": "5d",
+                        "as_of": "2026-05-24",
+                        "due_date": "2026-06-02",
+                        "external_alignment": "unknown",
+                        "approval_gate_status": "",
+                        "approval_blocker_bucket": "no_approval_context",
+                    },
+                ],
+                "pending_by_external_feed_status": [{"key": "unknown", "pending_count": 2}],
+                "pending_by_external_coverage": [{"key": "unknown", "pending_count": 2}],
+                "pending_by_external_alignment": [{"key": "unknown", "pending_count": 2}],
+                "pending_by_approval_gate_status": [{"key": "review_required", "pending_count": 1}],
+                "pending_by_approval_blocker_bucket": [{"key": "review_required", "pending_count": 1}],
+            }
+            payload["outcome_diagnostics"] = {
+                "label_maturity": {"learning_ready": True},
+                "pending_label_schedule": {"pending_label_count": 2},
+                "horizon_label_counts": [{"horizon": "5d", "pending_count": 2}],
+                "learning_readiness_projection": {"pending_learning_labels_needed_for_readiness": 0},
+            }
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any("backtest.pending_by_approval_gate_status covers 1 pending labels; expected 2" in failure for failure in failures)
+            )
+            self.assertTrue(
+                any("backtest.pending_by_approval_blocker_bucket covers 1 pending labels; expected 2" in failure for failure in failures)
+            )
+
+    def test_requires_approval_learning_projection_for_blocked_pending_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp) / "web"
+            payload = valid_public_payload()
+            payload["backtest"] = {
+                "version": BACKTEST_VERSION,
+                "due_date_policy_version": BACKTEST_VERSION,
+                "outcome_count": 2,
+                "completed_outcome_count": 0,
+                "pending_outcome_count": 2,
+                "missing_price_count": 0,
+                "outcomes": [
+                    {
+                        "status": "pending",
+                        "symbol": "NVDA",
+                        "horizon": "5d",
+                        "as_of": "2026-05-24",
+                        "due_date": "2026-06-02",
+                        "approval_gate_status": "review_required",
+                        "approval_blocker_bucket": "review_required",
+                    },
+                    {
+                        "status": "pending",
+                        "symbol": "AMD",
+                        "horizon": "1m",
+                        "as_of": "2026-05-24",
+                        "due_date": "2026-06-24",
+                        "approval_gate_status": "",
+                        "approval_blocker_bucket": "no_approval_context",
+                    },
+                ],
+                "pending_by_external_feed_status": [{"key": "unknown", "pending_count": 2}],
+                "pending_by_external_coverage": [{"key": "unknown", "pending_count": 2}],
+                "pending_by_external_alignment": [{"key": "unknown", "pending_count": 2}],
+                "pending_by_approval_gate_status": [
+                    {"key": "review_required", "pending_count": 1},
+                    {"key": "unknown", "pending_count": 1},
+                ],
+                "pending_by_approval_blocker_bucket": [
+                    {"key": "review_required", "pending_count": 1},
+                    {"key": "no_approval_context", "pending_count": 1},
+                ],
+            }
+            payload["outcome_diagnostics"] = {
+                "label_maturity": {"learning_ready": True},
+                "pending_label_schedule": {"pending_label_count": 2},
+                "horizon_label_counts": [{"horizon": "5d", "pending_count": 1}, {"horizon": "1m", "pending_count": 1}],
+                "learning_readiness_projection": {"pending_learning_labels_needed_for_readiness": 0},
+            }
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "approval-gated pending outcomes require outcome_diagnostics.approval_learning_readiness_projection" in failure
+                    for failure in failures
+                )
+            )
+
+    def test_requires_approval_learning_projection_to_match_blocked_pending_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp) / "web"
+            payload = valid_public_payload()
+            payload["backtest"] = {
+                "version": BACKTEST_VERSION,
+                "due_date_policy_version": BACKTEST_VERSION,
+                "outcome_count": 2,
+                "completed_outcome_count": 0,
+                "pending_outcome_count": 2,
+                "missing_price_count": 0,
+                "outcomes": [
+                    {
+                        "status": "pending",
+                        "symbol": "NVDA",
+                        "horizon": "5d",
+                        "as_of": "2026-05-24",
+                        "due_date": "2026-06-02",
+                        "approval_blocker_bucket": "review_required",
+                    },
+                    {
+                        "status": "pending",
+                        "symbol": "AMD",
+                        "horizon": "1m",
+                        "as_of": "2026-05-24",
+                        "due_date": "2026-06-24",
+                        "approval_blocker_bucket": "blocked_until_confirmation",
+                    },
+                ],
+                "pending_by_external_feed_status": [{"key": "unknown", "pending_count": 2}],
+                "pending_by_external_coverage": [{"key": "unknown", "pending_count": 2}],
+                "pending_by_external_alignment": [{"key": "unknown", "pending_count": 2}],
+                "pending_by_approval_gate_status": [{"key": "review_required", "pending_count": 2}],
+                "pending_by_approval_blocker_bucket": [
+                    {"key": "review_required", "pending_count": 1},
+                    {"key": "blocked_until_confirmation", "pending_count": 1},
+                ],
+            }
+            payload["outcome_diagnostics"] = {
+                "label_maturity": {"learning_ready": True},
+                "pending_label_schedule": {"pending_label_count": 2},
+                "horizon_label_counts": [{"horizon": "5d", "pending_count": 1}, {"horizon": "1m", "pending_count": 1}],
+                "learning_readiness_projection": {"pending_learning_labels_needed_for_readiness": 0},
+                "approval_learning_readiness_projection": {
+                    "pending_approval_label_count": 1,
+                    "pending_approval_learning_label_count": 0,
+                    "pending_approval_fast_label_count": 1,
+                    "pending_approval_blocker_buckets": [{"key": "review_required", "pending_count": 1}],
+                },
+            }
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any("approval_learning_readiness_projection covers 1 approval-gated labels; expected 2" in failure for failure in failures)
+            )
+            self.assertTrue(
+                any("approval_learning_readiness_projection covers 0 approval-gated learning labels; expected 1" in failure for failure in failures)
+            )
+            self.assertTrue(
+                any("approval_learning_readiness_projection blocker buckets cover 1 approval-gated labels; expected 2" in failure for failure in failures)
+            )
+
+    def test_requires_approval_data_friction_projection_to_match_pending_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp) / "web"
+            payload = valid_public_payload()
+            payload["backtest"] = {
+                "version": BACKTEST_VERSION,
+                "due_date_policy_version": BACKTEST_VERSION,
+                "outcome_count": 2,
+                "completed_outcome_count": 0,
+                "pending_outcome_count": 2,
+                "missing_price_count": 0,
+                "outcomes": [
+                    {
+                        "status": "pending",
+                        "symbol": "NVDA",
+                        "horizon": "5d",
+                        "as_of": "2026-05-24",
+                        "due_date": "2026-06-02",
+                        "approval_blocker_bucket": "no_approval_context",
+                        "approval_data_friction_score": 23.3,
+                        "approval_data_friction_bucket": "external_review",
+                        "approval_data_friction_reasons": ["external_feed_reliability_review_required"],
+                        "approval_data_friction_penalty": 1.4,
+                    },
+                    {
+                        "status": "pending",
+                        "symbol": "AMD",
+                        "horizon": "1m",
+                        "as_of": "2026-05-24",
+                        "due_date": "2026-06-24",
+                        "approval_blocker_bucket": "no_approval_context",
+                        "approval_data_friction_score": 40.0,
+                        "approval_data_friction_bucket": "earnings_and_external_review",
+                        "approval_data_friction_reasons": ["earnings_confirmation_required"],
+                        "approval_data_friction_penalty": 2.4,
+                    },
+                ],
+                "pending_by_external_feed_status": [{"key": "unknown", "pending_count": 2}],
+                "pending_by_external_coverage": [{"key": "unknown", "pending_count": 2}],
+                "pending_by_external_alignment": [{"key": "unknown", "pending_count": 2}],
+                "pending_by_approval_gate_status": [{"key": "no_approval_context", "pending_count": 2}],
+                "pending_by_approval_blocker_bucket": [{"key": "no_approval_context", "pending_count": 2}],
+                "pending_by_approval_data_friction_bucket": [
+                    {"key": "external_review", "pending_count": 1},
+                    {"key": "earnings_and_external_review", "pending_count": 1},
+                ],
+            }
+            payload["outcome_diagnostics"] = {
+                "label_maturity": {"learning_ready": True},
+                "pending_label_schedule": {"pending_label_count": 2},
+                "horizon_label_counts": [{"horizon": "5d", "pending_count": 1}, {"horizon": "1m", "pending_count": 1}],
+                "learning_readiness_projection": {"pending_learning_labels_needed_for_readiness": 0},
+                "approval_data_friction_learning_readiness_projection": {
+                    "pending_approval_data_friction_label_count": 1,
+                    "pending_approval_data_friction_learning_label_count": 0,
+                    "pending_approval_data_friction_fast_label_count": 1,
+                    "pending_approval_data_friction_buckets": [{"key": "external_review", "pending_count": 1}],
+                },
+            }
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any("approval_data_friction_learning_readiness_projection covers 1 approval data-friction labels; expected 2" in failure for failure in failures)
+            )
+            self.assertTrue(
+                any("approval_data_friction_learning_readiness_projection covers 0 approval data-friction learning labels; expected 1" in failure for failure in failures)
+            )
+            self.assertTrue(
+                any("approval_data_friction_learning_readiness_projection buckets cover 1 approval data-friction labels; expected 2" in failure for failure in failures)
+            )
 
     def test_requires_pending_external_alignment_watchlist(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -354,6 +614,7 @@ class PublicSnapshotQualityTests(unittest.TestCase):
                 "minimum_required": 20,
             }
             payload["backtest"] = {
+                "as_of": "2026-05-24",
                 "outcome_count": 2,
                 "completed_outcome_count": 0,
                 "pending_outcome_count": 2,
@@ -395,6 +656,82 @@ class PublicSnapshotQualityTests(unittest.TestCase):
             failures = public_snapshot_quality_failures(web_dir)
 
             self.assertTrue(any("Learning reranker audit gap must include the projected learning label dates" in failure for failure in failures))
+
+    def test_requires_learning_audit_gap_to_include_approval_projection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp) / "web"
+            payload = valid_public_payload()
+            payload["engine"]["learning"] = {
+                "status": "baseline_fallback",
+                "message": "Insufficient completed outcomes.",
+                "minimum_required": 20,
+            }
+            payload["backtest"] = {
+                "version": BACKTEST_VERSION,
+                "due_date_policy_version": BACKTEST_VERSION,
+                "outcome_count": 1,
+                "completed_outcome_count": 0,
+                "pending_outcome_count": 1,
+                "missing_price_count": 0,
+                "outcomes": [
+                    {
+                        "status": "pending",
+                        "symbol": "NVDA",
+                        "horizon": "1m",
+                        "as_of": "2026-05-24",
+                        "due_date": "2026-06-24",
+                        "external_alignment": "unknown",
+                        "approval_gate_status": "review_required",
+                        "approval_blocker_bucket": "review_required",
+                    },
+                ],
+                "pending_by_external_feed_status": [{"key": "unknown", "pending_count": 1}],
+                "pending_by_external_coverage": [{"key": "unknown", "pending_count": 1}],
+                "pending_by_external_alignment": [{"key": "unknown", "pending_count": 1}],
+                "pending_by_approval_gate_status": [{"key": "review_required", "pending_count": 1}],
+                "pending_by_approval_blocker_bucket": [{"key": "review_required", "pending_count": 1}],
+            }
+            payload["outcome_diagnostics"] = {
+                "label_maturity": {
+                    "learning_ready": False,
+                    "completed_long_horizon_count": 0,
+                    "minimum_long_horizon_required": 20,
+                },
+                "pending_label_schedule": {
+                    "pending_label_count": 1,
+                    "pending_learning_label_count": 1,
+                },
+                "horizon_label_counts": [{"horizon": "1m", "pending_count": 1}],
+                "learning_readiness_projection": {
+                    "pending_learning_labels_needed_for_readiness": 20,
+                    "next_learning_label_due_date": "2026-06-24",
+                    "estimated_learning_ready_date": "2026-08-24",
+                },
+                "approval_learning_readiness_projection": {
+                    "pending_approval_label_count": 1,
+                    "pending_approval_learning_label_count": 1,
+                    "pending_approval_fast_label_count": 0,
+                    "next_approval_label_due_date": "2026-06-24",
+                    "next_approval_learning_label_due_date": "2026-06-24",
+                    "pending_approval_blocker_buckets": [{"key": "review_required", "pending_count": 1}],
+                },
+            }
+            payload["audit"] = {
+                "data_gaps": [
+                    {
+                        "area": "engine",
+                        "label": "Learning reranker",
+                        "status": "baseline_fallback",
+                        "detail": "Next learning labels due 2026-06-24; estimated ready 2026-08-24.",
+                    }
+                ]
+            }
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(any("Learning reranker audit gap must include approval-gated label projection" in failure for failure in failures))
 
     def test_requires_learning_audit_gap_to_include_external_coverage_priority(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -514,6 +851,7 @@ class PublicSnapshotQualityTests(unittest.TestCase):
             web_dir = Path(tmp) / "web"
             payload = valid_public_payload()
             payload["backtest"] = {
+                "as_of": "2026-05-24",
                 "outcome_count": 2,
                 "completed_outcome_count": 0,
                 "pending_outcome_count": 2,
@@ -563,6 +901,7 @@ class PublicSnapshotQualityTests(unittest.TestCase):
             web_dir = Path(tmp) / "web"
             payload = valid_public_payload()
             payload["backtest"] = {
+                "as_of": "2026-05-24",
                 "outcome_count": 2,
                 "completed_outcome_count": 0,
                 "pending_outcome_count": 2,
@@ -627,6 +966,742 @@ class PublicSnapshotQualityTests(unittest.TestCase):
 
             self.assertTrue(
                 any("external learning shortfall requires backtest.pending_external_coverage_gap_queue" in failure for failure in failures)
+            )
+
+    def test_requires_provider_gap_severity_observation_queue_when_unknown_labels_exist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp) / "web"
+            payload = valid_public_payload()
+            payload["backtest"] = {
+                "outcome_count": 1,
+                "completed_outcome_count": 0,
+                "pending_outcome_count": 1,
+                "missing_price_count": 0,
+                "outcomes": [
+                    {
+                        "status": "pending",
+                        "symbol": "AMD",
+                        "horizon": "1m",
+                        "as_of": "2026-05-24",
+                        "due_date": "2026-06-25",
+                        "trade_action": "add",
+                        "direction": 1,
+                        "external_alignment": "aligned",
+                        "external_feed_status": "limited",
+                        "external_coverage_multiplier": 0.25,
+                        "coverage_adjusted_external_signal_score": 5.0,
+                        "external_provider_count": 6,
+                        "external_signal_count": 4,
+                        "external_source_count": 3,
+                    }
+                ],
+                "pending_by_external_feed_status": [{"key": "limited", "pending_count": 1}],
+                "pending_by_external_coverage": [{"key": "thin_coverage", "pending_count": 1}],
+                "pending_by_external_alignment": [{"key": "aligned", "pending_count": 1}],
+                "pending_by_approval_gate_status": [{"key": "approved", "pending_count": 1}],
+                "pending_by_approval_blocker_bucket": [{"key": "approved", "pending_count": 1}],
+                "pending_external_alignment_due_dates": [
+                    {"due_date": "2026-06-25", "due_count": 1, "aligned_count": 1}
+                ],
+                "pending_external_alignment_watchlist": [
+                    {
+                        "status": "pending",
+                        "symbol": "AMD",
+                        "horizon": "1m",
+                        "due_date": "2026-06-25",
+                        "external_alignment": "aligned",
+                        "external_alignment_review_reason": "External signal reinforces the action direction.",
+                    }
+                ],
+                "pending_by_external_provider_gap_severity": [{"key": "unknown", "pending_count": 1}],
+                "pending_external_provider_gap_severity_observation_summary": {
+                    "pending_label_count": 1,
+                    "observed_label_count": 0,
+                    "unknown_label_count": 1,
+                    "observed_ratio": 0.0,
+                    "unknown_next_due_date": "2026-06-25",
+                    "backfill_policy": "decision_time_only",
+                },
+                "pending_external_provider_gap_severity_observation_gap_count": 1,
+            }
+            payload["outcome_diagnostics"] = {
+                "label_maturity": {"learning_ready": True},
+                "pending_label_schedule": {"pending_label_count": 1},
+                "horizon_label_counts": [{"horizon": "1m", "pending_count": 1}],
+                "learning_readiness_projection": {"pending_learning_labels_needed_for_readiness": 0},
+                "external_learning_readiness_projection": {
+                    "pending_external_learning_label_count": 1,
+                    "pending_external_fast_label_count": 0,
+                    "projected_external_additional_needed_all_scheduled": 0,
+                },
+            }
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "unknown provider gap severity labels require "
+                    "backtest.pending_external_provider_gap_severity_observation_gap_queue" in failure
+                    for failure in failures
+                )
+            )
+
+    def test_requires_provider_gap_severity_hidden_count_to_match_visible_queue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp) / "web"
+            payload = valid_public_payload()
+            payload["backtest"] = {
+                "as_of": "2026-05-24",
+                "outcome_count": 2,
+                "completed_outcome_count": 0,
+                "pending_outcome_count": 2,
+                "missing_price_count": 0,
+                "outcomes": [],
+                "pending_by_external_feed_status": [{"key": "unknown", "pending_count": 2}],
+                "pending_by_external_coverage": [{"key": "unknown", "pending_count": 2}],
+                "pending_by_external_alignment": [{"key": "unknown", "pending_count": 2}],
+                "pending_by_approval_gate_status": [{"key": "no_approval_context", "pending_count": 2}],
+                "pending_by_approval_blocker_bucket": [{"key": "no_approval_context", "pending_count": 2}],
+                "pending_by_external_provider_gap_severity": [{"key": "unknown", "pending_count": 2}],
+                "pending_external_provider_gap_severity_observation_summary": {
+                    "pending_label_count": 2,
+                    "observed_label_count": 0,
+                    "unknown_label_count": 2,
+                    "observed_ratio": 0.0,
+                    "unknown_next_due_date": "2026-06-25",
+                    "backfill_policy": "decision_time_only",
+                },
+                "pending_external_provider_gap_severity_observation_gap_count": 2,
+                "pending_external_provider_gap_severity_observation_gap_queue_limit": 1,
+                "pending_external_provider_gap_severity_observation_gap_hidden_label_count": 0,
+                "pending_external_provider_gap_severity_observation_gap_queue": [
+                    {
+                        "external_provider_gap_severity_observation_gap_id": "gap-amd-1m",
+                        "external_provider_gap_severity_observation_gap_reason": "AMD 1m lacks provider gap severity fields.",
+                        "external_provider_gap_severity_observation_gap_action": "Backfill from the decision-time report.",
+                        "external_provider_gap_severity_observation_backfill_policy": "decision_time_only",
+                        "required_external_provider_gap_severity_observation_date": "2026-05-24",
+                        "source_outcome_id": "outcome-amd-1m",
+                        "minimum_external_provider_gap_severity_fields_to_backfill": [
+                            "external_provider_gap_count",
+                            "external_provider_primary_gap_severity",
+                            "external_provider_gap_severity_score",
+                        ],
+                    }
+                ],
+            }
+            payload["outcome_diagnostics"] = {
+                "label_maturity": {"learning_ready": True},
+                "pending_label_schedule": {"pending_label_count": 2},
+                "horizon_label_counts": [{"horizon": "1m", "pending_count": 2}],
+                "learning_readiness_projection": {"pending_learning_labels_needed_for_readiness": 0},
+            }
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any("provider gap severity observation hidden label count is 0; expected 1" in failure for failure in failures)
+            )
+            payload["backtest"]["pending_external_provider_gap_severity_observation_gap_hidden_label_count"] = 1
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "unknown provider gap severity labels require "
+                    "backtest.pending_external_provider_gap_severity_observation_gap_work_item_count" in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"].update(
+                {
+                    "pending_external_provider_gap_severity_observation_gap_work_item_count": 1,
+                    "pending_external_provider_gap_severity_observation_gap_work_item_queue_limit": 1,
+                    "pending_external_provider_gap_severity_observation_gap_visible_work_item_label_count": 2,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_work_item_label_count": 0,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_work_item_count": 0,
+                    "pending_external_provider_gap_severity_observation_gap_work_item_queue": [
+                        {
+                            "external_provider_gap_severity_observation_work_item_id": "work-amd-1m",
+                            "external_provider_gap_severity_observation_gap_reason": "AMD 1m lacks provider gap severity fields.",
+                            "external_provider_gap_severity_observation_gap_action": "Backfill from the decision-time report.",
+                            "external_provider_gap_severity_observation_backfill_policy": "decision_time_only",
+                            "required_external_provider_gap_severity_observation_date": "2026-05-24",
+                            "label_count": 1,
+                            "source_outcome_ids": ["outcome-amd-1m"],
+                            "minimum_external_provider_gap_severity_fields_to_backfill": [
+                                "external_provider_gap_count",
+                                "external_provider_primary_gap_severity",
+                                "external_provider_gap_severity_score",
+                            ],
+                        }
+                    ],
+                }
+            )
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "provider gap severity observation visible work item labels cover 2; expected 1" in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"]["pending_external_provider_gap_severity_observation_gap_visible_work_item_label_count"] = 1
+            payload["backtest"]["pending_external_provider_gap_severity_observation_gap_hidden_work_item_label_count"] = 1
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "unknown provider gap severity labels require "
+                    "backtest.pending_external_provider_gap_severity_observation_gap_due_dates" in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"]["pending_external_provider_gap_severity_observation_gap_due_dates"] = [
+                {
+                    "due_date": "2026-06-25",
+                    "days_until_due": 32,
+                    "due_window": "later",
+                    "label_count": 1,
+                    "work_item_count": 1,
+                    "visible_label_count": 1,
+                    "visible_work_item_count": 1,
+                    "hidden_label_count": 0,
+                    "hidden_work_item_count": 0,
+                    "cumulative_label_count": 1,
+                    "cumulative_work_item_count": 1,
+                    "cumulative_visible_label_count": 1,
+                    "cumulative_visible_work_item_count": 1,
+                    "cumulative_hidden_label_count": 0,
+                    "cumulative_hidden_work_item_count": 0,
+                }
+            ]
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "provider gap severity observation due dates cover 1 labels/1 work items; "
+                    "expected 2 labels/1 work items" in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"]["pending_external_provider_gap_severity_observation_gap_due_dates"] = [
+                {
+                    "due_date": "2026-06-25",
+                    "days_until_due": 32,
+                    "due_window": "later",
+                    "label_count": 2,
+                    "work_item_count": 1,
+                    "visible_label_count": 1,
+                    "visible_work_item_count": 1,
+                    "hidden_label_count": 1,
+                    "hidden_work_item_count": 0,
+                    "cumulative_label_count": 1,
+                    "cumulative_work_item_count": 1,
+                    "cumulative_visible_label_count": 1,
+                    "cumulative_visible_work_item_count": 1,
+                    "cumulative_hidden_label_count": 0,
+                    "cumulative_hidden_work_item_count": 0,
+                }
+            ]
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "provider gap severity observation due dates require cumulative coverage through 2026-06-25"
+                    in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"]["pending_external_provider_gap_severity_observation_gap_due_dates"] = [
+                {
+                    "due_date": "2026-06-25",
+                    "days_until_due": 31,
+                    "due_window": "later",
+                    "label_count": 2,
+                    "work_item_count": 1,
+                    "visible_label_count": 1,
+                    "visible_work_item_count": 1,
+                    "hidden_label_count": 1,
+                    "hidden_work_item_count": 0,
+                    "cumulative_label_count": 2,
+                    "cumulative_work_item_count": 1,
+                    "cumulative_visible_label_count": 1,
+                    "cumulative_visible_work_item_count": 1,
+                    "cumulative_hidden_label_count": 1,
+                    "cumulative_hidden_work_item_count": 0,
+                }
+            ]
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "provider gap severity observation due date 2026-06-25 days_until_due is 31; expected 32"
+                    in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"]["pending_external_provider_gap_severity_observation_gap_due_dates"] = [
+                {
+                    "due_date": "2026-06-25",
+                    "days_until_due": 32,
+                    "due_window": "later",
+                    "label_count": 2,
+                    "work_item_count": 1,
+                    "visible_label_count": 1,
+                    "visible_work_item_count": 1,
+                    "hidden_label_count": 1,
+                    "hidden_work_item_count": 0,
+                    "cumulative_label_count": 2,
+                    "cumulative_work_item_count": 1,
+                    "cumulative_visible_label_count": 1,
+                    "cumulative_visible_work_item_count": 1,
+                    "cumulative_hidden_label_count": 1,
+                    "cumulative_hidden_work_item_count": 0,
+                }
+            ]
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "unknown provider gap severity labels require "
+                    "backtest.pending_external_provider_gap_severity_observation_gap_due_window_counts" in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"]["pending_external_provider_gap_severity_observation_gap_due_window_counts"] = [
+                {
+                    "due_window": "later",
+                    "label_count": 1,
+                    "work_item_count": 1,
+                    "visible_label_count": 1,
+                    "visible_work_item_count": 1,
+                    "hidden_label_count": 0,
+                    "hidden_work_item_count": 0,
+                    "due_date_count": 1,
+                    "earliest_due_date": "2026-06-25",
+                    "latest_due_date": "2026-06-25",
+                }
+            ]
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "provider gap severity observation due window later label_count is 1; expected 2"
+                    in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"]["pending_external_provider_gap_severity_observation_gap_due_window_counts"] = [
+                {
+                    "due_window": "later",
+                    "label_count": 2,
+                    "work_item_count": 1,
+                    "visible_label_count": 1,
+                    "visible_work_item_count": 1,
+                    "hidden_label_count": 1,
+                    "hidden_work_item_count": 0,
+                    "due_date_count": 1,
+                    "earliest_due_date": "2026-06-25",
+                    "latest_due_date": "2026-06-25",
+                }
+            ]
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "unknown provider gap severity labels require "
+                    "backtest.pending_external_provider_gap_severity_observation_gap_horizon_counts" in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"]["pending_external_provider_gap_severity_observation_gap_horizon_counts"] = [
+                {
+                    "horizon": "1m",
+                    "learning_role": "calibration_label",
+                    "label_count": 1,
+                    "work_item_count": 1,
+                    "visible_label_count": 1,
+                    "visible_work_item_count": 1,
+                    "hidden_label_count": 0,
+                    "hidden_work_item_count": 0,
+                    "due_date_count": 1,
+                    "next_due_date": "2026-06-25",
+                    "latest_due_date": "2026-06-25",
+                    "days_until_next_due": 32,
+                    "next_due_window": "later",
+                    "next_visible_due_date": "2026-06-25",
+                    "latest_visible_due_date": "2026-06-25",
+                    "days_until_next_visible_due": 32,
+                    "next_visible_due_window": "later",
+                    "next_visible_due_label_count": 1,
+                    "next_visible_due_work_item_count": 1,
+                    "next_visible_due_horizons": ["1m"],
+                    "next_hidden_due_date": "2026-06-25",
+                    "latest_hidden_due_date": "2026-06-25",
+                    "days_until_next_hidden_due": 32,
+                    "next_hidden_due_window": "later",
+                    "next_hidden_due_label_count": 0,
+                    "next_hidden_due_work_item_count": 0,
+                    "next_hidden_due_horizons": [],
+                }
+            ]
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "provider gap severity observation horizon counts cover 1 labels/1 work items; "
+                    "expected 2 labels/1 work items" in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"]["pending_external_provider_gap_severity_observation_gap_horizon_counts"] = [
+                {
+                    "horizon": "1m",
+                    "learning_role": "calibration_label",
+                    "label_count": 2,
+                    "work_item_count": 1,
+                    "visible_label_count": 1,
+                    "visible_work_item_count": 1,
+                    "hidden_label_count": 1,
+                    "hidden_work_item_count": 0,
+                    "due_date_count": 1,
+                    "next_due_date": "2026-06-25",
+                    "latest_due_date": "2026-06-25",
+                    "days_until_next_due": 32,
+                    "next_due_window": "later",
+                    "next_visible_due_date": "2026-06-25",
+                    "latest_visible_due_date": "2026-06-25",
+                    "days_until_next_visible_due": 32,
+                    "next_visible_due_window": "later",
+                    "next_visible_due_label_count": 1,
+                    "next_visible_due_work_item_count": 1,
+                    "next_visible_due_horizons": ["1m"],
+                    "next_hidden_due_date": "2026-06-25",
+                    "latest_hidden_due_date": "2026-06-25",
+                    "days_until_next_hidden_due": 32,
+                    "next_hidden_due_window": "later",
+                    "next_hidden_due_label_count": 1,
+                    "next_hidden_due_work_item_count": 0,
+                    "next_hidden_due_horizons": ["1m"],
+                }
+            ]
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "unknown provider gap severity labels require "
+                    "backtest.pending_external_provider_gap_severity_observation_gap_learning_role_counts"
+                    in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"]["pending_external_provider_gap_severity_observation_gap_learning_role_counts"] = [
+                {
+                    "learning_role": "calibration_label",
+                    "label_count": 1,
+                    "work_item_count": 1,
+                    "visible_label_count": 1,
+                    "visible_work_item_count": 1,
+                    "hidden_label_count": 0,
+                    "hidden_work_item_count": 0,
+                    "due_date_count": 1,
+                    "horizon_count": 1,
+                    "horizons": ["1m"],
+                    "next_due_date": "2026-06-25",
+                    "latest_due_date": "2026-06-25",
+                    "days_until_next_due": 32,
+                    "next_due_window": "later",
+                }
+            ]
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "provider gap severity observation learning role calibration_label "
+                    "label_count is 1; expected 2" in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"]["pending_external_provider_gap_severity_observation_gap_learning_role_counts"] = [
+                {
+                    "learning_role": "calibration_label",
+                    "label_count": 2,
+                    "work_item_count": 1,
+                    "visible_label_count": 1,
+                    "visible_work_item_count": 1,
+                    "hidden_label_count": 1,
+                    "hidden_work_item_count": 0,
+                    "due_date_count": 1,
+                    "horizon_count": 1,
+                    "horizons": ["1m"],
+                    "next_due_date": "2026-06-25",
+                    "latest_due_date": "2026-06-25",
+                    "days_until_next_due": 32,
+                    "next_due_window": "later",
+                    "next_visible_due_date": "2026-06-25",
+                    "latest_visible_due_date": "2026-06-25",
+                    "days_until_next_visible_due": 32,
+                    "next_visible_due_window": "later",
+                    "next_visible_due_label_count": 1,
+                    "next_visible_due_work_item_count": 1,
+                    "next_visible_due_horizons": ["1m"],
+                    "next_hidden_due_date": "2026-06-25",
+                    "latest_hidden_due_date": "2026-06-25",
+                    "days_until_next_hidden_due": 32,
+                    "next_hidden_due_window": "later",
+                    "next_hidden_due_label_count": 1,
+                    "next_hidden_due_work_item_count": 0,
+                    "next_hidden_due_horizons": ["1m"],
+                    "visible_label_coverage_pct": 0.0,
+                    "visible_work_item_coverage_pct": 100.0,
+                    "queue_visibility_status": "partially_visible",
+                }
+            ]
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "provider gap severity observation learning role calibration_label "
+                    "visible_label_coverage_pct is 0.0; expected 50.0" in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"]["pending_external_provider_gap_severity_observation_gap_learning_role_counts"][0][
+                "visible_label_coverage_pct"
+            ] = 50.0
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "hidden calibration provider gap severity labels require "
+                    "backtest.pending_external_provider_gap_severity_observation_gap_hidden_calibration_work_item_queue"
+                    in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"].update(
+                {
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_work_item_count": 1,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_work_item_queue_limit": 8,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_work_item_queue": [
+                        {
+                            "external_provider_gap_severity_observation_work_item_id": "hidden-calibration-amd-5d",
+                            "horizon": "5d",
+                            "due_date": "2026-06-25",
+                            "label_count": 1,
+                            "source_outcome_ids": ["outcome-hidden-5d"],
+                            "external_provider_gap_severity_observation_gap_reason": "AMD hidden calibration lacks provider gap severity fields.",
+                            "external_provider_gap_severity_observation_gap_action": "Backfill from the decision-time report.",
+                            "external_provider_gap_severity_observation_backfill_policy": "decision_time_only",
+                            "required_external_provider_gap_severity_observation_date": "2026-05-24",
+                            "minimum_external_provider_gap_severity_fields_to_backfill": [
+                                "external_provider_gap_count",
+                                "external_provider_primary_gap_severity",
+                                "external_provider_gap_severity_score",
+                            ],
+                        }
+                    ],
+                }
+            )
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "provider gap severity observation hidden calibration queue must only include calibration horizons"
+                    in failure
+                    for failure in failures
+                )
+            )
+            hidden_calibration_row = payload["backtest"][
+                "pending_external_provider_gap_severity_observation_gap_hidden_calibration_work_item_queue"
+            ][0]
+            hidden_calibration_row["horizon"] = "1m"
+            hidden_calibration_row["session"] = "premarket"
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "provider gap severity observation hidden calibration queue requires "
+                    "decision-time report artifacts" in failure
+                    for failure in failures
+                )
+            )
+            hidden_calibration_row["decision_time_report_json"] = "2026-05-24-premarket.json"
+            hidden_calibration_row["decision_time_report_markdown"] = "2026-05-24-premarket.md"
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "provider gap severity observation hidden calibration queue requires "
+                    "available decision-time report JSON artifacts" in failure
+                    for failure in failures
+                )
+            )
+            hidden_calibration_row["decision_time_report_json_available"] = True
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "provider gap severity observation hidden calibration queue requires "
+                    "ready candidate backfill values" in failure
+                    for failure in failures
+                )
+            )
+            hidden_calibration_row["candidate_backfill_status"] = "ready"
+            hidden_calibration_row["candidate_source_section"] = "external_signals.source_statuses"
+            hidden_calibration_row[
+                "candidate_backfill_policy"
+            ] = "decision_time_external_signals_provider_status_only"
+            hidden_calibration_row["candidate_backfill_values"] = {
+                "external_provider_gap_count": 2,
+                "external_provider_primary_gap_severity": "configuration_required",
+                "external_provider_gap_severity_score": 45.0,
+            }
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "hidden calibration provider gap severity labels require "
+                    "backtest.pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_queue"
+                    in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"].update(
+                {
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_count": 1,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_queue_limit": 8,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_queue": [
+                        {
+                            "decision_time_report_json": "2026-05-24-premarket.json",
+                            "decision_time_report_json_available": False,
+                            "label_count": 1,
+                            "work_item_count": 1,
+                            "earliest_due_date": "2026-06-25",
+                            "latest_due_date": "2026-06-25",
+                            "horizons": ["1m"],
+                            "symbols": ["AMD"],
+                            "symbol_count": 1,
+                        }
+                    ],
+                }
+            )
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "provider gap severity observation hidden calibration report batches require "
+                    "available decision-time report JSON artifacts" in failure
+                    for failure in failures
+                )
+            )
+            payload["backtest"][
+                "pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_queue"
+            ][0]["decision_time_report_json_available"] = True
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "provider gap severity observation hidden calibration report batches require "
+                    "ready candidate backfill values" in failure
+                    for failure in failures
+                )
+            )
+            batch_row = payload["backtest"][
+                "pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_queue"
+            ][0]
+            batch_row["candidate_backfill_status"] = "ready"
+            batch_row["candidate_source_section"] = "external_signals.source_statuses"
+            batch_row["candidate_backfill_policy"] = "decision_time_external_signals_provider_status_only"
+            batch_row["candidate_backfill_values"] = {
+                "external_provider_gap_count": 2,
+                "external_provider_configuration_gap_count": 1,
+                "external_provider_runtime_gap_count": 0,
+                "external_provider_stale_gap_count": 0,
+                "external_provider_transient_gap_count": 1,
+                "external_provider_other_gap_count": 0,
+                "external_provider_primary_gap_severity": "configuration_required",
+                "external_provider_gap_severity_score": 45.0,
+            }
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "hidden calibration provider gap severity labels require "
+                    "backtest.pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_queue"
+                    in failure
+                    for failure in failures
+                )
             )
 
     def test_requires_external_coverage_gap_plan_when_queue_exists(self):
@@ -861,6 +1936,203 @@ class PublicSnapshotQualityTests(unittest.TestCase):
             self.assertTrue(any("audit.source_freshness status mismatch for Earnings calendar" in failure for failure in failures))
             self.assertTrue(any("weak data_health source Earnings calendar requires matching audit source gap" in failure for failure in failures))
 
+    def test_requires_external_approval_blockers_to_keep_ticket_and_provider_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp) / "web"
+            payload = valid_public_payload()
+            payload["data_health"] = {
+                "sources": [
+                    {
+                        "source": "external_signals",
+                        "label": "External signals",
+                        "status": "ok",
+                        "approval_blocked_external_gap_count": 1,
+                        "approval_blocked_external_gaps": [
+                            {
+                                "symbol": "AVGO",
+                                "approval_gate_status": "blocked_until_confirmation",
+                                "approval_open_check_count": 1,
+                                "approval_blocking_checks": ["external_feed_reliability_reviewed"],
+                                "provider_gap_count": 1,
+                            }
+                        ],
+                    }
+                ]
+            }
+            payload["audit"] = {
+                "source_freshness": [
+                    {
+                        "source": "external_signals",
+                        "label": "External signals",
+                        "status": "ok",
+                    }
+                ],
+                "data_gaps": [],
+            }
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "approval_blocked_external_gaps rows require symbol, ticket id, approval gate status, open check count, and blocking checks"
+                    in failure
+                    for failure in failures
+                )
+            )
+            self.assertTrue(
+                any("approval_blocked_external_gaps rows require provider gap sources and counts" in failure for failure in failures)
+            )
+
+    def test_requires_earnings_approval_blockers_to_keep_confirmation_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp) / "web"
+            payload = valid_public_payload()
+            payload["data_health"] = {
+                "sources": [
+                    {
+                        "source": "earnings",
+                        "label": "Earnings calendar",
+                        "status": "ok",
+                        "approval_blocked_confirmation_gap_count": 1,
+                        "approval_blocked_confirmation_gaps": [
+                            {
+                                "symbol": "MRVL",
+                                "ticket_id": "ticket-mrvl",
+                                "approval_gate_status": "blocked_until_confirmation",
+                                "approval_open_check_count": 1,
+                                "approval_blocking_checks": ["earnings_date_confirmed"],
+                                "confirmation_priority": "p0_blackout_confirmation",
+                            }
+                        ],
+                    }
+                ]
+            }
+            payload["audit"] = {
+                "source_freshness": [
+                    {
+                        "source": "earnings",
+                        "label": "Earnings calendar",
+                        "status": "ok",
+                    }
+                ],
+                "data_gaps": [],
+            }
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any(
+                    "approval_blocked_confirmation_gaps rows require event date, confirmation deadline, and confirmation priority"
+                    in failure
+                    for failure in failures
+                )
+            )
+
+    def test_requires_approval_blocker_summary_to_match_source_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp) / "web"
+            payload = valid_public_payload()
+            payload["data_health"] = {
+                "approval_blocker_summary": {
+                    "status": "ok",
+                    "total_source_blocker_count": 1,
+                    "external_gap_ticket_count": 1,
+                    "earnings_confirmation_ticket_count": 0,
+                    "visible_blocker_row_count": 1,
+                    "blocked_ticket_count": 1,
+                    "blocked_symbols": ["NVDA"],
+                    "open_check_count": 1,
+                    "open_check_counts": {"external_feed_reliability_reviewed": 1},
+                    "provider_gap_source_counts": {},
+                    "confirmation_priority_counts": {},
+                    "next_confirmation_deadline": "2026-05-25",
+                    "next_confirmation_symbols": ["AVGO"],
+                },
+                "sources": [
+                    {
+                        "source": "external_signals",
+                        "label": "External signals",
+                        "status": "ok",
+                        "approval_blocked_external_gap_count": 1,
+                        "approval_blocked_external_gaps": [
+                            {
+                                "symbol": "NVDA",
+                                "ticket_id": "ticket-nvda",
+                                "approval_gate_status": "review_required",
+                                "approval_open_check_count": 1,
+                                "approval_blocking_checks": ["external_feed_reliability_reviewed"],
+                                "provider_gap_count": 1,
+                                "provider_gap_sources": ["alpha_vantage_news"],
+                            }
+                        ],
+                    },
+                    {
+                        "source": "earnings",
+                        "label": "Earnings calendar",
+                        "status": "ok",
+                        "approval_blocked_confirmation_gap_count": 1,
+                        "approval_blocked_confirmation_gaps": [
+                            {
+                                "symbol": "MRVL",
+                                "ticket_id": "ticket-mrvl",
+                                "approval_gate_status": "blocked_until_confirmation",
+                                "approval_open_check_count": 1,
+                                "approval_blocking_checks": ["earnings_date_confirmed"],
+                                "event_date": "2026-05-27",
+                                "confirmation_deadline": "2026-05-24",
+                                "confirmation_priority": "p0_blackout_confirmation",
+                            }
+                        ],
+                    },
+                ],
+            }
+            payload["audit"] = {
+                "source_freshness": [
+                    {"source": "external_signals", "label": "External signals", "status": "ok"},
+                    {"source": "earnings", "label": "Earnings calendar", "status": "ok"},
+                ],
+                "data_gaps": [],
+            }
+            payload["instrumentation_audit"] = build_instrumentation_audit(payload)
+            write_latest(web_dir, payload)
+
+            failures = public_snapshot_quality_failures(web_dir)
+
+            self.assertTrue(
+                any("data_health.approval_blocker_summary status must be attention" in failure for failure in failures)
+            )
+            self.assertTrue(
+                any("data_health.approval_blocker_summary total_source_blocker_count is 1; expected 2" in failure for failure in failures)
+            )
+            self.assertTrue(
+                any("data_health.approval_blocker_summary blocked_symbols must match visible blockers" in failure for failure in failures)
+            )
+            self.assertTrue(
+                any("data_health.approval_blocker_summary blocked_ticket_count is 1; expected 2" in failure for failure in failures)
+            )
+            self.assertTrue(
+                any("data_health.approval_blocker_summary open_check_counts must match visible blockers" in failure for failure in failures)
+            )
+            self.assertTrue(
+                any("data_health.approval_blocker_summary open_check_count is 1; expected 2" in failure for failure in failures)
+            )
+            self.assertTrue(
+                any("data_health.approval_blocker_summary provider_gap_source_counts must match visible blockers" in failure for failure in failures)
+            )
+            self.assertTrue(
+                any("data_health.approval_blocker_summary confirmation_priority_counts must match visible blockers" in failure for failure in failures)
+            )
+            self.assertTrue(
+                any("data_health.approval_blocker_summary next_confirmation_deadline must match visible blockers" in failure for failure in failures)
+            )
+            self.assertTrue(
+                any("data_health.approval_blocker_summary next_confirmation_symbols must match visible blockers" in failure for failure in failures)
+            )
+
     def test_requires_pending_backtest_due_dates_to_match_trading_calendar_policy(self):
         with tempfile.TemporaryDirectory() as tmp:
             web_dir = Path(tmp) / "web"
@@ -977,6 +2249,14 @@ def valid_public_payload() -> dict:
         "external_provider_count": 6,
         "external_provider_ok_count": 2,
         "external_provider_ok_ratio": 0.3333,
+        "external_provider_gap_count": 0,
+        "external_provider_configuration_gap_count": 0,
+        "external_provider_transient_gap_count": 0,
+        "external_provider_stale_gap_count": 0,
+        "external_provider_runtime_gap_count": 0,
+        "external_provider_other_gap_count": 0,
+        "external_provider_primary_gap_severity": "none",
+        "external_provider_gap_severity_score": 0.0,
         "external_signal_count": 4,
         "external_source_count": 3,
     }

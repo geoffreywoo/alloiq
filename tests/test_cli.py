@@ -12,14 +12,17 @@ from invest.backtest import trials_from_payload_actions
 from invest.cli import (
     apply_coverage_gap_candidate_backfills,
     apply_measurement_gap_candidate_backfills,
+    apply_provider_gap_severity_candidate_backfills,
     attach_recovery_external_signals,
     build_coverage_gap_plan_export,
     build_external_alignment_review_plan_export,
     build_measurement_gap_plan_export,
+    build_provider_gap_severity_backfill_export,
     command_sources,
     format_external_alignment_review_plan_export,
     format_backtest_summary,
     format_measurement_gap_plan_export,
+    format_provider_gap_severity_backfill_export,
     main,
     materialize_recovery_feature_skeleton,
     materialize_recovery_training_examples,
@@ -136,6 +139,20 @@ class CoverageGapPlanCliTests(unittest.TestCase):
                     "symbols": ["MSFT", "GOOG"],
                 }
             ],
+            "pending_by_earnings_confirmation_bucket": [
+                {"key": "no_event", "pending_count": 1, "next_due_date": "2026-06-02"},
+                {"key": "confirmation_required", "pending_count": 2, "next_due_date": "2026-06-25"},
+            ],
+            "pending_by_earnings_risk_window": [
+                {"key": "unknown", "pending_count": 1, "next_due_date": "2026-06-02"},
+                {"key": "blackout", "pending_count": 1, "next_due_date": "2026-06-25"},
+                {"key": "clear", "pending_count": 1, "next_due_date": "2026-06-25"},
+            ],
+            "pending_by_approval_blocker_bucket": [
+                {"key": "no_approval_context", "pending_count": 1, "next_due_date": "2026-06-02"},
+                {"key": "blocked_until_confirmation", "pending_count": 1, "next_due_date": "2026-06-25"},
+                {"key": "review_required", "pending_count": 2, "next_due_date": "2026-06-25"},
+            ],
             "pending_external_alignment_review_count": 2,
             "pending_external_alignment_review_item_count": 1,
             "pending_external_alignment_review_hidden_item_count": 1,
@@ -249,6 +266,16 @@ class CoverageGapPlanCliTests(unittest.TestCase):
             "- Next external alignment label: 2026-06-25 (1m, 2 labels, 1 aligned, 1 conflict, symbols MSFT, GOOG)",
             summary,
         )
+        self.assertIn(
+            "- Pending earnings label buckets: confirmation required 2 labels next 2026-06-25 | "
+            "risk windows blackout 1 label next 2026-06-25; clear 1 label next 2026-06-25",
+            summary,
+        )
+        self.assertIn(
+            "- Pending approval label buckets: blocked until confirmation 1 label next 2026-06-25; "
+            "review required 2 labels next 2026-06-25",
+            summary,
+        )
         self.assertIn("- External alignment review queue: 2 non-confirming labels / 1 work item, 1 hidden", summary)
         self.assertIn(
             "- Review acceptance: 1/2 checks open across 2 labels; metadata-ready 1/1 work item; "
@@ -312,6 +339,7 @@ class CoverageGapPlanCliTests(unittest.TestCase):
                 {"decision_forward_return_pct": 1},
             )
             self.assertEqual(export["maturity_test_status_counts"], {"blocked": 1})
+            self.assertEqual(export["maturity_test_blocker_counts"], {"matured_label_available": 1})
             self.assertEqual(export["maturity_test_result_counts"], {})
             self.assertEqual(export["priority_rows"][0]["external_alignment_review_id"], "review-goog-5d")
             self.assertEqual(export["priority_rows"][0]["measurement_summary"], "engine negative; external positive score 4; expected 9.41")
@@ -332,6 +360,7 @@ class CoverageGapPlanCliTests(unittest.TestCase):
             self.assertIn("Blockers: matured_label_available=1", text)
             self.assertIn("Maturity test targets: external_signal_trust_vs_engine_direction=1", text)
             self.assertIn("Maturity test status: blocked=1", text)
+            self.assertIn("Maturity test blockers: matured_label_available=1", text)
             self.assertIn("GOOG 5d: review-goog-5d", text)
 
     def test_external_alignment_review_plan_classifies_completed_maturity_test(self):
@@ -363,6 +392,7 @@ class CoverageGapPlanCliTests(unittest.TestCase):
             result = export["priority_rows"][0]["maturity_test_result"]
             self.assertEqual(export["review_bottleneck"], "ready_for_review")
             self.assertEqual(export["maturity_test_status_counts"], {"classified": 1})
+            self.assertEqual(export["maturity_test_blocker_counts"], {})
             self.assertEqual(export["maturity_test_result_counts"], {"engine_validated": 1})
             self.assertEqual(export["priority_rows"][0]["maturity_test_status"], "classified")
             self.assertEqual(export["priority_rows"][0]["maturity_test_blockers"], [])
@@ -631,6 +661,99 @@ class CoverageGapPlanCliTests(unittest.TestCase):
             self.assertEqual(
                 example["external_alignment_measurement_backfills"][0]["candidate_derivation"],
                 "research_item_from_feature_matrix",
+            )
+
+    def test_applies_provider_gap_severity_backfill_records_to_matching_training_examples(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp) / "web"
+            reports_dir = Path(tmp) / "reports"
+            write_latest(web_dir, provider_gap_severity_backfill_snapshot())
+            report_path = reports_dir / "2026-05-24-postmarket.json"
+            write_report(
+                report_path,
+                {
+                    "as_of": "2026-05-24",
+                    "session": "postmarket",
+                    "recommendation_training_examples": [
+                        {
+                            "example_id": "trial-goog-1m",
+                            "symbol": "GOOG",
+                            "external_provider_gap_count": None,
+                            "external_provider_primary_gap_severity": None,
+                        }
+                    ],
+                },
+            )
+            export = build_provider_gap_severity_backfill_export(web_dir, reports_dir=reports_dir)
+            text = format_provider_gap_severity_backfill_export(export)
+
+            result = apply_provider_gap_severity_candidate_backfills(export["backfill_items"])
+
+            self.assertEqual(export["version"], "2026-05-external-provider-gap-severity-backfill-plan-export-v1")
+            self.assertEqual(export["candidate_apply_ready_count"], 1)
+            self.assertIn("GOOG 1m: ready configuration_required", text)
+            self.assertEqual(result["status"], "applied")
+            self.assertEqual(result["applied_item_count"], 1)
+            self.assertEqual(result["applied_example_count"], 1)
+            self.assertEqual(result["field_update_count"], 8)
+            updated = json.loads(report_path.read_text(encoding="utf-8"))
+            example = updated["recommendation_training_examples"][0]
+            self.assertEqual(example["external_provider_gap_count"], 4)
+            self.assertEqual(example["external_provider_configuration_gap_count"], 2)
+            self.assertEqual(example["external_provider_runtime_gap_count"], 1)
+            self.assertEqual(example["external_provider_stale_gap_count"], 1)
+            self.assertEqual(example["external_provider_transient_gap_count"], 0)
+            self.assertEqual(example["external_provider_other_gap_count"], 0)
+            self.assertEqual(example["external_provider_primary_gap_severity"], "configuration_required")
+            self.assertEqual(example["external_provider_gap_severity_score"], 53.33)
+            self.assertEqual(
+                example["external_provider_gap_severity_backfills"][0][
+                    "external_provider_gap_severity_observation_backfill_record_id"
+                ],
+                "provider-gap-record-goog-1m",
+            )
+
+    def test_provider_gap_severity_apply_refuses_blocked_candidates(self):
+        with self.assertRaises(RuntimeError):
+            apply_provider_gap_severity_candidate_backfills([{"symbol": "GOOG", "candidate_apply_status": "blocked"}])
+
+    def test_provider_gap_severity_cli_can_apply_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp) / "web"
+            reports_dir = Path(tmp) / "reports"
+            write_latest(web_dir, provider_gap_severity_backfill_snapshot())
+            report_path = reports_dir / "2026-05-24-postmarket.json"
+            write_report(
+                report_path,
+                {
+                    "as_of": "2026-05-24",
+                    "session": "postmarket",
+                    "recommendation_training_examples": [
+                        {"example_id": "trial-goog-1m", "symbol": "GOOG"}
+                    ],
+                },
+            )
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(
+                    [
+                        "provider-gap-severity-backfill-plan",
+                        "--web-dir",
+                        str(web_dir),
+                        "--reports-dir",
+                        str(reports_dir),
+                        "--apply-candidates",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            export = json.loads(stdout.getvalue())
+            self.assertEqual(export["apply_result"]["field_update_count"], 8)
+            updated = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                updated["recommendation_training_examples"][0]["external_provider_primary_gap_severity"],
+                "configuration_required",
             )
 
     def test_resolves_candidate_values_from_decision_time_source_report(self):
@@ -1374,6 +1497,14 @@ class CoverageGapPlanCliTests(unittest.TestCase):
                                 "external_provider_count": 2,
                                 "external_provider_ok_count": 1,
                                 "external_provider_ok_ratio": 0.5,
+                                "external_provider_gap_count": 1,
+                                "external_provider_configuration_gap_count": 0,
+                                "external_provider_transient_gap_count": 0,
+                                "external_provider_stale_gap_count": 0,
+                                "external_provider_runtime_gap_count": 0,
+                                "external_provider_other_gap_count": 1,
+                                "external_provider_primary_gap_severity": "investigate",
+                                "external_provider_gap_severity_score": 27.5,
                                 "external_signal_count": 1,
                                 "external_source_count": 1,
                             }
@@ -1423,6 +1554,14 @@ class CoverageGapPlanCliTests(unittest.TestCase):
                                 "external_provider_count": 2,
                                 "external_provider_ok_count": 1,
                                 "external_provider_ok_ratio": 0.5,
+                                "external_provider_gap_count": 1,
+                                "external_provider_configuration_gap_count": 0,
+                                "external_provider_transient_gap_count": 0,
+                                "external_provider_stale_gap_count": 0,
+                                "external_provider_runtime_gap_count": 0,
+                                "external_provider_other_gap_count": 1,
+                                "external_provider_primary_gap_severity": "investigate",
+                                "external_provider_gap_severity_score": 27.5,
                                 "external_signal_count": 1,
                                 "external_source_count": 1,
                             }
@@ -1768,6 +1907,72 @@ def coverage_gap_snapshot() -> dict:
                     }
                 ],
             }
+        },
+    }
+
+
+def provider_gap_severity_backfill_snapshot() -> dict:
+    return {
+        "as_of": "2026-05-25",
+        "session": "premarket",
+        "site": {"source_report": "2026-05-25-premarket.json"},
+        "backtest": {
+            "pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_count": 1,
+            "pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_queue_limit": 8,
+            "pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_queue": [
+                {
+                    "external_provider_gap_severity_observation_backfill_record_id": "provider-gap-record-goog-1m",
+                    "external_provider_gap_severity_observation_backfill_record_version": (
+                        "2026-05-external-provider-gap-severity-backfill-record-v1"
+                    ),
+                    "external_provider_gap_severity_observation_work_item_id": "provider-gap-work-goog-1m",
+                    "symbol": "GOOG",
+                    "horizon": "1m",
+                    "decision_as_of": "2026-05-24",
+                    "session": "postmarket",
+                    "due_date": "2026-06-25",
+                    "target_section": "recommendation_training_examples",
+                    "source_report": "2026-05-24-postmarket.json",
+                    "source_report_available": True,
+                    "source_trial_ids": ["trial-goog-1m"],
+                    "source_outcome_ids": ["outcome-goog-1m"],
+                    "candidate_apply_status": "ready",
+                    "candidate_apply_policy": "update_matching_recommendation_training_examples_by_source_trial_id",
+                    "candidate_backfill_policy": "decision_time_external_signals_provider_status_only",
+                    "candidate_source_section": "external_signals.source_statuses",
+                    "candidate_provider_gap_severities": [
+                        "configuration_required",
+                        "runtime_budget",
+                        "stale_or_empty",
+                    ],
+                    "candidate_provider_gap_sources": [
+                        "alpha_vantage_news",
+                        "finra_short_interest",
+                        "gdelt_global_news",
+                    ],
+                    "candidate_missing_required_fields": [],
+                    "fields_to_backfill": [
+                        "external_provider_gap_count",
+                        "external_provider_configuration_gap_count",
+                        "external_provider_runtime_gap_count",
+                        "external_provider_stale_gap_count",
+                        "external_provider_transient_gap_count",
+                        "external_provider_other_gap_count",
+                        "external_provider_primary_gap_severity",
+                        "external_provider_gap_severity_score",
+                    ],
+                    "candidate_backfill_values": {
+                        "external_provider_gap_count": 4,
+                        "external_provider_configuration_gap_count": 2,
+                        "external_provider_runtime_gap_count": 1,
+                        "external_provider_stale_gap_count": 1,
+                        "external_provider_transient_gap_count": 0,
+                        "external_provider_other_gap_count": 0,
+                        "external_provider_primary_gap_severity": "configuration_required",
+                        "external_provider_gap_severity_score": 53.33,
+                    },
+                }
+            ],
         },
     }
 

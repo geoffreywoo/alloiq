@@ -8,11 +8,19 @@ from .symbols import equivalent_symbols, proxied_lookup, symbol_proxy_key
 from .util import stable_id
 
 
-FEATURE_MATRIX_VERSION = "2026-05-ml-feature-matrix-v2"
-MODEL_POLICY_VERSION = "2026-05-bottom-up-first-v1"
+FEATURE_MATRIX_VERSION = "2026-05-ml-feature-matrix-v5"
+MODEL_POLICY_VERSION = "2026-05-bottom-up-first-v2"
 
-RETURN_WINDOWS = ["5d", "1m", "3m", "ytd", "1y"]
+RETURN_WINDOWS = ["1d", "5d", "1m", "3m", "ytd", "1y"]
 HARD_RISK_EVENTS = {"financing_risk", "regulatory_risk", "crowding_warning"}
+EXTERNAL_PROVIDER_GAP_SEVERITY_WEIGHTS = {
+    "configuration_required": 90.0,
+    "stale_or_empty": 75.0,
+    "runtime_budget": 65.0,
+    "investigate": 55.0,
+    "transient_network": 45.0,
+    "identifier_mapping": 35.0,
+}
 
 
 def build_feature_matrix(
@@ -96,6 +104,8 @@ def feature_row(
     external_score = float(external.get("external_signal_score") or 0)
     external_coverage = external_coverage_multiplier(external)
     coverage_adjusted_external_score = external_score * external_coverage
+    external_gap = external_provider_gap_features(external)
+    approval_friction = approval_data_friction(earnings_event, external, company)
     if external.get("signal_count") and "external_feeds" not in signal_families:
         signal_families.append("external_feeds")
     returns = returns_for_symbol(return_windows, symbol)
@@ -153,6 +163,12 @@ def feature_row(
         "source_tiers": source_tiers,
         "source_quality_score": round(source_quality_score(source_tiers), 2),
         "earnings_days_until": earnings_event.get("days_until") if earnings_event else None,
+        "earnings_event_date": earnings_event.get("event_date") if earnings_event else "",
+        "earnings_event_source": earnings_event.get("source") if earnings_event else "",
+        "earnings_confirmed_or_estimated": earnings_confirmation_status(earnings_event),
+        "earnings_risk_window": earnings_event.get("risk_window", "") if earnings_event else "",
+        "earnings_confirmation_required": earnings_confirmation_required(earnings_event),
+        "price_return_1d": returns.get("1d"),
         "price_return_5d": returns.get("5d"),
         "price_return_1m": returns.get("1m"),
         "price_return_3m": returns.get("3m"),
@@ -180,8 +196,19 @@ def feature_row(
         "external_provider_count": int(external.get("provider_count") or 0),
         "external_provider_ok_count": int(external.get("provider_ok_count") or 0),
         "external_provider_ok_ratio": round(float(external.get("provider_ok_ratio") or 0), 4),
+        "external_provider_gap_count": external_gap["gap_count"],
+        "external_provider_configuration_gap_count": external_gap["configuration_gap_count"],
+        "external_provider_transient_gap_count": external_gap["transient_gap_count"],
+        "external_provider_stale_gap_count": external_gap["stale_gap_count"],
+        "external_provider_runtime_gap_count": external_gap["runtime_gap_count"],
+        "external_provider_other_gap_count": external_gap["other_gap_count"],
+        "external_provider_primary_gap_severity": external_gap["primary_gap_severity"],
+        "external_provider_gap_severity_score": external_gap["gap_severity_score"],
         "external_coverage_multiplier": round(external_coverage, 4),
         "external_feed_status": external.get("external_status", external.get("status", "")),
+        "approval_data_friction_score": approval_friction["score"],
+        "approval_data_friction_bucket": approval_friction["bucket"],
+        "approval_data_friction_reasons": approval_friction["reasons"],
         "company_underwriting_score": round(company_score if company_score is not None else 45.0, 2),
         "company_evidence_quality": round(company_evidence if company_evidence is not None else 0.0, 2),
         "company_source_quality": round(float(company.get("source_quality") or 0), 2),
@@ -318,6 +345,23 @@ def nearest_earnings_by_symbol(events: list[dict[str, Any]]) -> dict[str, dict[s
     return nearest
 
 
+def earnings_confirmation_status(event: dict[str, Any] | None) -> str:
+    if not event:
+        return ""
+    status = str(event.get("confirmed_or_estimated") or "").strip().lower()
+    if status:
+        return status
+    source = str(event.get("source") or "")
+    raw_status = str(event.get("status") or "").lower()
+    if source in {"manual", "company_ir_feed", "sec_company_submissions"} or raw_status in {"confirmed", "filed", "scheduled"}:
+        return "confirmed"
+    return "estimated" if event.get("event_type") == "earnings" else ""
+
+
+def earnings_confirmation_required(event: dict[str, Any] | None) -> bool:
+    return bool(event and event.get("event_type") == "earnings" and earnings_confirmation_status(event) == "estimated")
+
+
 def external_features_by_symbol(external_signals: dict[str, Any]) -> dict[str, dict[str, Any]]:
     rows = external_signals.get("by_symbol") or {}
     provider_count = int(external_signals.get("provider_count") or 0)
@@ -329,6 +373,8 @@ def external_features_by_symbol(external_signals: dict[str, Any]) -> dict[str, d
         "provider_count": provider_count,
         "provider_ok_count": provider_ok_count,
         "provider_ok_ratio": provider_ok_ratio,
+        "provider_gaps": external_signals.get("provider_gaps") or [],
+        **external_provider_gap_features(external_signals),
     }
     normalized: dict[str, dict[str, Any]] = {}
     if isinstance(rows, dict):
@@ -423,6 +469,120 @@ def external_coverage_multiplier(external: dict[str, Any]) -> float:
         status = str(external.get("external_status") or external.get("status") or "")
         return 0.5 if status in {"limited", "missing", "failed", "error", "unknown"} else 1.0
     return max(0.25, min(1.0, ratio))
+
+
+def external_provider_gap_features(external: dict[str, Any]) -> dict[str, Any]:
+    provider_count = int(external.get("provider_count") or 0)
+    gaps = [
+        row for row in external.get("provider_gaps") or []
+        if isinstance(row, dict)
+    ]
+    counts: dict[str, int] = {}
+    for row in gaps:
+        severity = external_provider_gap_severity_key(row.get("severity"))
+        counts[severity] = counts.get(severity, 0) + 1
+    gap_count = len(gaps)
+    weighted = sum(
+        EXTERNAL_PROVIDER_GAP_SEVERITY_WEIGHTS.get(severity, EXTERNAL_PROVIDER_GAP_SEVERITY_WEIGHTS["investigate"]) * count
+        for severity, count in counts.items()
+    )
+    coverage_scale = min(1.0, gap_count / max(provider_count, gap_count, 1))
+    average_severity = weighted / gap_count if gap_count else 0.0
+    primary = primary_external_provider_gap_severity(counts)
+    return {
+        "gap_count": gap_count,
+        "configuration_gap_count": counts.get("configuration_required", 0),
+        "transient_gap_count": counts.get("transient_network", 0),
+        "stale_gap_count": counts.get("stale_or_empty", 0),
+        "runtime_gap_count": counts.get("runtime_budget", 0),
+        "other_gap_count": sum(
+            count
+            for severity, count in counts.items()
+            if severity not in {"configuration_required", "transient_network", "stale_or_empty", "runtime_budget"}
+        ),
+        "primary_gap_severity": primary,
+        "gap_severity_score": round(average_severity * coverage_scale, 2),
+    }
+
+
+def external_provider_gap_severity_key(value: Any) -> str:
+    severity = str(value or "investigate").strip().lower()
+    return severity if severity in EXTERNAL_PROVIDER_GAP_SEVERITY_WEIGHTS else "investigate"
+
+
+def primary_external_provider_gap_severity(counts: dict[str, int]) -> str:
+    if not counts:
+        return "none"
+    return max(
+        counts,
+        key=lambda severity: (
+            counts[severity],
+            EXTERNAL_PROVIDER_GAP_SEVERITY_WEIGHTS.get(severity, EXTERNAL_PROVIDER_GAP_SEVERITY_WEIGHTS["investigate"]),
+            severity,
+        ),
+    )
+
+
+def approval_data_friction(
+    earnings_event: dict[str, Any] | None,
+    external: dict[str, Any] | None,
+    company: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    external = external or {}
+    company = company or {}
+    reasons: list[str] = []
+    score = 0.0
+
+    if earnings_confirmation_required(earnings_event):
+        days = abs(int(earnings_event.get("days_until") or 999)) if earnings_event else 999
+        risk_window = str((earnings_event or {}).get("risk_window") or "")
+        if risk_window in {"blackout", "risk_window"} or days <= 2:
+            score += 45.0
+        elif days <= 7:
+            score += 32.0
+        elif days <= 30:
+            score += 20.0
+        else:
+            score += 12.0
+        reasons.append("estimated_earnings_confirmation_required")
+
+    coverage = external_coverage_multiplier(external)
+    status = str(external.get("external_status") or external.get("status") or "").strip().lower()
+    if status and status != "ok":
+        external_penalty = max(12.0, (1.0 - coverage) * 35.0)
+        if status in {"missing", "failed", "error", "unknown"}:
+            external_penalty += 8.0
+        external_penalty += min(8.0, external_provider_gap_features(external)["gap_severity_score"] * 0.10)
+        score += min(40.0, external_penalty)
+        reasons.append("external_feed_reliability_review_required")
+    elif coverage < 1.0:
+        score += (1.0 - coverage) * 30.0
+        reasons.append("external_provider_coverage_incomplete")
+
+    if company.get("review_required"):
+        score += 12.0
+        reasons.append("company_underwriting_review_required")
+
+    return {
+        "score": round(min(100.0, score), 2),
+        "bucket": approval_data_friction_bucket(reasons),
+        "reasons": reasons,
+    }
+
+
+def approval_data_friction_bucket(reasons: list[str]) -> str:
+    has_earnings = "estimated_earnings_confirmation_required" in reasons
+    has_external = any(reason.startswith("external_") for reason in reasons)
+    has_company = "company_underwriting_review_required" in reasons
+    if has_earnings and has_external:
+        return "earnings_and_external_review"
+    if has_earnings:
+        return "earnings_confirmation"
+    if has_external:
+        return "external_review"
+    if has_company:
+        return "company_review"
+    return "clear"
 
 
 def coverage_adjusted_signal_count(signal_count: int, signal_families: list[str], external_coverage: float) -> float:

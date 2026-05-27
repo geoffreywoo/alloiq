@@ -1126,7 +1126,7 @@ function focusManagerTemplate(row) {
         <span class="tag">${escapeHtml(managerGroupLabel(row))}</span>
       </div>
       <div class="focus-metrics">
-        ${focusMetricTemplate("Est. return", proxy?.proxy_return, { signed: true, className: "focus-return-metric" })}
+        ${focusMetricTemplate(managerReturnProxyMetricLabel(proxy), proxy?.proxy_return, { signed: true, className: "focus-return-metric" })}
         ${focusMetricTemplate("13F coverage", row.symbol_coverage_pct)}
         ${focusMetricTemplate("Watchlist overlap", row.alloiq_watchlist_pct)}
         ${focusMetricTemplate("Portfolio symbol overlap", row.default_portfolio_overlap_pct)}
@@ -1145,6 +1145,10 @@ function managerReturnProxy(row = {}) {
     .find((proxy) => String(proxy.manager_key || "") === managerKey) || null;
 }
 
+function managerReturnProxyMetricLabel(proxy) {
+  return proxy ? `Est. ${horizonLabel(proxy.horizon)} return` : "Est. return";
+}
+
 function managerReturnProxyNote(proxy) {
   if (!proxy) {
     return "Return proxy unavailable for this manager's priced disclosed common positions.";
@@ -1153,7 +1157,7 @@ function managerReturnProxyNote(proxy) {
   const priced = formatPlainPct(proxy.priced_top_weight_pct);
   const symbols = (proxy.priced_symbols || []).slice(0, 5).join(", ");
   const symbolText = symbols ? `: ${symbols}` : "";
-  return `${horizon} 13F long-book proxy from priced disclosed top positions${symbolText}. ${priced} of top disclosed weight priced; excludes shorts, private marks, and post-report trades.`;
+  return `Trailing ${horizon} 13F long-book public-price proxy from priced disclosed top positions${symbolText}. ${priced} of top disclosed weight priced; not realized fund performance or a forward return. Excludes shorts, private marks, and post-report trades.`;
 }
 
 function focusMetricTemplate(label, value, options = {}) {

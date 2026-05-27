@@ -9,7 +9,10 @@ from invest.config import AppConfig
 from invest.external_signals import (
     alpha_vantage_news_provider,
     build_external_signal_snapshot,
+    external_provider_gap_rows,
+    external_provider_gap_severity,
     external_provider_health_detail,
+    finra_short_interest_provider,
     gdelt_provider,
     parse_alpha_vantage_news,
     parse_cftc_cot,
@@ -58,6 +61,60 @@ class ExternalSignalTests(unittest.TestCase):
         self.assertIn("12 normalized signals; 1/3 providers ok, 2 limited", detail)
         self.assertIn("Alpha Vantage news: Optional API key env ALPHA_VANTAGE_API_KEY is not set", detail)
         self.assertIn("FINRA short interest: Runtime budget exhausted", detail)
+
+    def test_provider_gap_rows_make_degraded_feeds_actionable(self):
+        gaps = external_provider_gap_rows(
+            {
+                "source_statuses": [
+                    {"source": "sec_company_data", "label": "SEC company facts", "status": "ok", "detail": "12 parsed."},
+                    {
+                        "source": "alpha_vantage_news",
+                        "label": "Alpha Vantage news",
+                        "status": "limited",
+                        "detail": "Optional API key env ALPHA_VANTAGE_API_KEY is not set.",
+                    },
+                    {
+                        "source": "finra_short_interest",
+                        "label": "FINRA short interest",
+                        "status": "limited",
+                        "detail": "Runtime budget exhausted.",
+                        "signal_count": 0,
+                    },
+                    {
+                        "source": "gdelt_global_news",
+                        "label": "GDELT global news/events",
+                        "status": "limited",
+                        "detail": "The handshake operation timed out. 1 remaining query window skipped after failure cap.",
+                        "signal_count": 0,
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual([row["source"] for row in gaps], ["alpha_vantage_news", "finra_short_interest", "gdelt_global_news"])
+        self.assertIn("API key", gaps[0]["remediation"])
+        self.assertIn("runtime budget", gaps[1]["remediation"])
+        self.assertIn("timeout", gaps[2]["remediation"])
+        self.assertEqual(
+            [row["severity"] for row in gaps],
+            ["configuration_required", "runtime_budget", "transient_network"],
+        )
+
+    def test_provider_gap_severity_classifies_common_failure_modes(self):
+        cases = {
+            "Optional API key env ALPHA_VANTAGE_API_KEY is not set.": "configuration_required",
+            "The handshake operation timed out.": "transient_network",
+            "URLError: <urlopen error [Errno 54] Connection reset by peer>.": "transient_network",
+            "Runtime budget exhausted.": "runtime_budget",
+            "Stale or undated settlement rows were ignored.": "stale_or_empty",
+            "No CIK mapping for XYZ.": "identifier_mapping",
+            "Unexpected empty payload.": "investigate",
+        }
+
+        self.assertEqual(
+            {detail: external_provider_gap_severity(detail) for detail in cases},
+            cases,
+        )
 
     def test_alpha_vantage_news_sentiment_parses_symbol_scores(self):
         payload = {
@@ -121,11 +178,54 @@ class ExternalSignalTests(unittest.TestCase):
             timeout_urlopen,
         )
 
-        self.assertEqual(timeouts, [2])
+        self.assertEqual(timeouts, [2, 2])
         self.assertEqual(provider["status"], "limited")
         self.assertIn("1 query windows failed", provider["detail"])
         self.assertIn("TimeoutError: handshake timed out", provider["detail"])
+        self.assertIn("1 fallback query retries attempted; 0 succeeded", provider["detail"])
         self.assertIn("2 remaining query windows skipped after failure cap", provider["detail"])
+
+    def test_gdelt_provider_retries_failed_query_with_lighter_window(self):
+        urls: list[str] = []
+
+        def flaky_urlopen(req, timeout=20):
+            urls.append(req.full_url)
+            if len(urls) == 1:
+                raise TimeoutError("handshake timed out")
+            return FakeResponse(
+                {
+                    "articles": [
+                        {
+                            "title": "NVIDIA AI data center capacity partnership expands",
+                            "url": "https://example.com/nvda",
+                            "domain": "example.com",
+                            "seendate": "20260524T120000Z",
+                        }
+                    ]
+                }
+            )
+
+        provider = gdelt_provider(
+            {
+                "gdelt_queries": ["AI data center"],
+                "gdelt_timespan_days": 3,
+                "gdelt_max_records": 25,
+                "gdelt_fallback_timespan_days": 1,
+                "gdelt_fallback_max_records": 5,
+            },
+            date(2026, 5, 24),
+            ["NVDA"],
+            flaky_urlopen,
+        )
+
+        self.assertEqual(provider["status"], "ok")
+        self.assertEqual(provider["item_count"], 1)
+        self.assertEqual(provider["signals"][0]["symbol"], "NVDA")
+        self.assertIn("startdatetime=20260522000000", urls[0])
+        self.assertIn("maxrecords=25", urls[0])
+        self.assertIn("startdatetime=20260524000000", urls[1])
+        self.assertIn("maxrecords=5", urls[1])
+        self.assertIn("1 fallback query retries attempted; 1 succeeded", provider["detail"])
 
     def test_gdelt_provider_uses_as_of_bounded_date_window(self):
         urls: list[str] = []
@@ -339,6 +439,41 @@ class ExternalSignalTests(unittest.TestCase):
         self.assertEqual(items[0]["settlement_date"], "2026-05-15")
         self.assertEqual(signals[0]["event_date"], "2026-05-15")
 
+    def test_finra_provider_treats_fresh_non_watchlist_rows_as_ok(self):
+        def fake_urlopen(req, timeout=20):
+            return FakeResponse(
+                [
+                    {
+                        "symbolCode": "AAPL",
+                        "settlementDate": "2026-05-15",
+                        "daysToCoverQuantity": "1.5",
+                        "shortInterestPercentFloat": "2.0",
+                    }
+                ]
+            )
+
+        provider = finra_short_interest_provider({}, date(2026, 5, 24), ["NVDA"], fake_urlopen)
+
+        self.assertEqual(provider["status"], "ok")
+        self.assertEqual(provider["signal_count"], 0)
+        self.assertIn("Latest settlement 2026-05-15", provider["detail"])
+        self.assertIn("Feed is fresh; no current watchlist short-interest risk rows matched", provider["detail"])
+
+    def test_finra_provider_still_limits_stale_or_undated_rows(self):
+        def fake_urlopen(req, timeout=20):
+            return FakeResponse(
+                [
+                    {"symbolCode": "NVDA", "settlementDate": "2020-04-15"},
+                    {"symbolCode": "AAPL", "daysToCoverQuantity": "1.5"},
+                ]
+            )
+
+        provider = finra_short_interest_provider({}, date(2026, 5, 24), ["NVDA"], fake_urlopen)
+
+        self.assertEqual(provider["status"], "limited")
+        self.assertEqual(provider["signal_count"], 0)
+        self.assertIn("Stale or undated settlement rows were ignored", provider["detail"])
+
     def test_cftc_cot_parser_creates_global_positioning_signal(self):
         rows = [
             {
@@ -514,11 +649,13 @@ class ExternalSignalTests(unittest.TestCase):
         self.assertEqual(snapshot["symbols"], ["NVDA"])
         self.assertEqual(snapshot["symbol_count"], 1)
         self.assertEqual(snapshot["duplicate_signal_count"], 1)
+        self.assertEqual(snapshot["provider_gap_count"], 0)
+        self.assertEqual(snapshot["provider_gaps"], [])
         self.assertEqual(len(snapshot["top_signals"]), 1)
         self.assertEqual(snapshot["by_symbol"]["NVDA"]["signal_count"], 1)
         self.assertEqual(snapshot["by_symbol"]["NVDA"]["external_signal_score"], 5.0)
 
-    def test_external_snapshot_runs_distinct_feeds_before_gdelt_sweep(self):
+    def test_external_snapshot_runs_gdelt_before_tail_risk_feeds(self):
         calls: list[str] = []
 
         def provider(source: str):
@@ -555,11 +692,46 @@ class ExternalSignalTests(unittest.TestCase):
                 "alpha_vantage_news",
                 "sec_company_data",
                 "eia_energy_power",
+                "gdelt_global_news",
                 "finra_short_interest",
                 "cftc_cot",
-                "gdelt_global_news",
             ],
         )
+
+    def test_external_snapshot_exposes_provider_gaps(self):
+        def provider(source: str, status: str, detail: str = "test provider"):
+            def _provider(*args, **kwargs):
+                return {
+                    "source": source,
+                    "label": source,
+                    "status": status,
+                    "detail": detail,
+                    "item_count": 0,
+                    "signal_count": 0,
+                    "items": [],
+                    "signals": [],
+                }
+
+            return _provider
+
+        config = AppConfig(path=Path("config/invest.toml"), data={})
+
+        with (
+            patch("invest.external_signals.alpha_vantage_news_provider", provider("alpha_vantage_news", "limited", "API key missing.")),
+            patch("invest.external_signals.sec_company_provider", provider("sec_company_data", "ok")),
+            patch("invest.external_signals.eia_provider", provider("eia_energy_power", "disabled")),
+            patch("invest.external_signals.gdelt_provider", provider("gdelt_global_news", "limited", "The handshake operation timed out.")),
+            patch("invest.external_signals.finra_short_interest_provider", provider("finra_short_interest", "disabled")),
+            patch("invest.external_signals.cftc_cot_provider", provider("cftc_cot", "disabled")),
+        ):
+            snapshot = build_external_signal_snapshot(config, date(2026, 5, 24), ["NVDA"])
+
+        self.assertEqual(snapshot["provider_gap_count"], 2)
+        self.assertEqual([row["source"] for row in snapshot["provider_gaps"]], ["alpha_vantage_news", "gdelt_global_news"])
+        self.assertIn("API key", snapshot["provider_gaps"][0]["remediation"])
+        self.assertIn("timeout", snapshot["provider_gaps"][1]["remediation"])
+        self.assertEqual(snapshot["provider_gaps"][0]["severity"], "configuration_required")
+        self.assertEqual(snapshot["provider_gaps"][1]["severity"], "transient_network")
 
     def test_feature_matrix_includes_external_provider_features(self):
         external = {

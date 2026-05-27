@@ -130,9 +130,9 @@ def build_external_signal_snapshot(
         alpha_vantage_news_provider(settings, as_of, watchlist, urlopen),
         sec_company_provider(config, settings, as_of, watchlist, urlopen),
         eia_provider(settings, as_of, urlopen),
+        gdelt_provider(settings, as_of, watchlist, urlopen),
         finra_short_interest_provider(settings, as_of, watchlist, urlopen),
         cftc_cot_provider(settings, as_of, urlopen),
-        gdelt_provider(settings, as_of, watchlist, urlopen),
     ]
     providers = [provider for provider in providers if provider.get("status") != "disabled"]
     raw_signals = [signal for provider in providers for signal in provider.get("signals", [])]
@@ -143,6 +143,18 @@ def build_external_signal_snapshot(
     status_counts = status_counter(providers)
     status = overall_status(status_counts, signals)
     ok_count = status_counts.get("ok", 0)
+    source_statuses = [
+        {
+            "source": row.get("source", ""),
+            "label": row.get("label", ""),
+            "status": row.get("status", "unknown"),
+            "detail": row.get("detail", ""),
+            "item_count": row.get("item_count", 0),
+            "signal_count": row.get("signal_count", 0),
+        }
+        for row in providers
+    ]
+    provider_gaps = external_provider_gap_rows({"source_statuses": source_statuses}, limit=None)
     return {
         "version": EXTERNAL_SIGNALS_VERSION,
         "as_of": as_of.isoformat(),
@@ -156,17 +168,9 @@ def build_external_signal_snapshot(
         "provider_ok_ratio": round(ok_count / len(providers), 4) if providers else 0.0,
         "signal_count": len(signals),
         "duplicate_signal_count": duplicate_signal_count,
-        "source_statuses": [
-            {
-                "source": row.get("source", ""),
-                "label": row.get("label", ""),
-                "status": row.get("status", "unknown"),
-                "detail": row.get("detail", ""),
-                "item_count": row.get("item_count", 0),
-                "signal_count": row.get("signal_count", 0),
-            }
-            for row in providers
-        ],
+        "provider_gap_count": len(provider_gaps),
+        "provider_gaps": provider_gaps[:8],
+        "source_statuses": source_statuses,
         "top_signals": sorted(signals, key=lambda row: abs(float(row.get("score") or 0)), reverse=True)[:40],
         "by_symbol": symbol_features,
         "global": global_features,
@@ -315,10 +319,15 @@ def gdelt_provider(
     timespan_days = clamp_int(settings.get("gdelt_timespan_days"), 1, 14, 3)
     timeout = min(provider_timeout(settings), clamp_int(settings.get("gdelt_timeout_seconds"), 1, 15, 4))
     max_failures = clamp_int(settings.get("gdelt_max_failures"), 1, 5, 2)
+    fallback_enabled = bool(settings.get("gdelt_fallback_enabled", True))
+    fallback_records = min(max_records, clamp_int(settings.get("gdelt_fallback_max_records"), 5, 25, 10))
+    fallback_days = min(timespan_days, clamp_int(settings.get("gdelt_fallback_timespan_days"), 1, 7, 1))
     query_windows = queries[:5]
     all_items: list[dict[str, Any]] = []
     all_signals: list[dict[str, Any]] = []
     failures = 0
+    fallback_attempts = 0
+    fallback_successes = 0
     failure_skipped = 0
     runtime_skipped = 0
     failure_details: list[str] = []
@@ -326,25 +335,40 @@ def gdelt_provider(
         if budget_exhausted(settings):
             runtime_skipped = len(query_windows) - index
             break
-        params = urllib.parse.urlencode(
-            {
-                "query": query,
-                "mode": "ArtList",
-                "format": "json",
-                "maxrecords": max_records,
-                **gdelt_as_of_window(as_of, timespan_days),
-            }
-        )
+        params = gdelt_query_params(query, max_records, as_of, timespan_days)
         try:
             payload = fetch_json(f"{GDELT_DOC_URL}?{params}", urlopen=urlopen, timeout=timeout)
         except Exception as exc:
-            failures += 1
-            if len(failure_details) < 2:
-                failure_details.append(f"{type(exc).__name__}: {short_error(exc)}")
-            if failures >= max_failures:
-                failure_skipped = len(query_windows) - index - 1
-                break
-            continue
+            should_retry = (
+                fallback_enabled
+                and (fallback_records < max_records or fallback_days < timespan_days)
+                and not budget_exhausted(settings, reserve_seconds=tail_provider_reserve_seconds(settings))
+            )
+            if should_retry:
+                fallback_attempts += 1
+                try:
+                    fallback_params = gdelt_query_params(query, fallback_records, as_of, fallback_days)
+                    payload = fetch_json(f"{GDELT_DOC_URL}?{fallback_params}", urlopen=urlopen, timeout=timeout)
+                    fallback_successes += 1
+                except Exception as fallback_exc:
+                    failures += 1
+                    if len(failure_details) < 2:
+                        failure_details.append(
+                            f"{type(exc).__name__}: {short_error(exc)}; "
+                            f"fallback {type(fallback_exc).__name__}: {short_error(fallback_exc)}"
+                        )
+                    if failures >= max_failures:
+                        failure_skipped = len(query_windows) - index - 1
+                        break
+                    continue
+            else:
+                failures += 1
+                if len(failure_details) < 2:
+                    failure_details.append(f"{type(exc).__name__}: {short_error(exc)}")
+                if failures >= max_failures:
+                    failure_skipped = len(query_windows) - index - 1
+                    break
+                continue
         items, signals = parse_gdelt_articles(payload, query, set(symbols), as_of)
         all_items.extend(items)
         all_signals.extend(signals)
@@ -357,6 +381,8 @@ def gdelt_provider(
     if failures:
         summary = f" ({'; '.join(failure_details)})" if failure_details else ""
         detail += f" {failures} query windows failed{summary}."
+    if fallback_attempts:
+        detail += f" {fallback_attempts} fallback query retries attempted; {fallback_successes} succeeded."
     if failure_skipped:
         detail += f" {failure_skipped} remaining query windows skipped after failure cap."
     if runtime_skipped:
@@ -368,6 +394,18 @@ def gdelt_provider(
         detail,
         items=all_items[:50],
         signals=dedupe_signals(all_signals),
+    )
+
+
+def gdelt_query_params(query: str, max_records: int, as_of: date, timespan_days: int) -> str:
+    return urllib.parse.urlencode(
+        {
+            "query": query,
+            "mode": "ArtList",
+            "format": "json",
+            "maxrecords": max_records,
+            **gdelt_as_of_window(as_of, timespan_days),
+        }
     )
 
 
@@ -747,10 +785,16 @@ def finra_short_interest_provider(
         FINRA_SHORT_INTEREST_DEFAULT_MAX_AGE_DAYS,
     )
     items, signals = parse_finra_short_interest(rows, set(symbols), as_of, max_age_days=max_age_days)
-    status = "ok" if signals else "limited"
+    fresh_row_count, latest_settlement = finra_feed_freshness(rows, as_of, max_age_days=max_age_days)
+    status = "ok" if signals or fresh_row_count else "limited"
     detail = f"{len(rows)} FINRA rows parsed; {len(signals)} current watchlist risk signals within {max_age_days} days."
+    if latest_settlement:
+        detail += f" Latest settlement {latest_settlement.isoformat()} across {fresh_row_count} fresh rows."
     if rows and not signals:
-        detail += " Stale or undated settlement rows were ignored."
+        if fresh_row_count:
+            detail += " Feed is fresh; no current watchlist short-interest risk rows matched."
+        else:
+            detail += " Stale or undated settlement rows were ignored."
     return provider_status(
         "finra_short_interest",
         "FINRA short interest",
@@ -827,6 +871,29 @@ def parse_finra_short_interest(
             }
         )
     return items, signals
+
+
+def finra_feed_freshness(
+    rows: list[dict[str, Any]],
+    as_of: date,
+    max_age_days: int = FINRA_SHORT_INTEREST_DEFAULT_MAX_AGE_DAYS,
+) -> tuple[int, date | None]:
+    max_age_days = clamp_int(max_age_days, 1, 3650, FINRA_SHORT_INTEREST_DEFAULT_MAX_AGE_DAYS)
+    oldest_settlement = as_of - timedelta(days=max_age_days)
+    settlements = [
+        settlement
+        for row in rows
+        if (
+            settlement := parse_date(
+                row.get("settlementDate")
+                or row.get("settlement_date")
+                or row.get("recordDate")
+                or row.get("date")
+            )
+        )
+        and oldest_settlement <= settlement <= as_of
+    ]
+    return len(settlements), max(settlements) if settlements else None
 
 
 def cftc_cot_provider(settings: dict[str, Any], as_of: date, urlopen: UrlOpen) -> dict[str, Any]:
@@ -1182,6 +1249,71 @@ def external_provider_health_detail(external_signals: dict[str, Any], degraded_l
     )
     degraded = degraded_provider_summary(source_statuses, limit=degraded_limit)
     return f"{detail} {degraded}" if degraded else detail
+
+
+def external_provider_gap_rows(external_signals: dict[str, Any], limit: int | None = 8) -> list[dict[str, Any]]:
+    source_statuses = external_signals.get("source_statuses") or []
+    rows = []
+    for row in source_statuses:
+        status = str((row or {}).get("status") or "unknown")
+        if status in {"ok", "disabled"}:
+            continue
+        detail = row.get("detail") or status
+        rows.append(
+            {
+                "source": row.get("source", ""),
+                "label": row.get("label") or row.get("source") or "provider",
+                "status": status,
+                "detail": short_provider_detail(detail, max_length=180),
+                "item_count": int(row.get("item_count") or 0),
+                "signal_count": int(row.get("signal_count") or 0),
+                "severity": external_provider_gap_severity(str(detail)),
+                "remediation": external_provider_gap_remediation(str(detail)),
+            }
+        )
+    return rows[:limit] if limit is not None else rows
+
+
+def external_provider_gap_severity(detail: str) -> str:
+    text = detail.lower()
+    if "api key env" in text or "api key" in text:
+        return "configuration_required"
+    if (
+        "timed out" in text
+        or "timeout" in text
+        or "handshake" in text
+        or "connection reset" in text
+        or "urlopen error" in text
+    ):
+        return "transient_network"
+    if "runtime budget" in text or "skipped" in text:
+        return "runtime_budget"
+    if "stale" in text or "0 current" in text or "undated" in text:
+        return "stale_or_empty"
+    if "no cik" in text:
+        return "identifier_mapping"
+    return "investigate"
+
+
+def external_provider_gap_remediation(detail: str) -> str:
+    text = detail.lower()
+    if "api key env" in text or "api key" in text:
+        return "Configure the optional provider API key or explicitly disable the feed."
+    if (
+        "timed out" in text
+        or "timeout" in text
+        or "handshake" in text
+        or "connection reset" in text
+        or "urlopen error" in text
+    ):
+        return "Increase the provider timeout or reduce query windows before treating missing signals as evidence."
+    if "runtime budget" in text or "skipped" in text:
+        return "Increase the external-signal runtime budget or reduce provider request windows."
+    if "stale" in text or "0 current" in text or "undated" in text:
+        return "Refresh the source or tighten the lookback before treating it as current evidence."
+    if "no cik" in text:
+        return "Add CIK mappings for high-priority watchlist symbols."
+    return "Inspect provider fetch logs before relying on this feed for sizing."
 
 
 def degraded_provider_summary(source_statuses: list[dict[str, Any]], limit: int = 3) -> str:

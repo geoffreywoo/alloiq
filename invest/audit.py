@@ -44,6 +44,10 @@ def source_freshness(data_health: dict[str, Any]) -> list[dict[str, Any]]:
                 "label": source.get("label", ""),
                 "status": source.get("status", "unknown"),
                 "detail": source.get("detail", ""),
+                "provider_gap_count": source.get("provider_gap_count", 0),
+                "provider_gaps": source.get("provider_gaps", []),
+                "confirmation_gap_count": source.get("confirmation_gap_count", 0),
+                "confirmation_gaps": source.get("confirmation_gaps", []),
             }
         )
     return rows
@@ -56,8 +60,8 @@ def schedule_health(session: str) -> dict[str, Any]:
         "expected_runs": [
             {"kind": "premarket", "cadence": "8:00 AM ET on NYSE trading days"},
             {"kind": "market_open", "cadence": "9:30 AM ET on NYSE trading days"},
-            {"kind": "intraday", "cadence": "10:00 AM, 11:00 AM, 1:00 PM, 2:00 PM, and 3:00 PM ET on NYSE trading days"},
-            {"kind": "midday", "cadence": "12:00 PM ET on NYSE trading days"},
+            {"kind": "intraday", "cadence": "10:00 AM, 11:00 AM, 12:00 PM, 2:00 PM, and 3:00 PM ET on NYSE trading days"},
+            {"kind": "midday", "cadence": "1:00 PM ET on NYSE trading days"},
             {"kind": "market_close", "cadence": "4:00 PM ET on NYSE trading days"},
             {"kind": "postmarket", "cadence": "4:30 PM ET on NYSE trading days"},
             {"kind": "weekly", "cadence": "Sunday morning ET"},
@@ -105,7 +109,23 @@ def data_gaps(
     gaps = []
     for source in data_health.get("sources", []):
         if source.get("status") in WEAK_SOURCE_STATUSES:
-            gaps.append({"area": "source", "label": source.get("label", ""), "status": source.get("status", ""), "detail": source.get("detail", "")})
+            gaps.append(
+                {
+                    "area": "source",
+                    "label": source.get("label", ""),
+                    "status": source.get("status", ""),
+                    "detail": source.get("detail", ""),
+                    "provider_gap_count": source.get("provider_gap_count", 0),
+                    "provider_gaps": source.get("provider_gaps", []),
+                    "approval_blocked_external_gap_count": source.get("approval_blocked_external_gap_count", 0),
+                    "approval_blocked_external_gaps": source.get("approval_blocked_external_gaps", []),
+                    "confirmation_gap_count": source.get("confirmation_gap_count", 0),
+                    "confirmation_gaps": source.get("confirmation_gaps", []),
+                    "action_linked_confirmation_gap_count": source.get("action_linked_confirmation_gap_count", 0),
+                    "approval_blocked_confirmation_gap_count": source.get("approval_blocked_confirmation_gap_count", 0),
+                    "approval_blocked_confirmation_gaps": source.get("approval_blocked_confirmation_gaps", []),
+                }
+            )
     earnings = calendars.get("earnings") or {}
     if not earnings.get("event_count"):
         gaps.append({"area": "calendar", "label": "Earnings calendar", "status": "limited", "detail": "No earnings events available."})
@@ -175,6 +195,46 @@ def learning_gap_detail(learning: dict[str, Any], outcome_diagnostics: dict[str,
                 f"5-day labels due {external_projection.get('next_external_fast_label_due_date')}; "
                 f"{int(external_projection.get('external_fast_labels_due_next_30d') or 0)} due within 30 days."
             )
+    approval_projection = outcome_diagnostics.get("approval_learning_readiness_projection") or {}
+    if approval_projection and int(approval_projection.get("pending_approval_label_count") or 0) > 0:
+        details.append(
+            "Approval-gated learning labels: "
+            f"{int(approval_projection.get('pending_approval_label_count') or 0)} pending; "
+            f"{int(approval_projection.get('pending_approval_learning_label_count') or 0)} learning-eligible; "
+            f"{int(approval_projection.get('pending_approval_fast_label_count') or 0)} 5-day fast checks."
+        )
+        if approval_projection.get("next_approval_label_due_date"):
+            details.append(
+                "Next approval-gated label due "
+                f"{approval_projection.get('next_approval_label_due_date')} "
+                f"({int(approval_projection.get('next_approval_label_due_count') or 0)} labels)."
+            )
+        if approval_projection.get("next_approval_learning_label_due_date"):
+            details.append(
+                "Next learning-eligible approval label due "
+                f"{approval_projection.get('next_approval_learning_label_due_date')} "
+                f"({int(approval_projection.get('next_approval_learning_label_due_count') or 0)} labels)."
+            )
+        blockers = approval_blocker_summary(approval_projection.get("pending_approval_blocker_buckets") or [])
+        if blockers:
+            details.append("Approval blockers queued for labels: " + blockers + ".")
+    friction_projection = outcome_diagnostics.get("approval_data_friction_learning_readiness_projection") or {}
+    if friction_projection and int(friction_projection.get("pending_approval_data_friction_label_count") or 0) > 0:
+        details.append(
+            "Approval data-friction labels: "
+            f"{int(friction_projection.get('pending_approval_data_friction_label_count') or 0)} pending; "
+            f"{int(friction_projection.get('pending_approval_data_friction_learning_label_count') or 0)} learning-eligible; "
+            f"{int(friction_projection.get('pending_approval_data_friction_fast_label_count') or 0)} 5-day fast checks."
+        )
+        if friction_projection.get("next_approval_data_friction_learning_label_due_date"):
+            details.append(
+                "Next learning-eligible friction label due "
+                f"{friction_projection.get('next_approval_data_friction_learning_label_due_date')} "
+                f"({int(friction_projection.get('next_approval_data_friction_learning_label_due_count') or 0)} labels)."
+            )
+        friction_buckets = approval_blocker_summary(friction_projection.get("pending_approval_data_friction_buckets") or [])
+        if friction_buckets:
+            details.append("Approval data-friction buckets queued for labels: " + friction_buckets + ".")
     coverage_plan = outcome_diagnostics.get("external_coverage_gap_plan") or {}
     priority_rows = coverage_plan.get("priority_rows") or []
     if priority_rows:
@@ -204,6 +264,18 @@ def learning_gap_detail(learning: dict[str, Any], outcome_diagnostics: dict[str,
     if overdue:
         details.append(f"{overdue} learning-eligible labels are overdue for price-history refresh.")
     return " ".join(details)
+
+
+def approval_blocker_summary(rows: list[dict[str, Any]]) -> str:
+    parts = []
+    for row in rows[:4]:
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get("key") or "").replace("_", " ")
+        count = int(row.get("pending_count") or 0)
+        if key and count > 0:
+            parts.append(f"{key} {count}")
+    return "; ".join(parts)
 
 
 def due_phrase(label: dict[str, Any]) -> str:

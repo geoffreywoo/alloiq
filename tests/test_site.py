@@ -528,7 +528,17 @@ class SiteTests(unittest.TestCase):
                 "portfolio": {"position_count": 1, "by_symbol": [{"symbol": "NVDA", "weight": 1.0}]},
                 "feature_matrix": {"rows": []},
                 "research_book": {"items": []},
-                "portfolio_benchmark": {"action_queue": []},
+                "portfolio_benchmark": {
+                    "action_queue": [
+                        {
+                            "symbol": "MRVL",
+                            "trade_action": "trim",
+                            "recommended_delta_weight": -0.01,
+                            "risk_flags": ["earnings_confirmation_required"],
+                            "earnings_confirmation_required": True,
+                        }
+                    ]
+                },
                 "approval_tickets": [],
                 "engine": {
                     "feature_count": 0,
@@ -959,14 +969,42 @@ class SiteTests(unittest.TestCase):
                 "portfolio": {"position_count": 1, "by_symbol": [{"symbol": "NVDA", "weight": 1.0}]},
                 "feature_matrix": {"rows": []},
                 "research_book": {"items": []},
-                "portfolio_benchmark": {"action_queue": []},
-                "approval_tickets": [],
+                "portfolio_benchmark": {
+                    "action_queue": [
+                        {
+                            "symbol": "MRVL",
+                            "trade_action": "trim",
+                            "recommended_delta_weight": -0.01,
+                            "risk_flags": ["earnings_confirmation_required"],
+                            "earnings_confirmation_required": True,
+                        }
+                    ]
+                },
+                "approval_tickets": [
+                    {
+                        "ticket_id": "ticket-mrvl",
+                        "symbol": "MRVL",
+                        "trade_action": "trim",
+                        "recommended_delta_weight": -0.01,
+                        "earnings_confirmation_required": True,
+                        "risk_flags": ["earnings_confirmation_required"],
+                        "approval_gate_status": "blocked_until_confirmation",
+                        "approval_open_check_count": 2,
+                        "approval_checks": [
+                            {"check": "approval_only_no_live_order", "status": "passed", "detail": "No live order."},
+                            {"check": "earnings_date_confirmed", "status": "pending", "detail": "Confirm date."},
+                            {"check": "risk_flags_reviewed", "status": "pending", "detail": "Review flags."},
+                        ],
+                    }
+                ],
                 "engine": {"feature_count": 0, "ranked_candidates": []},
                 "outcome_diagnostics": {},
                 "backtest": {"outcome_count": 0, "completed_outcome_count": 0, "pending_outcome_count": 0, "missing_price_count": 0, "outcomes": []},
                 "earnings_events": [
                     {
                         "symbol": "MRVL",
+                        "event_date": "2026-05-27",
+                        "days_until": 3,
                         "event_type": "earnings",
                         "source": "nasdaq_earnings_calendar",
                         "confirmed_or_estimated": "estimated",
@@ -1009,10 +1047,50 @@ class SiteTests(unittest.TestCase):
         self.assertEqual(earnings["provider_date_count"], 1)
         self.assertEqual(earnings["estimated_count"], 1)
         self.assertEqual(earnings["catalyst_marker_count"], 1)
+        self.assertEqual(earnings["confirmation_gap_count"], 1)
+        self.assertEqual(earnings["action_linked_confirmation_gap_count"], 1)
+        self.assertEqual(earnings["confirmation_gaps"][0]["symbol"], "MRVL")
+        self.assertTrue(earnings["confirmation_gaps"][0]["action_linked"])
+        self.assertEqual(earnings["confirmation_gaps"][0]["trade_action"], "trim")
+        self.assertEqual(earnings["confirmation_gaps"][0]["recommended_delta_weight"], -0.01)
+        self.assertTrue(earnings["confirmation_gaps"][0]["action_confirmation_required"])
+        self.assertTrue(earnings["confirmation_gaps"][0]["approval_ticket_linked"])
+        self.assertEqual(earnings["confirmation_gaps"][0]["ticket_id"], "ticket-mrvl")
+        self.assertEqual(earnings["confirmation_gaps"][0]["approval_gate_status"], "blocked_until_confirmation")
+        self.assertEqual(earnings["confirmation_gaps"][0]["approval_open_check_count"], 2)
+        self.assertEqual(
+            earnings["confirmation_gaps"][0]["approval_blocking_checks"],
+            ["earnings_date_confirmed", "risk_flags_reviewed"],
+        )
+        self.assertEqual(earnings["approval_blocked_confirmation_gap_count"], 1)
+        self.assertEqual(earnings["approval_blocked_confirmation_gaps"][0]["ticket_id"], "ticket-mrvl")
+        self.assertIn("current trim ticket", earnings["confirmation_gaps"][0]["remediation"])
         source = next(row for row in public["data_health"]["sources"] if row["source"] == "earnings")
         self.assertIn("1 forward date candidates; 0 confirmed, 1 estimated; 1 catalyst markers", source["detail"])
+        self.assertEqual(source["confirmation_gap_count"], 1)
+        self.assertEqual(source["action_linked_confirmation_gap_count"], 1)
+        self.assertEqual(source["approval_blocked_confirmation_gap_count"], 1)
+        self.assertEqual(source["confirmation_gaps"][0]["symbol"], "MRVL")
+        self.assertTrue(source["confirmation_gaps"][0]["action_linked"])
+        self.assertEqual(source["approval_blocked_confirmation_gaps"][0]["approval_gate_status"], "blocked_until_confirmation")
+        summary = public["data_health"]["approval_blocker_summary"]
+        self.assertEqual(summary["status"], "attention")
+        self.assertEqual(summary["total_source_blocker_count"], 1)
+        self.assertEqual(summary["earnings_confirmation_ticket_count"], 1)
+        self.assertEqual(summary["external_gap_ticket_count"], 0)
+        self.assertEqual(summary["blocked_ticket_count"], 1)
+        self.assertEqual(summary["blocked_symbols"], ["MRVL"])
+        self.assertEqual(summary["open_check_counts"], {"earnings_date_confirmed": 1, "risk_flags_reviewed": 1})
+        self.assertEqual(
+            summary["next_confirmation_deadline"],
+            source["approval_blocked_confirmation_gaps"][0]["confirmation_deadline"],
+        )
+        self.assertEqual(summary["next_confirmation_symbols"], ["MRVL"])
         gap = next(row for row in public["audit"]["data_gaps"] if row["label"] == "Earnings calendar")
         self.assertIn("1 catalyst markers", gap["detail"])
+        self.assertEqual(gap["confirmation_gap_count"], 1)
+        self.assertEqual(gap["action_linked_confirmation_gap_count"], 1)
+        self.assertEqual(gap["approval_blocked_confirmation_gap_count"], 1)
 
     def test_public_payload_recomputes_stale_backtest_due_dates_from_trading_calendar(self):
         public = sanitize_payload(
@@ -1114,14 +1192,81 @@ class SiteTests(unittest.TestCase):
                 "primary_price_coverage_pct": 100,
                 "horizon_returns": [{"key": "3m", "portfolio_return": 10, "price_coverage_pct": 100}],
                 "sizing_plan": {
-                    "target_count": 0,
-                    "action_count": 0,
+                    "target_count": 1,
+                    "action_count": 1,
+                    "target_total_weight": 0.08,
                     "limits": {"max_one_ticket_delta": 0.03, "max_daily_turnover": 0.08, "max_single_name_weight": 0.15},
-                    "targets": [],
+                    "targets": [{"symbol": "NVDA", "current_weight": 0.05, "model_target_weight": 0.08}],
+                    "rebalance_budget": {
+                        "total_add_weight": 0.03,
+                        "total_trim_weight": 0.0,
+                        "cash_deployed_weight": 0.03,
+                        "cash_raised_weight": 0.0,
+                        "starting_cash_weight": 0.10,
+                        "post_trade_cash_weight": 0.07,
+                        "net_delta_weight": 0.03,
+                        "max_cash_deploy_weight": 0.03,
+                    },
                 },
-                "action_queue": [],
+                "action_queue": [
+                    {
+                        "symbol": "NVDA",
+                        "trade_action": "add",
+                        "current_weight": 0.05,
+                        "recommended_delta_weight": 0.03,
+                        "post_action_weight": 0.08,
+                        "trade_target_weight": 0.08,
+                        "target_weight": 0.08,
+                        "model_target_weight": 0.08,
+                        "max_allowed_weight": 0.15,
+                        "risk_adjusted_expected_return": 22,
+                        "confidence": 70,
+                        "catalyst_clock": "fresh catalyst",
+                        "company_reason": "company clears bar",
+                        "sector_reason": "sector supports",
+                        "tertiary_signal_summary": "external feeds partially degraded",
+                        "company_add_eligible": True,
+                        "funding_source": "funded_by_cash_reserve",
+                        "external_signal_score": 20,
+                        "coverage_adjusted_external_signal_score": 10,
+                        "external_coverage_multiplier": 0.5,
+                        "external_feed_status": "limited",
+                        "external_provider_count": 2,
+                        "external_provider_ok_count": 1,
+                        "external_provider_ok_ratio": 0.5,
+                        "external_signal_count": 4,
+                        "external_source_count": 3,
+                    }
+                ],
             },
-            "approval_tickets": [],
+            "approval_tickets": [
+                {
+                    "ticket_id": "ticket-nvda",
+                    "symbol": "NVDA",
+                    "trade_action": "add",
+                    "current_weight": 0.05,
+                    "recommended_delta_weight": 0.03,
+                    "post_action_weight": 0.08,
+                    "trade_target_weight": 0.08,
+                    "target_weight": 0.08,
+                    "model_target_weight": 0.08,
+                    "external_signal_score": 20,
+                    "coverage_adjusted_external_signal_score": 10,
+                    "external_coverage_multiplier": 0.5,
+                    "external_feed_status": "limited",
+                    "external_provider_count": 2,
+                    "external_provider_ok_count": 1,
+                    "external_provider_ok_ratio": 0.5,
+                    "external_signal_count": 4,
+                    "external_source_count": 3,
+                    "approval_gate_status": "review_required",
+                    "approval_open_check_count": 1,
+                    "approval_checks": [
+                        {"check": "approval_only_no_live_order", "status": "passed", "detail": "No live order."},
+                        {"check": "external_feed_reliability_reviewed", "status": "pending", "detail": "Review providers."},
+                    ],
+                }
+            ],
             "engine": {
                 "feature_count": 1,
                 "ranked_candidates": [{"symbol": "NVDA", "external_signal_score": 20}],
@@ -1171,11 +1316,40 @@ class SiteTests(unittest.TestCase):
         self.assertEqual(public["external_signals"]["status"], "limited")
         self.assertEqual(public["external_signals"]["provider_ok_count"], 1)
         self.assertEqual(public["external_signals"]["provider_ok_ratio"], 0.5)
+        self.assertEqual(public["external_signals"]["provider_gap_count"], 1)
+        self.assertEqual(public["external_signals"]["provider_gaps"][0]["source"], "alpha_vantage_news")
+        self.assertEqual(public["external_signals"]["provider_gaps"][0]["severity"], "configuration_required")
         external_health = next(row for row in public["data_health"]["sources"] if row["source"] == "external_signals")
         self.assertEqual(external_health["status"], "limited")
         self.assertIn("Alpha Vantage news: API key missing", external_health["detail"])
+        self.assertEqual(external_health["provider_gap_count"], 1)
+        self.assertEqual(external_health["provider_gaps"][0]["source"], "alpha_vantage_news")
+        self.assertEqual(external_health["provider_gaps"][0]["severity"], "configuration_required")
+        self.assertIn("API key", external_health["provider_gaps"][0]["remediation"])
+        self.assertEqual(external_health["approval_blocked_external_gap_count"], 1)
+        self.assertEqual(external_health["approval_blocked_external_gaps"][0]["symbol"], "NVDA")
+        self.assertEqual(external_health["approval_blocked_external_gaps"][0]["ticket_id"], "ticket-nvda")
+        self.assertEqual(
+            external_health["approval_blocked_external_gaps"][0]["approval_blocking_checks"],
+            ["external_feed_reliability_reviewed"],
+        )
+        self.assertEqual(external_health["approval_blocked_external_gaps"][0]["provider_gap_sources"], ["alpha_vantage_news"])
+        self.assertEqual(
+            external_health["approval_blocked_external_gaps"][0]["provider_gap_severities"],
+            ["configuration_required"],
+        )
         self.assertEqual(public["data_health"]["weak_source_count"], 1)
         self.assertEqual(public["data_health"]["recommendation_posture"], "reduced_confidence")
+        summary = public["data_health"]["approval_blocker_summary"]
+        self.assertEqual(summary["status"], "attention")
+        self.assertEqual(summary["total_source_blocker_count"], 1)
+        self.assertEqual(summary["external_gap_ticket_count"], 1)
+        self.assertEqual(summary["earnings_confirmation_ticket_count"], 0)
+        self.assertEqual(summary["blocked_ticket_count"], 1)
+        self.assertEqual(summary["blocked_symbols"], ["NVDA"])
+        self.assertEqual(summary["open_check_counts"], {"external_feed_reliability_reviewed": 1})
+        self.assertEqual(summary["provider_gap_source_counts"], {"alpha_vantage_news": 1})
+        self.assertEqual(summary["provider_gap_severity_counts"], {"configuration_required": 1})
         self.assertEqual(feature["external_coverage_multiplier"], 0.5)
         self.assertEqual(feature["coverage_adjusted_external_signal_score"], 10.0)
         self.assertEqual(feature["external_feed_status"], "limited")
@@ -1185,9 +1359,14 @@ class SiteTests(unittest.TestCase):
         audit_freshness = next(row for row in public["audit"]["source_freshness"] if row["source"] == "external_signals")
         self.assertEqual(audit_freshness["status"], "limited")
         self.assertIn("Alpha Vantage news: API key missing", audit_freshness["detail"])
+        self.assertEqual(audit_freshness["provider_gaps"][0]["source"], "alpha_vantage_news")
+        self.assertEqual(audit_freshness["provider_gaps"][0]["severity"], "configuration_required")
+        self.assertEqual(audit_freshness["approval_blocked_external_gap_count"], 1)
         gap = next(row for row in public["audit"]["data_gaps"] if row["label"] == "External signal feeds")
         self.assertEqual(gap["status"], "limited")
         self.assertIn("Alpha Vantage news: API key missing", gap["detail"])
+        self.assertEqual(gap["approval_blocked_external_gap_count"], 1)
+        self.assertEqual(gap["approval_blocked_external_gaps"][0]["ticket_id"], "ticket-nvda")
 
     def test_backtest_page_wires_external_feed_calibration_tables(self):
         root = Path(__file__).resolve().parents[1]
@@ -1266,6 +1445,18 @@ class SiteTests(unittest.TestCase):
         self.assertIn("No non-confirming external alignment reviews.", script)
         self.assertIn("Showing", script)
         self.assertIn("No pending external alignment examples.", script)
+
+    def test_manager_return_labels_explain_horizon(self):
+        root = Path(__file__).resolve().parents[1]
+        app_script = (root / "web" / "app.js").read_text(encoding="utf-8")
+        core_script = (root / "web" / "ai-thesis-core.js").read_text(encoding="utf-8")
+
+        self.assertIn("Est. ${horizonLabel(proxy.horizon)} return", app_script)
+        self.assertIn("Trailing ${horizon} 13F long-book public-price proxy", app_script)
+        self.assertIn("not realized fund performance or a forward return", app_script)
+        self.assertIn("Est. Since-entry Return", core_script)
+        self.assertIn("Current px vs inferred 13F entry", core_script)
+        self.assertIn("since_entry_est_return_pct", core_script)
 
 
 def minimal_report_payload(as_of: str, session: str) -> dict:

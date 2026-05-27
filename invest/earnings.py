@@ -547,9 +547,10 @@ def earnings_source_quality(events: list[dict[str, Any]]) -> str:
 def earnings_health_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
     source_quality = earnings_source_quality(events)
     date_events = [row for row in events if is_forward_earnings_date(row)]
-    confirmed = sum(1 for row in date_events if row.get("confirmed_or_estimated") == "confirmed")
-    estimated = sum(1 for row in date_events if row.get("confirmed_or_estimated") == "estimated")
+    confirmed = sum(1 for row in date_events if earnings_confirmation_status(row) == "confirmed")
+    estimated = sum(1 for row in date_events if earnings_confirmation_status(row) == "estimated")
     marker_count = len(events) - len(date_events)
+    confirmation_gaps = earnings_confirmation_gaps(events)
     return {
         "status": "ok" if source_quality == "ok" else "limited" if source_quality == "limited" else "estimated",
         "source_quality": source_quality,
@@ -557,12 +558,123 @@ def earnings_health_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
         "estimated_count": estimated,
         "provider_date_count": len(date_events),
         "catalyst_marker_count": marker_count,
+        "confirmation_gap_count": len(earnings_confirmation_gaps(events, limit=None)),
+        "confirmation_gaps": confirmation_gaps,
         "event_count": len(events),
     }
 
 
 def is_forward_earnings_date(event: dict[str, Any]) -> bool:
     return event.get("event_type") == "earnings"
+
+
+def earnings_confirmation_gaps(events: list[dict[str, Any]], limit: int | None = 8) -> list[dict[str, Any]]:
+    gaps = []
+    for row in events:
+        if not is_forward_earnings_date(row):
+            continue
+        if earnings_confirmation_status(row) == "confirmed":
+            continue
+        gaps.append(
+            {
+                "symbol": str(row.get("symbol") or ""),
+                "event_date": str(row.get("event_date") or ""),
+                "days_until": row.get("days_until"),
+                "source": str(row.get("source") or "unknown"),
+                "status": str(row.get("status") or row.get("confirmed_or_estimated") or "estimated"),
+                "confidence": round(float(row.get("confidence") or confidence_for_source(str(row.get("source") or ""))), 2),
+                "risk_window": str(row.get("risk_window") or risk_window_for_days(row.get("days_until"))),
+                "confirmation_priority": earnings_confirmation_priority(row),
+                "confirmation_due": earnings_confirmation_due(row),
+                "confirmation_deadline": earnings_confirmation_deadline(row),
+                "days_to_confirmation_deadline": days_to_confirmation_deadline(row),
+                "remediation": earnings_confirmation_remediation(row),
+            }
+        )
+    gaps.sort(key=lambda row: (earnings_confirmation_priority_sort(row.get("confirmation_priority")), abs(int(row.get("days_until") or 9999)), row.get("symbol", "")))
+    return gaps[:limit] if limit is not None else gaps
+
+
+def earnings_confirmation_status(event: dict[str, Any]) -> str:
+    value = str(event.get("confirmed_or_estimated") or "").strip().lower()
+    if value:
+        return value
+    return confirmation_for_event(str(event.get("source") or ""), str(event.get("status") or ""))
+
+
+def risk_window_for_days(days_until: Any) -> str:
+    if days_until is None:
+        return "unknown"
+    days = abs(int(days_until))
+    if days <= 2:
+        return "blackout"
+    if days <= 7:
+        return "risk_window"
+    return "clear"
+
+
+def earnings_risk_sort(risk_window: Any) -> int:
+    return {"blackout": 0, "risk_window": 1, "clear": 2}.get(str(risk_window or "unknown"), 3)
+
+
+def earnings_confirmation_priority(event: dict[str, Any]) -> str:
+    risk_window = str(event.get("risk_window") or risk_window_for_days(event.get("days_until")))
+    if risk_window == "blackout":
+        return "p0_blackout_confirmation"
+    if risk_window == "risk_window":
+        return "p1_risk_window_confirmation"
+    days = abs_int(event.get("days_until"))
+    if days is not None and days <= 14:
+        return "p2_pre_risk_window_backfill"
+    return "p3_scheduled_backfill"
+
+
+def earnings_confirmation_priority_sort(priority: Any) -> int:
+    order = {
+        "p0_blackout_confirmation": 0,
+        "p1_risk_window_confirmation": 1,
+        "p2_pre_risk_window_backfill": 2,
+        "p3_scheduled_backfill": 3,
+    }
+    return order.get(str(priority or ""), 4)
+
+
+def earnings_confirmation_due(event: dict[str, Any]) -> str:
+    risk_window = str(event.get("risk_window") or risk_window_for_days(event.get("days_until")))
+    if risk_window in {"blackout", "risk_window"}:
+        return "immediate"
+    return "before_risk_window"
+
+
+def earnings_confirmation_deadline(event: dict[str, Any]) -> str:
+    event_date = parse_date(event.get("event_date"))
+    days_until = abs_int(event.get("days_until"))
+    if not event_date or days_until is None:
+        return ""
+    if days_until <= 7:
+        return (event_date - timedelta(days=days_until)).isoformat()
+    return (event_date - timedelta(days=7)).isoformat()
+
+
+def days_to_confirmation_deadline(event: dict[str, Any]) -> int | None:
+    days_until = abs_int(event.get("days_until"))
+    if days_until is None:
+        return None
+    return max(0, days_until - 7)
+
+
+def abs_int(value: Any) -> int | None:
+    try:
+        return abs(int(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def earnings_confirmation_remediation(event: dict[str, Any]) -> str:
+    risk_window = str(event.get("risk_window") or risk_window_for_days(event.get("days_until")))
+    if risk_window in {"blackout", "risk_window"}:
+        return "Confirm the earnings date via company IR or a manual event before approving trades in this event window."
+    return "Backfill company IR/manual confirmation before this estimated date enters the earnings risk window."
 
 
 def earnings_provider_settings(config: AppConfig) -> dict[str, Any]:

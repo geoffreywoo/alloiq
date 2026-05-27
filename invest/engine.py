@@ -9,7 +9,7 @@ from .symbols import equivalent_symbols, proxied_lookup, proxy_index
 from .util import stable_id
 
 
-ENGINE_POLICY_VERSION = "2026-05-bottom-up-first-v1"
+ENGINE_POLICY_VERSION = "2026-05-bottom-up-first-v2"
 ENGINE_MODE = "approval_plus_paper"
 OBJECTIVE = "maximize_expected_3_12m_forward_return"
 MIN_LEARNING_OUTCOMES = 20
@@ -163,6 +163,14 @@ def build_engine_features_from_matrix(
                 "external_provider_count": feature.get("external_provider_count"),
                 "external_provider_ok_count": feature.get("external_provider_ok_count"),
                 "external_provider_ok_ratio": feature.get("external_provider_ok_ratio"),
+                "external_provider_gap_count": feature.get("external_provider_gap_count"),
+                "external_provider_configuration_gap_count": feature.get("external_provider_configuration_gap_count"),
+                "external_provider_transient_gap_count": feature.get("external_provider_transient_gap_count"),
+                "external_provider_stale_gap_count": feature.get("external_provider_stale_gap_count"),
+                "external_provider_runtime_gap_count": feature.get("external_provider_runtime_gap_count"),
+                "external_provider_other_gap_count": feature.get("external_provider_other_gap_count"),
+                "external_provider_primary_gap_severity": feature.get("external_provider_primary_gap_severity"),
+                "external_provider_gap_severity_score": feature.get("external_provider_gap_severity_score"),
                 "external_signal_count": feature.get("external_signal_count"),
                 "external_source_count": feature.get("external_source_count"),
                 "component_scores": {

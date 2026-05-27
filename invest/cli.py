@@ -21,6 +21,7 @@ from .util import parse_date, stable_id
 
 COVERAGE_GAP_PLAN_EXPORT_VERSION = "2026-05-external-coverage-gap-plan-export-v2"
 MEASUREMENT_GAP_PLAN_EXPORT_VERSION = "2026-05-external-alignment-measurement-gap-plan-export-v1"
+PROVIDER_GAP_SEVERITY_BACKFILL_PLAN_EXPORT_VERSION = "2026-05-external-provider-gap-severity-backfill-plan-export-v1"
 EXTERNAL_ALIGNMENT_REVIEW_PLAN_EXPORT_VERSION = "2026-05-external-alignment-review-plan-export-v1"
 EXTERNAL_ALIGNMENT_MATURITY_TEST_VERSION = "2026-05-external-alignment-maturity-test-v1"
 COVERAGE_GAP_PLAN_ROW_KEYS = (
@@ -116,8 +117,26 @@ COVERAGE_GAP_CANDIDATE_VALUE_KEYS = (
     "external_provider_count",
     "external_provider_ok_count",
     "external_provider_ok_ratio",
+    "external_provider_gap_count",
+    "external_provider_configuration_gap_count",
+    "external_provider_transient_gap_count",
+    "external_provider_stale_gap_count",
+    "external_provider_runtime_gap_count",
+    "external_provider_other_gap_count",
+    "external_provider_primary_gap_severity",
+    "external_provider_gap_severity_score",
     "external_signal_count",
     "external_source_count",
+)
+PROVIDER_GAP_SEVERITY_CANDIDATE_VALUE_KEYS = (
+    "external_provider_gap_count",
+    "external_provider_configuration_gap_count",
+    "external_provider_runtime_gap_count",
+    "external_provider_stale_gap_count",
+    "external_provider_transient_gap_count",
+    "external_provider_other_gap_count",
+    "external_provider_primary_gap_severity",
+    "external_provider_gap_severity_score",
 )
 
 
@@ -320,6 +339,24 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Apply resolved candidate measurement values to matching recommendation training examples",
     )
+    provider_gap_backfill = sub.add_parser(
+        "provider-gap-severity-backfill-plan",
+        help="Export provider gap severity hidden calibration backfill records",
+    )
+    provider_gap_backfill.add_argument("--web-dir", default="web", help="Static web directory containing data/latest.json")
+    provider_gap_backfill.add_argument("--reports-dir", default="reports", help="Report JSON directory used for candidate resolution")
+    provider_gap_backfill.add_argument("--format", choices=["json", "text"], default="json")
+    provider_gap_backfill.add_argument(
+        "--candidate-limit",
+        type=int,
+        default=0,
+        help="Maximum queued provider gap severity records to export/apply; 0 means all queued records",
+    )
+    provider_gap_backfill.add_argument(
+        "--apply-candidates",
+        action="store_true",
+        help="Apply queued provider gap severity values to matching recommendation training examples",
+    )
     review_plan = sub.add_parser(
         "external-alignment-review-plan",
         help="Export pending external alignment review checklist",
@@ -395,6 +432,23 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         if args.format == "text":
             print(format_measurement_gap_plan_export(result), end="")
+        else:
+            print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        return 0
+    if args.command == "provider-gap-severity-backfill-plan":
+        try:
+            result = build_provider_gap_severity_backfill_export(
+                Path(args.web_dir),
+                reports_dir=Path(args.reports_dir),
+                candidate_limit=args.candidate_limit,
+            )
+            if args.apply_candidates:
+                result["apply_result"] = apply_provider_gap_severity_candidate_backfills(result.get("backfill_items") or [])
+        except RuntimeError as exc:
+            print(str(exc))
+            return 2
+        if args.format == "text":
+            print(format_provider_gap_severity_backfill_export(result), end="")
         else:
             print(json.dumps(result, indent=2, sort_keys=True, default=str))
         return 0
@@ -721,6 +775,83 @@ def measurement_gap_plan_backfill_item(row: dict, source_report: str | None) -> 
         "open_acceptance_check_count": len(open_checks),
         "open_acceptance_checks": open_checks,
     }
+
+
+def build_provider_gap_severity_backfill_export(
+    web_dir: Path,
+    reports_dir: Path | None = None,
+    candidate_limit: int = 0,
+) -> dict:
+    snapshot_path = web_dir / "data" / "latest.json"
+    if not snapshot_path.exists():
+        raise RuntimeError(f"provider gap severity backfill export failed: missing {snapshot_path}")
+    payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    backtest = payload.get("backtest") if isinstance(payload.get("backtest"), dict) else {}
+    queue = (
+        backtest.get("pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_queue")
+        if isinstance(
+            backtest.get("pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_queue"),
+            list,
+        )
+        else []
+    )
+    limit = normalized_candidate_limit(candidate_limit)
+    limited_queue = queue[:limit] if limit else queue
+    items = [provider_gap_severity_backfill_item(row, reports_dir) for row in limited_queue if isinstance(row, dict)]
+    ready_count = sum(1 for item in items if item.get("candidate_apply_status") == "ready")
+    site = payload.get("site") if isinstance(payload.get("site"), dict) else {}
+    return {
+        "version": PROVIDER_GAP_SEVERITY_BACKFILL_PLAN_EXPORT_VERSION,
+        "status": "ready" if items else "empty",
+        "snapshot_path": str(snapshot_path),
+        "source_report": site.get("source_report"),
+        "as_of": payload.get("as_of"),
+        "session": payload.get("session"),
+        "record_count": int(
+            backtest.get("pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_count")
+            or len(queue)
+        ),
+        "queue_limit": int(
+            backtest.get("pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_queue_limit")
+            or 0
+        ),
+        "candidate_limit": limit,
+        "candidate_item_count": len(items),
+        "candidate_apply_ready_count": ready_count,
+        "candidate_apply_blocked_count": len(items) - ready_count,
+        "candidate_items": items,
+        "backfill_items": items,
+    }
+
+
+def provider_gap_severity_backfill_item(row: dict, reports_dir: Path | None) -> dict:
+    item = dict(row)
+    source_path = provider_gap_severity_source_report_path(item, reports_dir)
+    item["candidate_source"] = str(source_path) if source_path else ""
+    source_trial_ids = provider_gap_source_trial_ids(item)
+    if source_trial_ids and not item.get("source_trial_id"):
+        item["source_trial_id"] = source_trial_ids[0]
+    if not source_path:
+        item["candidate_apply_status"] = "blocked"
+        item.setdefault("candidate_block_reason", "source_report_missing")
+    elif not source_path.exists():
+        item["candidate_apply_status"] = "blocked"
+        item.setdefault("candidate_block_reason", "candidate_source_not_found")
+    elif not item.get("candidate_apply_status"):
+        item["candidate_apply_status"] = "ready"
+    return item
+
+
+def provider_gap_severity_source_report_path(item: dict, reports_dir: Path | None) -> Path | None:
+    source_report = str(item.get("source_report") or "")
+    if not source_report:
+        return None
+    path = Path(source_report)
+    if path.is_absolute():
+        return path
+    if reports_dir is not None:
+        return reports_dir / path.name
+    return path
 
 
 def build_external_alignment_review_plan_export(web_dir: Path) -> dict:
@@ -1861,6 +1992,14 @@ def legacy_feature_skeleton_row(payload: dict, trial, card: dict) -> dict:
         "external_provider_count": None,
         "external_provider_ok_count": None,
         "external_provider_ok_ratio": None,
+        "external_provider_gap_count": None,
+        "external_provider_configuration_gap_count": None,
+        "external_provider_transient_gap_count": None,
+        "external_provider_stale_gap_count": None,
+        "external_provider_runtime_gap_count": None,
+        "external_provider_other_gap_count": None,
+        "external_provider_primary_gap_severity": None,
+        "external_provider_gap_severity_score": None,
         "external_signal_count": None,
         "external_source_count": None,
         "data_quality": 0.0,
@@ -1910,6 +2049,14 @@ def legacy_action_training_example(trial) -> dict:
         "external_provider_count": trial.external_provider_count,
         "external_provider_ok_count": trial.external_provider_ok_count,
         "external_provider_ok_ratio": trial.external_provider_ok_ratio,
+        "external_provider_gap_count": trial.external_provider_gap_count,
+        "external_provider_configuration_gap_count": trial.external_provider_configuration_gap_count,
+        "external_provider_transient_gap_count": trial.external_provider_transient_gap_count,
+        "external_provider_stale_gap_count": trial.external_provider_stale_gap_count,
+        "external_provider_runtime_gap_count": trial.external_provider_runtime_gap_count,
+        "external_provider_other_gap_count": trial.external_provider_other_gap_count,
+        "external_provider_primary_gap_severity": trial.external_provider_primary_gap_severity or None,
+        "external_provider_gap_severity_score": trial.external_provider_gap_severity_score,
         "external_signal_count": trial.external_signal_count,
         "external_source_count": trial.external_source_count,
         "forward_return_labels": {horizon: None for horizon in FORWARD_HORIZONS},
@@ -2436,6 +2583,143 @@ def apply_measurement_gap_candidate_backfills(items: list[dict]) -> dict:
     }
 
 
+def apply_provider_gap_severity_candidate_backfills(items: list[dict]) -> dict:
+    if not items:
+        return {
+            "status": "empty",
+            "applied_item_count": 0,
+            "applied_example_count": 0,
+            "report_count": 0,
+            "field_update_count": 0,
+        }
+    blocked = [item for item in items if item.get("candidate_apply_status") != "ready"]
+    if blocked:
+        symbols = ", ".join(str(item.get("symbol") or "UNKNOWN") for item in blocked[:5])
+        raise RuntimeError(
+            f"provider gap severity apply refused: {len(blocked)} candidate items are not apply-ready ({symbols})"
+        )
+    grouped: dict[Path, list[dict]] = defaultdict(list)
+    for item in items:
+        source = item.get("candidate_source")
+        if not source:
+            raise RuntimeError("provider gap severity apply refused: candidate item is missing candidate_source")
+        path = Path(str(source))
+        if not path.exists():
+            raise RuntimeError(f"provider gap severity apply refused: candidate source not found: {path}")
+        grouped[path].append(item)
+
+    report_results = []
+    field_update_count = 0
+    applied_example_count = 0
+    for path, path_items in sorted(grouped.items(), key=lambda entry: str(entry[0])):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        examples = payload.get("recommendation_training_examples")
+        if not isinstance(examples, list):
+            raise RuntimeError(f"provider gap severity apply refused: {path} has no recommendation_training_examples list")
+        by_id = {
+            str(example.get("example_id") or ""): example
+            for example in examples
+            if isinstance(example, dict) and example.get("example_id")
+        }
+        report_field_updates = 0
+        report_applied_examples = 0
+        applied_symbols = []
+        for item in path_items:
+            source_trial_ids = provider_gap_source_trial_ids(item)
+            if not source_trial_ids:
+                raise RuntimeError("provider gap severity apply refused: candidate item is missing source_trial_ids")
+            for source_trial_id in source_trial_ids:
+                example = by_id.get(source_trial_id)
+                if not example:
+                    raise RuntimeError(f"provider gap severity apply refused: {path} missing example {source_trial_id}")
+                item_symbol = str(item.get("symbol") or "").upper()
+                example_symbol = str(example.get("symbol") or "").upper()
+                if item_symbol and example_symbol and item_symbol != example_symbol:
+                    raise RuntimeError(
+                        f"provider gap severity apply refused: {path} example {source_trial_id} "
+                        f"symbol is {example_symbol}, expected {item_symbol}"
+                    )
+                values = item.get("candidate_backfill_values") or {}
+                conflicts = []
+                for field in PROVIDER_GAP_SEVERITY_CANDIDATE_VALUE_KEYS:
+                    if field not in values:
+                        continue
+                    existing = example.get(field)
+                    value = values[field]
+                    if backfill_apply_field_missing(existing):
+                        example[field] = value
+                        report_field_updates += 1
+                        field_update_count += 1
+                    elif existing != value:
+                        conflicts.append({"field": field, "existing": existing, "candidate": value})
+                if conflicts:
+                    conflict_fields = ", ".join(conflict["field"] for conflict in conflicts)
+                    raise RuntimeError(
+                        f"provider gap severity apply refused: {path} example {source_trial_id} "
+                        f"has conflicting fields: {conflict_fields}"
+                    )
+                record = provider_gap_severity_backfill_record(item)
+                records = example.get("external_provider_gap_severity_backfills")
+                if not isinstance(records, list):
+                    records = []
+                existing_record_ids = {
+                    str(existing.get("external_provider_gap_severity_observation_backfill_record_id") or "")
+                    for existing in records
+                    if isinstance(existing, dict)
+                }
+                if str(record.get("external_provider_gap_severity_observation_backfill_record_id") or "") not in existing_record_ids:
+                    records.append(record)
+                example["external_provider_gap_severity_backfills"] = records
+                report_applied_examples += 1
+                applied_example_count += 1
+                applied_symbols.append(example_symbol or item_symbol)
+        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        report_results.append(
+            {
+                "report": str(path),
+                "applied_item_count": len(path_items),
+                "applied_example_count": report_applied_examples,
+                "field_update_count": report_field_updates,
+                "symbols": applied_symbols,
+            }
+        )
+    return {
+        "status": "applied",
+        "applied_item_count": len(items),
+        "applied_example_count": applied_example_count,
+        "report_count": len(report_results),
+        "field_update_count": field_update_count,
+        "reports": report_results,
+    }
+
+
+def provider_gap_source_trial_ids(item: dict) -> list[str]:
+    raw_ids = item.get("source_trial_ids")
+    if isinstance(raw_ids, list):
+        return unique_field_names(raw_ids)
+    source_trial_id = str(item.get("source_trial_id") or "")
+    return [source_trial_id] if source_trial_id else []
+
+
+def provider_gap_severity_backfill_record(item: dict) -> dict:
+    return {
+        "version": PROVIDER_GAP_SEVERITY_BACKFILL_PLAN_EXPORT_VERSION,
+        "external_provider_gap_severity_observation_backfill_record_id": item.get(
+            "external_provider_gap_severity_observation_backfill_record_id"
+        ),
+        "external_provider_gap_severity_observation_work_item_id": item.get(
+            "external_provider_gap_severity_observation_work_item_id"
+        ),
+        "candidate_source": item.get("candidate_source"),
+        "candidate_source_section": item.get("candidate_source_section"),
+        "candidate_backfill_policy": item.get("candidate_backfill_policy"),
+        "candidate_apply_policy": item.get("candidate_apply_policy"),
+        "candidate_provider_gap_severities": item.get("candidate_provider_gap_severities") or [],
+        "candidate_provider_gap_sources": item.get("candidate_provider_gap_sources") or [],
+        "fields_to_backfill": item.get("fields_to_backfill") or [],
+    }
+
+
 def backfill_apply_field_missing(value) -> bool:
     return value is None or value == ""
 
@@ -2774,6 +3058,32 @@ def format_measurement_gap_plan_export(result: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def format_provider_gap_severity_backfill_export(result: dict) -> str:
+    items = result.get("backfill_items") or []
+    lines = [
+        "# Provider Gap Severity Backfill Plan",
+        "",
+        f"- Status: {result.get('status', 'unknown')}",
+        f"- Source report: {result.get('source_report') or 'unknown'}",
+        f"- Records: {result.get('candidate_item_count', 0)} queued / {result.get('record_count', 0)} total",
+        f"- Apply-ready: {result.get('candidate_apply_ready_count', 0)} / {result.get('candidate_item_count', 0)}",
+        "",
+    ]
+    if not items:
+        lines.append("- No queued provider gap severity backfill records.")
+        return "\n".join(lines) + "\n"
+    for item in items[:8]:
+        values = item.get("candidate_backfill_values") or {}
+        lines.append(
+            f"- {item.get('symbol', 'UNKNOWN')} {item.get('horizon', 'unknown')}: "
+            f"{item.get('candidate_apply_status') or 'unknown'} "
+            f"{values.get('external_provider_primary_gap_severity') or 'missing-severity'} "
+            f"score {values.get('external_provider_gap_severity_score', 'unknown')} "
+            f"source {item.get('source_report') or 'unknown'}"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def format_external_alignment_review_plan_export(result: dict) -> str:
     rows = result.get("priority_rows") or []
     lines = [
@@ -3033,7 +3343,9 @@ def latest_report_path(reports_dir: Path) -> Path:
 
 def format_backtest_summary(result: dict) -> str:
     as_of = parse_date(result.get("as_of")) or date.today()
-    schedule = pending_label_schedule(result, as_of)
+    schedule = result.get("pending_label_schedule") if isinstance(result.get("pending_label_schedule"), dict) else {}
+    if not schedule:
+        schedule = pending_label_schedule(result, as_of)
     lines = [
         "# AlloIQ Recommendation Backtest",
         "",
@@ -3056,6 +3368,12 @@ def format_backtest_summary(result: dict) -> str:
     )
     if next_external_label:
         lines.append(next_external_label)
+    pending_earnings = format_pending_earnings_label_buckets(result)
+    if pending_earnings:
+        lines.append(pending_earnings)
+    pending_approval = format_pending_approval_label_buckets(result)
+    if pending_approval:
+        lines.append(pending_approval)
     review_count = int(result.get("pending_external_alignment_review_count") or 0)
     if review_count:
         review_item_count = int(result.get("pending_external_alignment_review_item_count") or 0)
@@ -3151,6 +3469,62 @@ def format_external_alignment_due_date(item: dict) -> str | None:
     if symbols:
         parts.append(f"symbols {symbols}")
     return f"- Next external alignment label: {due_date} ({', '.join(parts)})"
+
+
+def format_pending_earnings_label_buckets(result: dict) -> str | None:
+    confirmation = pending_bucket_phrases(
+        result.get("pending_by_earnings_confirmation_bucket") or [],
+        skip_keys={"no_event", "unknown", ""},
+    )
+    risk_windows = pending_bucket_phrases(
+        result.get("pending_by_earnings_risk_window") or [],
+        skip_keys={"no_event", "unknown", ""},
+    )
+    parts = []
+    if confirmation:
+        parts.append("confirmation " + "; ".join(confirmation))
+    if risk_windows:
+        parts.append("risk windows " + "; ".join(risk_windows))
+    if not parts:
+        return None
+    return "- Pending earnings label buckets: " + " | ".join(parts)
+
+
+def format_pending_approval_label_buckets(result: dict) -> str | None:
+    blockers = pending_bucket_phrases(
+        result.get("pending_by_approval_blocker_bucket") or [],
+        skip_keys={"no_approval_context", "ready", "unknown", ""},
+    )
+    if not blockers:
+        return None
+    return "- Pending approval label buckets: " + "; ".join(blockers)
+
+
+def pending_bucket_phrases(rows: list[dict], skip_keys: set[str] | None = None, limit: int = 4) -> list[str]:
+    skip_keys = skip_keys or set()
+    phrases = []
+    for row in rows:
+        key = str(row.get("key") or "")
+        if key in skip_keys:
+            continue
+        count = int(row.get("pending_count") or 0)
+        if not count:
+            continue
+        label = pending_bucket_label(key)
+        next_due = row.get("next_due_date")
+        due = f" next {next_due}" if next_due else ""
+        phrases.append(f"{label} {count} {pluralize('label', count)}{due}")
+        if len(phrases) >= limit:
+            break
+    return phrases
+
+
+def pending_bucket_label(key: str) -> str:
+    if key == "confirmation_required":
+        return "required"
+    if key == "no_confirmation_required":
+        return "not required"
+    return key.replace("_", " ")
 
 
 def format_external_alignment_review_item(item: dict) -> str | None:

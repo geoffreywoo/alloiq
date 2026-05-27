@@ -7,7 +7,7 @@ from .features import MODEL_POLICY_VERSION
 from .symbols import proxied_lookup, proxy_index
 
 
-RESEARCH_BOOK_VERSION = "2026-05-bottom-up-research-book-v2"
+RESEARCH_BOOK_VERSION = "2026-05-bottom-up-research-book-v3"
 
 BUCKET_SCENARIOS = {
     "frontier_ai_platforms": {"bull": 38.0, "base": 18.0, "bear": -22.0},
@@ -76,6 +76,8 @@ def research_item(as_of: date, feature: dict[str, Any], card: dict[str, Any], ma
     sector_score = float(feature.get("sector_setup_score") or 50)
     manager_score = manager_confirmation_score(feature)
     macro_score = macro_timing_score(feature)
+    approval_friction = float(feature.get("approval_data_friction_score") or 0)
+    approval_friction_penalty = min(6.0, approval_friction * 0.06)
     decision_score = decision_stack_score(company_score, sector_score, manager_score, macro_score)
     risk_adjusted = (
         probability_weighted
@@ -86,6 +88,7 @@ def research_item(as_of: date, feature: dict[str, Any], card: dict[str, Any], ma
         + valuation * 0.03
         + manager_score * 0.025
         - drawdown_risk * 0.12
+        - approval_friction_penalty
     )
     verdict = research_verdict(risk_adjusted, evidence, drawdown_risk, float(feature.get("current_weight") or 0), feature)
     return {
@@ -130,6 +133,39 @@ def research_item(as_of: date, feature: dict[str, Any], card: dict[str, Any], ma
         "drawdown_risk": round(drawdown_risk, 2),
         "evidence_quality": round(evidence, 2),
         "valuation_support": round(valuation, 2),
+        "price_return_1d": feature.get("price_return_1d"),
+        "price_return_5d": feature.get("price_return_5d"),
+        "price_return_1m": feature.get("price_return_1m"),
+        "price_return_3m": feature.get("price_return_3m"),
+        "price_return_ytd": feature.get("price_return_ytd"),
+        "price_return_1y": feature.get("price_return_1y"),
+        "earnings_days_until": feature.get("earnings_days_until"),
+        "earnings_event_date": feature.get("earnings_event_date", ""),
+        "earnings_event_source": feature.get("earnings_event_source", ""),
+        "earnings_confirmed_or_estimated": feature.get("earnings_confirmed_or_estimated", ""),
+        "earnings_risk_window": feature.get("earnings_risk_window", ""),
+        "earnings_confirmation_required": bool(feature.get("earnings_confirmation_required", False)),
+        "external_signal_score": feature.get("external_signal_score"),
+        "coverage_adjusted_external_signal_score": feature.get("coverage_adjusted_external_signal_score"),
+        "external_coverage_multiplier": feature.get("external_coverage_multiplier"),
+        "external_feed_status": feature.get("external_feed_status", ""),
+        "external_provider_count": feature.get("external_provider_count"),
+        "external_provider_ok_count": feature.get("external_provider_ok_count"),
+        "external_provider_ok_ratio": feature.get("external_provider_ok_ratio"),
+        "external_provider_gap_count": feature.get("external_provider_gap_count"),
+        "external_provider_configuration_gap_count": feature.get("external_provider_configuration_gap_count"),
+        "external_provider_transient_gap_count": feature.get("external_provider_transient_gap_count"),
+        "external_provider_stale_gap_count": feature.get("external_provider_stale_gap_count"),
+        "external_provider_runtime_gap_count": feature.get("external_provider_runtime_gap_count"),
+        "external_provider_other_gap_count": feature.get("external_provider_other_gap_count"),
+        "external_provider_primary_gap_severity": feature.get("external_provider_primary_gap_severity", ""),
+        "external_provider_gap_severity_score": feature.get("external_provider_gap_severity_score"),
+        "external_signal_count": feature.get("external_signal_count"),
+        "external_source_count": feature.get("external_source_count"),
+        "approval_data_friction_score": round(approval_friction, 2),
+        "approval_data_friction_bucket": feature.get("approval_data_friction_bucket", "clear"),
+        "approval_data_friction_reasons": feature.get("approval_data_friction_reasons", []),
+        "approval_data_friction_penalty": round(approval_friction_penalty, 2),
         "catalyst_clock": catalyst_clock(feature),
         "valuation_setup": valuation_setup(feature, scenario),
         "manager_signal": manager_signal(feature),
@@ -248,11 +284,18 @@ def catalyst_clock(feature: dict[str, Any]) -> str:
     days = feature.get("earnings_days_until")
     events = [str(item) for item in feature.get("event_types") or []]
     if days is not None:
+        estimated = str(feature.get("earnings_confirmed_or_estimated") or "").lower() == "estimated"
         if abs(int(days)) <= 2:
+            if estimated:
+                return "Estimated earnings blackout now; confirm the date before approving adds."
             return "Earnings blackout now; do not add until the event clears."
         if abs(int(days)) <= 7:
+            if estimated:
+                return "Near estimated earnings; confirm the date and cap new add size."
             return "Near earnings; starter or add size should be capped."
         if int(days) > 0:
+            if estimated:
+                return f"{int(days)} days to estimated earnings or filing catalyst; confirm date before sizing adds."
             return f"{int(days)} days to earnings or filing catalyst."
     if events:
         return "Active catalyst tape: " + ", ".join(events[:3])

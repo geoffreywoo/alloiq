@@ -61,8 +61,18 @@ class ResearchEngineTests(unittest.TestCase):
                 "top_adds": [{"symbol": "NVDA", "delta_value": 500_000_000}],
             },
             {"regime": "risk-on AI acceleration", "scores": {"ai_momentum": 4, "risk_momentum": 2}},
-            {"NVDA": {"5d": Decimal("5"), "1m": Decimal("12"), "3m": Decimal("30"), "ytd": Decimal("60"), "1y": Decimal("100")}},
-            [{"symbol": "NVDA", "days_until": 21}],
+            {"NVDA": {"1d": Decimal("3"), "5d": Decimal("5"), "1m": Decimal("12"), "3m": Decimal("30"), "ytd": Decimal("60"), "1y": Decimal("100")}},
+            [
+                {
+                    "symbol": "NVDA",
+                    "event_type": "earnings",
+                    "event_date": "2026-06-14",
+                    "days_until": 21,
+                    "source": "nasdaq_earnings_calendar",
+                    "confirmed_or_estimated": "estimated",
+                    "risk_window": "clear",
+                }
+            ],
         )
 
         self.assertEqual(features["feature_count"], 2)
@@ -70,7 +80,90 @@ class ResearchEngineTests(unittest.TestCase):
         self.assertEqual(nvda["current_weight"], 0.14)
         self.assertEqual(nvda["tier1_manager_count"], 1)
         self.assertGreater(nvda["evidence_quality"], 60)
+        self.assertEqual(nvda["price_return_1d"], 3.0)
         self.assertEqual(nvda["price_return_3m"], 30.0)
+        self.assertEqual(nvda["earnings_event_date"], "2026-06-14")
+        self.assertEqual(nvda["earnings_event_source"], "nasdaq_earnings_calendar")
+        self.assertEqual(nvda["earnings_confirmed_or_estimated"], "estimated")
+        self.assertTrue(nvda["earnings_confirmation_required"])
+        self.assertEqual(nvda["approval_data_friction_bucket"], "earnings_confirmation")
+        self.assertIn("estimated_earnings_confirmation_required", nvda["approval_data_friction_reasons"])
+
+    def test_approval_data_friction_reaches_research_and_training_examples(self):
+        features = build_feature_matrix(
+            date(2026, 5, 24),
+            self.sample_cards(),
+            {"by_symbol": [{"symbol": "NVDA", "bucket": "semis_networking_hbm", "weight": 0.08}]},
+            {"focus_managers": []},
+            {"regime": "risk-on AI acceleration", "scores": {"ai_momentum": 3}},
+            {"NVDA": {"5d": Decimal("2"), "1m": Decimal("8"), "3m": Decimal("18")}},
+            [
+                {
+                    "symbol": "NVDA",
+                    "event_type": "earnings",
+                    "event_date": "2026-05-25",
+                    "days_until": 1,
+                    "source": "nasdaq_earnings_calendar",
+                    "confirmed_or_estimated": "estimated",
+                    "risk_window": "blackout",
+                }
+            ],
+            {
+                "status": "limited",
+                "provider_count": 6,
+                "provider_ok_count": 2,
+                "provider_ok_ratio": 0.3333,
+                "provider_gaps": [
+                    {"source": "alpha_vantage_news", "severity": "configuration_required"},
+                    {"source": "gdelt_global_news", "severity": "transient_network"},
+                    {"source": "finra_short_interest", "severity": "stale_or_empty"},
+                ],
+                "by_symbol": {"NVDA": {"external_signal_score": 18.0, "signal_count": 3, "source_count": 2}},
+            },
+        )
+
+        feature = next(row for row in features["rows"] if row["symbol"] == "NVDA")
+        self.assertEqual(feature["feature_version"], "2026-05-ml-feature-matrix-v5")
+        self.assertEqual(feature["external_provider_gap_count"], 3)
+        self.assertEqual(feature["external_provider_configuration_gap_count"], 1)
+        self.assertEqual(feature["external_provider_transient_gap_count"], 1)
+        self.assertEqual(feature["external_provider_stale_gap_count"], 1)
+        self.assertEqual(feature["external_provider_primary_gap_severity"], "configuration_required")
+        self.assertEqual(feature["external_provider_gap_severity_score"], 35.0)
+        self.assertEqual(feature["approval_data_friction_bucket"], "earnings_and_external_review")
+        self.assertGreater(feature["approval_data_friction_score"], 70)
+        self.assertIn("external_feed_reliability_review_required", feature["approval_data_friction_reasons"])
+
+        research = build_research_book(date(2026, 5, 24), features, self.sample_cards(), {"regime": "risk-on AI acceleration"})
+        item = next(row for row in research["items"] if row["symbol"] == "NVDA")
+        self.assertEqual(item["external_provider_primary_gap_severity"], "configuration_required")
+        self.assertEqual(item["external_provider_gap_severity_score"], 35.0)
+        self.assertEqual(item["approval_data_friction_bucket"], "earnings_and_external_review")
+        self.assertGreater(item["approval_data_friction_penalty"], 0)
+
+        examples = build_training_examples(
+            date(2026, 5, 24),
+            "premarket",
+            [
+                {
+                    "ticket_id": "ticket-nvda",
+                    "symbol": "NVDA",
+                    "trade_action": "add",
+                    "recommended_delta_weight": 0.02,
+                    "target_weight": 0.10,
+                    "approval_gate_status": "blocked_until_confirmation",
+                    "approval_checks": [{"check": "earnings_date_confirmed", "status": "pending"}],
+                }
+            ],
+            research,
+            features,
+        )
+
+        self.assertEqual(examples[0]["approval_data_friction_bucket"], "earnings_and_external_review")
+        self.assertEqual(examples[0]["external_provider_gap_count"], 3)
+        self.assertEqual(examples[0]["external_provider_primary_gap_severity"], "configuration_required")
+        self.assertEqual(examples[0]["external_provider_gap_severity_score"], 35.0)
+        self.assertIn("estimated_earnings_confirmation_required", examples[0]["approval_data_friction_reasons"])
 
     def test_fred_macro_stress_reaches_features_and_expected_returns(self):
         stressed = build_feature_matrix(
@@ -145,7 +238,30 @@ class ResearchEngineTests(unittest.TestCase):
             {"focus_managers": []},
             {"regime": "risk-on AI acceleration", "scores": {"ai_momentum": 3}},
             {"NVDA": {"5d": Decimal("2"), "1m": Decimal("8"), "3m": Decimal("18")}},
-            [],
+            [
+                {
+                    "symbol": "NVDA",
+                    "event_type": "earnings",
+                    "event_date": "2026-06-14",
+                    "days_until": 21,
+                    "source": "nasdaq_earnings_calendar",
+                    "confirmed_or_estimated": "estimated",
+                    "risk_window": "clear",
+                }
+            ],
+            {
+                "status": "limited",
+                "provider_count": 6,
+                "provider_ok_count": 2,
+                "provider_ok_ratio": 0.3333,
+                "by_symbol": {
+                    "NVDA": {
+                        "external_signal_score": 20.0,
+                        "signal_count": 4,
+                        "source_count": 3,
+                    }
+                },
+            },
         )
         research = build_research_book(date(2026, 5, 24), features, self.sample_cards(), {"regime": "risk-on AI acceleration"})
         sizing = build_sizing_plan(
@@ -167,6 +283,17 @@ class ResearchEngineTests(unittest.TestCase):
         self.assertEqual(nvda["trade_target_weight"], nvda["post_action_weight"])
         self.assertGreaterEqual(nvda["model_target_weight"], nvda["target_weight"])
         self.assertIn("risk_adjusted_expected_return", nvda)
+        self.assertEqual(nvda["earnings_event_date"], "2026-06-14")
+        self.assertEqual(nvda["earnings_confirmed_or_estimated"], "estimated")
+        self.assertTrue(nvda["earnings_confirmation_required"])
+        self.assertIn("estimated earnings", nvda["catalyst_clock"])
+        research_nvda = next(row for row in research["items"] if row["symbol"] == "NVDA")
+        self.assertEqual(research_nvda["external_signal_score"], 20.0)
+        self.assertEqual(research_nvda["external_coverage_multiplier"], 0.3333)
+        self.assertEqual(research_nvda["external_feed_status"], "limited")
+        self.assertEqual(nvda["external_signal_score"], 20.0)
+        self.assertEqual(nvda["external_coverage_multiplier"], 0.3333)
+        self.assertEqual(nvda["external_provider_ok_ratio"], 0.3333)
 
     def test_strong_13f_without_bottom_up_evidence_cannot_add(self):
         card = {
@@ -347,6 +474,54 @@ class ResearchEngineTests(unittest.TestCase):
         self.assertLess(target["recommended_delta_weight"], 0)
         self.assertIn("company_deterioration", target["active_constraints"])
 
+    def test_positive_catalyst_gap_blocks_trim_funding(self):
+        research = {
+            "items": [
+                {
+                    "symbol": "MU",
+                    "bucket": "semis_networking_hbm",
+                    "current_weight": 0.114,
+                    "risk_adjusted_expected_return": 0,
+                    "probability_weighted_return": 1.8,
+                    "evidence_quality": 78,
+                    "drawdown_risk": 93,
+                    "timing_score": 45,
+                    "peer_avg_weight": 0.033,
+                    "tier1_peer_avg_weight": 0.002,
+                    "verdict": "trim",
+                    "company_add_eligible": False,
+                    "company_trim_signal": False,
+                    "company_underwriting_score": 55,
+                    "sector_setup_score": 54,
+                    "signal_families": ["manager", "catalyst", "portfolio_fit", "price_action"],
+                    "event_types": ["supply_constraint", "earnings_revision", "capex_signal"],
+                    "price_return_1d": 16.0,
+                    "price_return_5d": 19.0,
+                }
+            ]
+        }
+
+        sizing = build_sizing_plan(
+            research,
+            {
+                "by_symbol": [{"symbol": "MU", "bucket": "semis_networking_hbm", "weight": 0.114}],
+                "by_bucket": [{"bucket": "semis_networking_hbm", "weight": 0.114}],
+            },
+            [],
+            [],
+            {"max_single_name_weight": 0.15, "max_one_ticket_delta": 0.03},
+        )
+        target = sizing["targets"][0]
+
+        self.assertEqual(target["trade_action"], "hold")
+        self.assertEqual(target["recommended_delta_weight"], 0.0)
+        self.assertLess(target["model_target_weight"], target["current_weight"])
+        self.assertEqual(target["target_weight"], target["current_weight"])
+        self.assertTrue(target["positive_catalyst_gap_trim_block"])
+        self.assertIn("positive_catalyst_gap_trim_block", target["active_constraints"])
+        self.assertEqual(sizing["action_queue"][0]["symbol"], "MU")
+        self.assertIn("positive catalyst gap blocks trim", sizing["action_queue"][0]["action"])
+
     def test_sizing_can_use_capped_cash_reserve_for_target_pool(self):
         features = build_feature_matrix(
             date(2026, 5, 24),
@@ -438,7 +613,30 @@ class ResearchEngineTests(unittest.TestCase):
         examples = build_training_examples(
             date(2026, 5, 24),
             "premarket",
-            [{"ticket_id": "t1", "symbol": "NVDA", "trade_action": "add", "current_weight": 0.08, "recommended_delta_weight": 0.01, "target_weight": 0.09}],
+            [
+                {
+                    "ticket_id": "t1",
+                    "symbol": "NVDA",
+                    "trade_action": "add",
+                    "current_weight": 0.08,
+                    "recommended_delta_weight": 0.01,
+                    "target_weight": 0.09,
+                    "earnings_days_until": 21,
+                    "earnings_event_date": "2026-06-14",
+                    "earnings_event_source": "nasdaq_earnings_calendar",
+                    "earnings_confirmed_or_estimated": "estimated",
+                    "earnings_risk_window": "clear",
+                    "earnings_confirmation_required": True,
+                    "approval_required": True,
+                    "approval_gate_status": "blocked_until_confirmation",
+                    "approval_open_check_count": 2,
+                    "approval_checks": [
+                        {"check": "approval_only_no_live_order", "status": "passed"},
+                        {"check": "earnings_date_confirmed", "status": "pending"},
+                        {"check": "external_feed_reliability_reviewed", "status": "pending"},
+                    ],
+                }
+            ],
             research,
             features,
         )
@@ -453,6 +651,17 @@ class ResearchEngineTests(unittest.TestCase):
         self.assertEqual(examples[0]["external_provider_ok_ratio"], 0.1667)
         self.assertEqual(examples[0]["external_signal_count"], 4)
         self.assertEqual(examples[0]["external_source_count"], 3)
+        self.assertEqual(examples[0]["earnings_days_until"], 21)
+        self.assertEqual(examples[0]["earnings_event_date"], "2026-06-14")
+        self.assertEqual(examples[0]["earnings_confirmed_or_estimated"], "estimated")
+        self.assertTrue(examples[0]["earnings_confirmation_required"])
+        self.assertTrue(examples[0]["approval_required"])
+        self.assertEqual(examples[0]["approval_gate_status"], "blocked_until_confirmation")
+        self.assertEqual(examples[0]["approval_open_check_count"], 2)
+        self.assertEqual(
+            examples[0]["approval_blocking_checks"],
+            ["earnings_date_confirmed", "external_feed_reliability_reviewed"],
+        )
         self.assertEqual(examples[0]["forward_return_labels"]["5d"], None)
         self.assertEqual(examples[0]["forward_return_labels"]["3m"], None)
         self.assertEqual(diagnostics["status"], "awaiting_forward_returns")
@@ -498,6 +707,8 @@ class ResearchEngineTests(unittest.TestCase):
                     "due_date": "2026-05-31",
                     "external_feed_status": "limited",
                     "external_coverage_multiplier": 0.25,
+                    "approval_blocker_bucket": "review_required",
+                    "approval_data_friction_bucket": "external_review",
                 },
                 {
                     "symbol": "NVDA",
@@ -506,8 +717,17 @@ class ResearchEngineTests(unittest.TestCase):
                     "due_date": "2026-06-24",
                     "external_feed_status": "limited",
                     "external_coverage_multiplier": 0.25,
+                    "approval_blocker_bucket": "review_required",
+                    "approval_data_friction_bucket": "external_review",
                 },
-                {"symbol": "AMD", "horizon": "1m", "status": "pending", "due_date": "2026-06-24"},
+                {
+                    "symbol": "AMD",
+                    "horizon": "1m",
+                    "status": "pending",
+                    "due_date": "2026-06-24",
+                    "approval_blocker_bucket": "no_approval_context",
+                    "approval_data_friction_bucket": "clear",
+                },
                 {
                     "symbol": "NVDA",
                     "horizon": "3m",
@@ -515,6 +735,8 @@ class ResearchEngineTests(unittest.TestCase):
                     "due_date": "2026-08-24",
                     "external_feed_status": "limited",
                     "external_coverage_multiplier": 0.25,
+                    "approval_blocker_bucket": "blocked_until_confirmation",
+                    "approval_data_friction_bucket": "earnings_and_external_review",
                 },
             ],
         }
@@ -558,6 +780,30 @@ class ResearchEngineTests(unittest.TestCase):
         self.assertEqual(external_projection["next_external_fast_label_due_count"], 1)
         self.assertEqual(external_projection["external_fast_labels_due_next_7d"], 1)
         self.assertFalse(external_projection["external_learning_ready_with_scheduled_pending_labels"])
+        approval_projection = diagnostics["approval_learning_readiness_projection"]
+        self.assertEqual(approval_projection["pending_approval_label_count"], 3)
+        self.assertEqual(approval_projection["pending_approval_learning_label_count"], 2)
+        self.assertEqual(approval_projection["pending_approval_fast_label_count"], 1)
+        self.assertEqual(approval_projection["pending_approval_blocker_bucket_count"], 2)
+        self.assertEqual(approval_projection["primary_approval_blocker_bucket"], "review_required")
+        self.assertEqual(approval_projection["next_approval_label_due_date"], "2026-05-31")
+        self.assertEqual(approval_projection["next_approval_label_due_count"], 1)
+        self.assertEqual(approval_projection["next_approval_learning_label_due_date"], "2026-06-24")
+        self.assertEqual(approval_projection["next_approval_learning_label_due_count"], 1)
+        self.assertEqual(approval_projection["approval_labels_due_next_7d"], 1)
+        self.assertEqual(approval_projection["approval_learning_labels_due_next_30d"], 0)
+        friction_projection = diagnostics["approval_data_friction_learning_readiness_projection"]
+        self.assertEqual(friction_projection["pending_approval_data_friction_label_count"], 3)
+        self.assertEqual(friction_projection["pending_approval_data_friction_learning_label_count"], 2)
+        self.assertEqual(friction_projection["pending_approval_data_friction_fast_label_count"], 1)
+        self.assertEqual(friction_projection["pending_approval_data_friction_bucket_count"], 2)
+        self.assertEqual(friction_projection["primary_approval_data_friction_bucket"], "external_review")
+        self.assertEqual(friction_projection["next_approval_data_friction_label_due_date"], "2026-05-31")
+        self.assertEqual(friction_projection["next_approval_data_friction_label_due_count"], 1)
+        self.assertEqual(friction_projection["next_approval_data_friction_learning_label_due_date"], "2026-06-24")
+        self.assertEqual(friction_projection["next_approval_data_friction_learning_label_due_count"], 1)
+        self.assertEqual(friction_projection["approval_data_friction_labels_due_next_7d"], 1)
+        self.assertEqual(friction_projection["approval_data_friction_learning_labels_due_next_30d"], 0)
         self.assertEqual(diagnostics["calibration"]["mean_error"], -2.0)
         self.assertEqual(diagnostics["calibration"]["mean_absolute_error"], 4.0)
         self.assertEqual(diagnostics["calibration"]["underprediction_count"], 1)

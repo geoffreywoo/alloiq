@@ -71,6 +71,15 @@ class CalendarTests(unittest.TestCase):
         self.assertEqual(earnings["provider_date_count"], 1)
         self.assertEqual(earnings["estimated_count"], 1)
         self.assertEqual(earnings["catalyst_marker_count"], 1)
+        self.assertEqual(earnings["confirmation_gap_count"], 1)
+        self.assertEqual(earnings["confirmation_gaps"][0]["symbol"], "MRVL")
+        self.assertEqual(earnings["confirmation_gaps"][0]["risk_window"], "risk_window")
+        self.assertEqual(earnings["confirmation_gaps"][0]["confirmation_priority"], "p1_risk_window_confirmation")
+        self.assertEqual(earnings["confirmation_gaps"][0]["confirmation_due"], "immediate")
+        self.assertEqual(earnings["confirmation_gaps"][0]["confirmation_deadline"], "2026-05-24")
+        self.assertEqual(earnings["confirmation_gaps"][0]["days_to_confirmation_deadline"], 0)
+        self.assertIn("company IR", earnings["confirmation_gaps"][0]["remediation"])
+        self.assertIn("trades", earnings["confirmation_gaps"][0]["remediation"])
 
 
 if __name__ == "__main__":

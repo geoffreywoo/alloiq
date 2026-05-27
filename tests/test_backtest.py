@@ -91,6 +91,52 @@ class BacktestTests(unittest.TestCase):
         self.assertEqual(plan["projected_external_additional_needed_after_priority_backfill"], 18)
         self.assertFalse(plan["external_learning_ready_after_priority_backfill"])
 
+    def test_backtest_backfills_approval_data_friction_from_decision_time_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            reports = Path(tmp)
+            payload = {
+                "as_of": "2026-01-02",
+                "session": "premarket",
+                "recommendation_training_examples": [
+                    {
+                        "example_id": "legacy-nvda",
+                        "as_of": "2026-01-02",
+                        "session": "premarket",
+                        "symbol": "NVDA",
+                        "bucket": "semis_networking_hbm",
+                        "trade_action": "add",
+                        "recommended_delta_weight": 0.02,
+                        "target_weight": 0.12,
+                        "external_feed_status": "limited",
+                        "external_provider_count": 6,
+                        "external_provider_ok_count": 2,
+                        "external_provider_ok_ratio": 0.3333,
+                        "earnings_days_until": 1,
+                        "earnings_event_date": "2026-01-03",
+                        "earnings_confirmed_or_estimated": "estimated",
+                        "earnings_risk_window": "blackout",
+                        "earnings_confirmation_required": True,
+                    }
+                ],
+            }
+            (reports / "2026-01-02-premarket.json").write_text(json.dumps(payload), encoding="utf-8")
+
+            summary = build_backtest_summary(
+                reports,
+                as_of=date(2026, 1, 5),
+                price_history={"NVDA": price_history(date(2026, 1, 2), [100, 101, 102])},
+            )
+
+        self.assertEqual(summary["pending_outcome_count"], 5)
+        pending_friction = {row["key"]: row for row in summary["pending_by_approval_data_friction_bucket"]}
+        self.assertEqual(pending_friction["earnings_and_external_review"]["pending_count"], 5)
+        row = summary["outcomes"][0]
+        self.assertEqual(row["approval_data_friction_bucket"], "earnings_and_external_review")
+        self.assertEqual(row["approval_data_friction_score"], 68.33)
+        self.assertIn("estimated_earnings_confirmation_required", row["approval_data_friction_reasons"])
+        self.assertIn("external_feed_reliability_review_required", row["approval_data_friction_reasons"])
+        self.assertIsNone(row["approval_data_friction_penalty"])
+
     def test_external_alignment_review_queue_prioritizes_non_confirming_labels(self):
         rows = [
             {
@@ -290,6 +336,12 @@ class BacktestTests(unittest.TestCase):
             summary = build_backtest_summary(reports, as_of=date(2026, 5, 24), price_history={})
 
         self.assertEqual(summary["pending_external_alignment_review_count"], 65)
+        self.assertEqual(summary["pending_label_schedule"]["pending_label_count"], 65)
+        self.assertEqual(summary["pending_label_schedule"]["pending_learning_label_count"], 52)
+        self.assertEqual(summary["next_label_maturity_date"], "2026-06-02")
+        self.assertEqual(summary["next_label_maturity"]["due_count"], 13)
+        self.assertEqual(summary["next_learning_label_maturity_date"], "2026-06-25")
+        self.assertEqual(summary["next_learning_label_maturity"]["due_count"], 13)
         self.assertEqual(summary["pending_external_alignment_review_item_count"], 65)
         self.assertEqual(summary["pending_external_alignment_review_queue_limit"], 12)
         self.assertEqual(len(summary["pending_external_alignment_review_queue"]), 13)
@@ -367,6 +419,255 @@ class BacktestTests(unittest.TestCase):
         self.assertEqual(
             summary["pending_external_alignment_review_due_dates"][0]["focus_counts"]["external_disagreement"],
             {"label_count": 13, "work_item_count": 13},
+        )
+
+    def test_backtest_summary_exposes_hidden_provider_gap_severity_observation_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            reports = Path(tmp)
+            payload = {
+                "as_of": "2026-05-23",
+                "session": "postmarket",
+                "external_signals": {
+                    "provider_count": 3,
+                    "provider_ok_count": 1,
+                    "provider_ok_ratio": 0.3333,
+                    "source_statuses": [
+                        {
+                            "source": "alpha_vantage_news",
+                            "label": "Alpha Vantage",
+                            "status": "limited",
+                            "detail": "Optional API key env ALPHA_VANTAGE_API_KEY is not set.",
+                            "item_count": 0,
+                            "signal_count": 0,
+                        },
+                        {
+                            "source": "sec_company_data",
+                            "label": "SEC",
+                            "status": "ok",
+                            "detail": "1 record",
+                            "item_count": 1,
+                            "signal_count": 1,
+                        },
+                        {
+                            "source": "gdelt_global_news",
+                            "label": "GDELT",
+                            "status": "limited",
+                            "detail": "Fetch timed out",
+                            "item_count": 0,
+                            "signal_count": 0,
+                        },
+                    ],
+                },
+                "recommendation_training_examples": [
+                    {
+                        "example_id": f"provider-severity-gap-{index}",
+                        "as_of": "2026-05-23",
+                        "session": "postmarket",
+                        "symbol": f"G{index}",
+                        "bucket": "test",
+                        "trade_action": "add",
+                        "recommended_delta_weight": 0.01,
+                        "external_feed_status": "limited",
+                        "external_provider_count": 6,
+                        "external_signal_count": 4,
+                        "external_source_count": 3,
+                    }
+                    for index in range(13)
+                ],
+            }
+            (reports / "2026-05-23-postmarket.json").write_text(json.dumps(payload), encoding="utf-8")
+
+            summary = build_backtest_summary(reports, as_of=date(2026, 5, 24), price_history={})
+
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_count"], 65)
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_queue_limit"], 12)
+        self.assertEqual(len(summary["pending_external_provider_gap_severity_observation_gap_queue"]), 12)
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_hidden_label_count"], 53)
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_work_item_count"], 65)
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_work_item_queue_limit"], 12)
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_visible_work_item_label_count"], 12)
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_hidden_work_item_label_count"], 53)
+        self.assertEqual(len(summary["pending_external_provider_gap_severity_observation_gap_work_item_queue"]), 12)
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_hidden_work_item_count"], 53)
+        severity_due_dates = summary["pending_external_provider_gap_severity_observation_gap_due_dates"]
+        self.assertEqual(sum(row["label_count"] for row in severity_due_dates), 65)
+        self.assertEqual(sum(row["work_item_count"] for row in severity_due_dates), 65)
+        self.assertEqual(severity_due_dates[0]["due_date"], "2026-06-02")
+        self.assertEqual(severity_due_dates[0]["label_count"], 13)
+        self.assertEqual(severity_due_dates[0]["work_item_count"], 13)
+        self.assertEqual(severity_due_dates[0]["visible_label_count"], 12)
+        self.assertEqual(severity_due_dates[0]["visible_work_item_count"], 12)
+        self.assertEqual(severity_due_dates[0]["hidden_label_count"], 1)
+        self.assertEqual(severity_due_dates[0]["hidden_work_item_count"], 1)
+        self.assertEqual(severity_due_dates[0]["days_until_due"], 9)
+        self.assertEqual(severity_due_dates[0]["due_window"], "due_next_30d")
+        self.assertEqual(severity_due_dates[0]["cumulative_label_count"], 13)
+        self.assertEqual(severity_due_dates[0]["cumulative_work_item_count"], 13)
+        self.assertEqual(severity_due_dates[0]["cumulative_visible_label_count"], 12)
+        self.assertEqual(severity_due_dates[0]["cumulative_hidden_label_count"], 1)
+        self.assertEqual(severity_due_dates[-1]["cumulative_label_count"], 65)
+        self.assertEqual(severity_due_dates[-1]["cumulative_work_item_count"], 65)
+        self.assertEqual(severity_due_dates[-1]["cumulative_visible_label_count"], 12)
+        self.assertEqual(severity_due_dates[-1]["cumulative_hidden_label_count"], 53)
+        self.assertIn("5d", severity_due_dates[0]["horizons"])
+        self.assertIn("G0", severity_due_dates[0]["symbols"])
+        severity_due_windows = summary["pending_external_provider_gap_severity_observation_gap_due_window_counts"]
+        self.assertEqual(severity_due_windows[0]["due_window"], "due_next_30d")
+        self.assertEqual(severity_due_windows[0]["label_count"], 13)
+        self.assertEqual(severity_due_windows[0]["work_item_count"], 13)
+        self.assertEqual(severity_due_windows[0]["visible_label_count"], 12)
+        self.assertEqual(severity_due_windows[0]["hidden_label_count"], 1)
+        self.assertEqual(severity_due_windows[0]["due_date_count"], 1)
+        self.assertEqual(severity_due_windows[1]["due_window"], "later")
+        self.assertEqual(severity_due_windows[1]["label_count"], 52)
+        self.assertEqual(severity_due_windows[1]["work_item_count"], 52)
+        severity_horizons = summary["pending_external_provider_gap_severity_observation_gap_horizon_counts"]
+        self.assertEqual(sum(row["label_count"] for row in severity_horizons), 65)
+        self.assertEqual(sum(row["work_item_count"] for row in severity_horizons), 65)
+        self.assertEqual(severity_horizons[0]["horizon"], "5d")
+        self.assertEqual(severity_horizons[0]["learning_role"], "fast_check")
+        self.assertEqual(severity_horizons[0]["label_count"], 13)
+        self.assertEqual(severity_horizons[0]["visible_label_count"], 12)
+        self.assertEqual(severity_horizons[0]["hidden_label_count"], 1)
+        self.assertEqual(severity_horizons[0]["days_until_next_due"], 9)
+        self.assertEqual(severity_horizons[0]["next_due_window"], "due_next_30d")
+        self.assertEqual(severity_horizons[0]["next_visible_due_date"], "2026-06-02")
+        self.assertEqual(severity_horizons[0]["next_hidden_due_date"], "2026-06-02")
+        self.assertEqual(severity_horizons[0]["days_until_next_visible_due"], 9)
+        self.assertEqual(severity_horizons[0]["days_until_next_hidden_due"], 9)
+        self.assertEqual(severity_horizons[0]["next_visible_due_label_count"], 12)
+        self.assertEqual(severity_horizons[0]["next_visible_due_work_item_count"], 12)
+        self.assertEqual(severity_horizons[0]["next_hidden_due_label_count"], 1)
+        self.assertEqual(severity_horizons[0]["next_hidden_due_work_item_count"], 1)
+        self.assertEqual(severity_horizons[0]["next_visible_due_horizons"], ["5d"])
+        self.assertEqual(severity_horizons[0]["next_hidden_due_horizons"], ["5d"])
+        severity_roles = summary["pending_external_provider_gap_severity_observation_gap_learning_role_counts"]
+        self.assertEqual(severity_roles[0]["learning_role"], "fast_check")
+        self.assertEqual(severity_roles[0]["label_count"], 13)
+        self.assertEqual(severity_roles[0]["visible_label_count"], 12)
+        self.assertEqual(severity_roles[0]["hidden_label_count"], 1)
+        self.assertEqual(severity_roles[0]["horizons"], ["5d"])
+        self.assertEqual(severity_roles[0]["visible_label_coverage_pct"], 92.3)
+        self.assertEqual(severity_roles[0]["visible_work_item_coverage_pct"], 92.3)
+        self.assertEqual(severity_roles[0]["queue_visibility_status"], "partially_visible")
+        self.assertEqual(severity_roles[0]["next_visible_due_date"], "2026-06-02")
+        self.assertEqual(severity_roles[0]["next_hidden_due_date"], "2026-06-02")
+        self.assertEqual(severity_roles[0]["next_visible_due_label_count"], 12)
+        self.assertEqual(severity_roles[0]["next_hidden_due_label_count"], 1)
+        self.assertEqual(severity_roles[0]["next_visible_due_horizons"], ["5d"])
+        self.assertEqual(severity_roles[0]["next_hidden_due_horizons"], ["5d"])
+        self.assertEqual(severity_roles[1]["learning_role"], "calibration_label")
+        self.assertEqual(severity_roles[1]["label_count"], 52)
+        self.assertEqual(severity_roles[1]["hidden_label_count"], 52)
+        self.assertEqual(severity_roles[1]["horizons"], ["1m", "3m", "6m", "12m"])
+        self.assertEqual(severity_roles[1]["visible_label_coverage_pct"], 0.0)
+        self.assertEqual(severity_roles[1]["visible_work_item_coverage_pct"], 0.0)
+        self.assertEqual(severity_roles[1]["queue_visibility_status"], "hidden")
+        self.assertIsNone(severity_roles[1]["next_visible_due_date"])
+        self.assertEqual(severity_roles[1]["next_hidden_due_date"], severity_due_dates[1]["due_date"])
+        self.assertEqual(severity_roles[1]["next_visible_due_label_count"], 0)
+        self.assertEqual(severity_roles[1]["next_hidden_due_label_count"], severity_due_dates[1]["label_count"])
+        self.assertEqual(severity_roles[1]["next_visible_due_horizons"], [])
+        self.assertEqual(severity_roles[1]["next_hidden_due_horizons"], ["1m"])
+        hidden_calibration_queue = summary[
+            "pending_external_provider_gap_severity_observation_gap_hidden_calibration_work_item_queue"
+        ]
+        visible_work_item_ids = {
+            row["external_provider_gap_severity_observation_work_item_id"]
+            for row in summary["pending_external_provider_gap_severity_observation_gap_work_item_queue"]
+        }
+        self.assertEqual(
+            summary["pending_external_provider_gap_severity_observation_gap_hidden_calibration_work_item_count"],
+            52,
+        )
+        self.assertEqual(
+            summary[
+                "pending_external_provider_gap_severity_observation_gap_hidden_calibration_work_item_queue_limit"
+            ],
+            8,
+        )
+        self.assertEqual(len(hidden_calibration_queue), 8)
+        self.assertTrue(
+            all(row["external_provider_gap_severity_observation_work_item_id"] not in visible_work_item_ids for row in hidden_calibration_queue)
+        )
+        self.assertTrue(all(row["horizon"] == "1m" for row in hidden_calibration_queue))
+        self.assertTrue(all(row["due_date"] == severity_due_dates[1]["due_date"] for row in hidden_calibration_queue))
+        self.assertTrue(all(row["external_provider_gap_severity_observation_work_item_id"] for row in hidden_calibration_queue))
+        self.assertTrue(
+            all(row["decision_time_report_json"] == f"{row['as_of']}-{row['session']}.json" for row in hidden_calibration_queue)
+        )
+        self.assertTrue(all(row["decision_time_report_json_available"] is True for row in hidden_calibration_queue))
+        self.assertTrue(all(row["candidate_backfill_status"] == "ready" for row in hidden_calibration_queue))
+        self.assertTrue(
+            all(row["candidate_source_section"] == "external_signals.source_statuses" for row in hidden_calibration_queue)
+        )
+        self.assertEqual(hidden_calibration_queue[0]["candidate_backfill_values"]["external_provider_gap_count"], 2)
+        self.assertEqual(
+            hidden_calibration_queue[0]["candidate_backfill_values"]["external_provider_primary_gap_severity"],
+            "configuration_required",
+        )
+        hidden_calibration_report_batches = summary[
+            "pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_queue"
+        ]
+        self.assertEqual(
+            summary["pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_count"],
+            1,
+        )
+        self.assertEqual(
+            summary[
+                "pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_queue_limit"
+            ],
+            8,
+        )
+        self.assertEqual(len(hidden_calibration_report_batches), 1)
+        self.assertEqual(hidden_calibration_report_batches[0]["decision_time_report_json"], "2026-05-23-postmarket.json")
+        self.assertTrue(hidden_calibration_report_batches[0]["decision_time_report_json_available"])
+        self.assertEqual(hidden_calibration_report_batches[0]["work_item_count"], 52)
+        self.assertEqual(hidden_calibration_report_batches[0]["label_count"], 52)
+        self.assertEqual(hidden_calibration_report_batches[0]["horizons"], ["1m", "3m", "6m", "12m"])
+        self.assertEqual(hidden_calibration_report_batches[0]["candidate_backfill_status"], "ready")
+        self.assertEqual(
+            hidden_calibration_report_batches[0]["candidate_source_section"],
+            "external_signals.source_statuses",
+        )
+        candidate_values = hidden_calibration_report_batches[0]["candidate_backfill_values"]
+        self.assertEqual(candidate_values["external_provider_gap_count"], 2)
+        self.assertEqual(candidate_values["external_provider_configuration_gap_count"], 1)
+        self.assertEqual(candidate_values["external_provider_transient_gap_count"], 1)
+        self.assertEqual(candidate_values["external_provider_primary_gap_severity"], "configuration_required")
+        self.assertEqual(candidate_values["external_provider_gap_severity_score"], 45.0)
+        hidden_calibration_backfill_records = summary[
+            "pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_queue"
+        ]
+        self.assertEqual(
+            summary["pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_count"],
+            52,
+        )
+        self.assertEqual(
+            summary[
+                "pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_queue_limit"
+            ],
+            8,
+        )
+        self.assertEqual(len(hidden_calibration_backfill_records), 8)
+        self.assertEqual(
+            hidden_calibration_backfill_records[0]["external_provider_gap_severity_observation_work_item_id"],
+            hidden_calibration_queue[0]["external_provider_gap_severity_observation_work_item_id"],
+        )
+        self.assertEqual(hidden_calibration_backfill_records[0]["candidate_apply_status"], "ready")
+        self.assertEqual(
+            hidden_calibration_backfill_records[0]["target_section"],
+            "recommendation_training_examples",
+        )
+        self.assertEqual(
+            hidden_calibration_backfill_records[0]["candidate_backfill_values"]["external_provider_gap_count"],
+            2,
+        )
+        self.assertEqual(
+            hidden_calibration_backfill_records[0]["candidate_backfill_values"][
+                "external_provider_primary_gap_severity"
+            ],
+            "configuration_required",
         )
 
     def test_external_coverage_gap_plan_ranks_non_blocking_residual_backlog(self):
@@ -525,11 +826,33 @@ class BacktestTests(unittest.TestCase):
                         "coverage_adjusted_external_signal_score": 5.0,
                         "external_coverage_multiplier": 0.25,
                         "external_feed_status": "limited",
+                        "external_provider_gap_count": 4,
+                        "external_provider_configuration_gap_count": 2,
+                        "external_provider_transient_gap_count": 1,
+                        "external_provider_runtime_gap_count": 1,
+                        "external_provider_primary_gap_severity": "configuration_required",
                         "external_provider_count": 6,
                         "external_provider_ok_count": 1,
                         "external_provider_ok_ratio": 0.1667,
                         "external_signal_count": 4,
                         "external_source_count": 3,
+                        "approval_data_friction_score": 68.33,
+                        "approval_data_friction_bucket": "earnings_and_external_review",
+                        "approval_data_friction_reasons": [
+                            "estimated_earnings_confirmation_required",
+                            "external_feed_reliability_review_required",
+                        ],
+                        "approval_data_friction_penalty": 4.1,
+                        "earnings_days_until": 8,
+                        "earnings_event_date": "2026-01-12",
+                        "earnings_event_source": "nasdaq_earnings_calendar",
+                        "earnings_confirmed_or_estimated": "estimated",
+                        "earnings_risk_window": "clear",
+                        "earnings_confirmation_required": True,
+                        "approval_required": True,
+                        "approval_gate_status": "blocked_until_confirmation",
+                        "approval_open_check_count": 2,
+                        "approval_blocking_checks": ["earnings_date_confirmed", "external_feed_reliability_reviewed"],
                     },
                     {
                         "example_id": "trim-amd",
@@ -593,6 +916,31 @@ class BacktestTests(unittest.TestCase):
         by_external_alignment = {row["key"]: row for row in summary["by_external_alignment"]}
         self.assertEqual(by_external_alignment["aligned"]["completed_count"], 2)
         self.assertEqual(by_external_alignment["unknown"]["completed_count"], 2)
+        by_external_provider_gap_severity = {row["key"]: row for row in summary["by_external_provider_gap_severity"]}
+        self.assertEqual(by_external_provider_gap_severity["configuration_required"]["completed_count"], 2)
+        self.assertEqual(by_external_provider_gap_severity["unknown"]["completed_count"], 2)
+        by_external_provider_gap_exposure = {
+            row["key"]: row for row in summary["by_external_provider_gap_severity_exposure"]
+        }
+        self.assertEqual(by_external_provider_gap_exposure["configuration_required"]["completed_count"], 2)
+        self.assertEqual(by_external_provider_gap_exposure["runtime_budget"]["completed_count"], 2)
+        self.assertEqual(by_external_provider_gap_exposure["transient_network"]["completed_count"], 2)
+        self.assertEqual(by_external_provider_gap_exposure["unknown"]["completed_count"], 2)
+        by_friction = {row["key"]: row for row in summary["by_approval_data_friction_bucket"]}
+        self.assertEqual(by_friction["earnings_and_external_review"]["completed_count"], 2)
+        self.assertEqual(by_friction["unknown"]["completed_count"], 2)
+        by_earnings_status = {row["key"]: row for row in summary["by_earnings_event_status"]}
+        self.assertEqual(by_earnings_status["estimated"]["completed_count"], 2)
+        self.assertEqual(by_earnings_status["no_event"]["completed_count"], 2)
+        by_earnings_confirmation = {row["key"]: row for row in summary["by_earnings_confirmation_bucket"]}
+        self.assertEqual(by_earnings_confirmation["confirmation_required"]["completed_count"], 2)
+        self.assertEqual(by_earnings_confirmation["no_event"]["completed_count"], 2)
+        by_approval_gate = {row["key"]: row for row in summary["by_approval_gate_status"]}
+        self.assertEqual(by_approval_gate["blocked_until_confirmation"]["completed_count"], 2)
+        self.assertEqual(by_approval_gate["unknown"]["completed_count"], 2)
+        by_approval_blocker = {row["key"]: row for row in summary["by_approval_blocker_bucket"]}
+        self.assertEqual(by_approval_blocker["blocked_until_confirmation"]["completed_count"], 2)
+        self.assertEqual(by_approval_blocker["no_approval_context"]["completed_count"], 2)
         pending_external_status = {row["key"]: row for row in summary["pending_by_external_feed_status"]}
         self.assertEqual(pending_external_status["limited"]["pending_count"], 3)
         self.assertEqual(
@@ -619,6 +967,126 @@ class BacktestTests(unittest.TestCase):
         pending_external_alignment = {row["key"]: row for row in summary["pending_by_external_alignment"]}
         self.assertEqual(pending_external_alignment["aligned"]["pending_count"], 3)
         self.assertEqual(pending_external_alignment["unknown"]["pending_count"], 3)
+        pending_external_provider_gap_severity = {
+            row["key"]: row for row in summary["pending_by_external_provider_gap_severity"]
+        }
+        self.assertEqual(pending_external_provider_gap_severity["configuration_required"]["pending_count"], 3)
+        self.assertEqual(pending_external_provider_gap_severity["unknown"]["pending_count"], 3)
+        pending_external_provider_gap_exposure = {
+            row["key"]: row for row in summary["pending_by_external_provider_gap_severity_exposure"]
+        }
+        self.assertEqual(pending_external_provider_gap_exposure["configuration_required"]["pending_count"], 3)
+        self.assertEqual(pending_external_provider_gap_exposure["runtime_budget"]["pending_count"], 3)
+        self.assertEqual(pending_external_provider_gap_exposure["transient_network"]["pending_count"], 3)
+        self.assertEqual(pending_external_provider_gap_exposure["unknown"]["pending_count"], 3)
+        severity_observation = summary["pending_external_provider_gap_severity_observation_summary"]
+        self.assertEqual(severity_observation["status"], "needs_decision_time_backfill")
+        self.assertEqual(severity_observation["pending_label_count"], 6)
+        self.assertEqual(severity_observation["observed_label_count"], 3)
+        self.assertEqual(severity_observation["unknown_label_count"], 3)
+        self.assertEqual(severity_observation["observed_ratio"], 0.5)
+        self.assertEqual(
+            severity_observation["unknown_next_due_date"],
+            estimated_label_due_date(date(2026, 1, 2), "3m").isoformat(),
+        )
+        self.assertEqual(severity_observation["backfill_policy"], "decision_time_only")
+        self.assertIn("external_provider_primary_gap_severity", severity_observation["minimum_fields_to_backfill"])
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_count"], 3)
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_queue_limit"], 12)
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_hidden_label_count"], 0)
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_work_item_count"], 3)
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_work_item_queue_limit"], 12)
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_visible_work_item_label_count"], 3)
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_hidden_work_item_label_count"], 0)
+        self.assertEqual(summary["pending_external_provider_gap_severity_observation_gap_hidden_work_item_count"], 0)
+        self.assertEqual(
+            summary["pending_external_provider_gap_severity_observation_gap_hidden_calibration_work_item_count"],
+            0,
+        )
+        self.assertEqual(
+            summary["pending_external_provider_gap_severity_observation_gap_hidden_calibration_work_item_queue"],
+            [],
+        )
+        self.assertEqual(
+            summary["pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_count"],
+            0,
+        )
+        self.assertEqual(
+            summary["pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_queue"],
+            [],
+        )
+        self.assertEqual(
+            summary["pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_count"],
+            0,
+        )
+        self.assertEqual(
+            summary["pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_queue"],
+            [],
+        )
+        severity_due_dates = summary["pending_external_provider_gap_severity_observation_gap_due_dates"]
+        self.assertEqual(sum(row["label_count"] for row in severity_due_dates), 3)
+        self.assertEqual(sum(row["work_item_count"] for row in severity_due_dates), 3)
+        self.assertEqual(sum(row["visible_label_count"] for row in severity_due_dates), 3)
+        self.assertEqual(sum(row["hidden_label_count"] for row in severity_due_dates), 0)
+        self.assertTrue(all("days_until_due" in row for row in severity_due_dates))
+        self.assertTrue(all(row.get("due_window") for row in severity_due_dates))
+        self.assertEqual(severity_due_dates[-1]["cumulative_label_count"], 3)
+        self.assertEqual(severity_due_dates[-1]["cumulative_visible_label_count"], 3)
+        self.assertEqual(severity_due_dates[-1]["cumulative_hidden_label_count"], 0)
+        severity_due_windows = summary["pending_external_provider_gap_severity_observation_gap_due_window_counts"]
+        self.assertEqual(sum(row["label_count"] for row in severity_due_windows), 3)
+        self.assertEqual(sum(row["work_item_count"] for row in severity_due_windows), 3)
+        severity_horizons = summary["pending_external_provider_gap_severity_observation_gap_horizon_counts"]
+        self.assertEqual(sum(row["label_count"] for row in severity_horizons), 3)
+        self.assertEqual(sum(row["work_item_count"] for row in severity_horizons), 3)
+        self.assertEqual(sum(row["visible_label_count"] for row in severity_horizons), 3)
+        self.assertTrue(all(row.get("learning_role") for row in severity_horizons))
+        severity_roles = summary["pending_external_provider_gap_severity_observation_gap_learning_role_counts"]
+        self.assertEqual(sum(row["label_count"] for row in severity_roles), 3)
+        self.assertEqual(sum(row["work_item_count"] for row in severity_roles), 3)
+        self.assertTrue(all(row.get("learning_role") for row in severity_roles))
+        self.assertTrue(all(row.get("queue_visibility_status") == "fully_visible" for row in severity_roles))
+        self.assertTrue(all(row.get("next_visible_due_date") for row in severity_roles))
+        self.assertTrue(all(row.get("next_hidden_due_date") is None for row in severity_roles))
+        self.assertTrue(all(row.get("next_visible_due_label_count") > 0 for row in severity_roles))
+        self.assertTrue(all(row.get("next_hidden_due_label_count") == 0 for row in severity_roles))
+        self.assertTrue(all(row.get("next_visible_due_horizons") for row in severity_roles))
+        self.assertTrue(all(row.get("next_hidden_due_horizons") == [] for row in severity_roles))
+        severity_gap_work_items = summary["pending_external_provider_gap_severity_observation_gap_work_item_queue"]
+        self.assertEqual(len(severity_gap_work_items), 3)
+        self.assertEqual(severity_gap_work_items[0]["label_count"], 1)
+        self.assertTrue(severity_gap_work_items[0]["external_provider_gap_severity_observation_work_item_id"])
+        self.assertEqual(severity_gap_work_items[0]["decision_time_report_json"], "2026-01-02-premarket.json")
+        self.assertEqual(severity_gap_work_items[0]["decision_time_report_markdown"], "2026-01-02-premarket.md")
+        self.assertIn("source_outcome_ids", severity_gap_work_items[0])
+        severity_gap_queue = summary["pending_external_provider_gap_severity_observation_gap_queue"]
+        self.assertEqual(len(severity_gap_queue), 3)
+        self.assertEqual(
+            len({row["external_provider_gap_severity_observation_gap_id"] for row in severity_gap_queue}),
+            len(severity_gap_queue),
+        )
+        self.assertEqual(severity_gap_queue[0]["symbol"], "AMD")
+        self.assertTrue(severity_gap_queue[0]["external_provider_gap_severity_observation_gap_id"])
+        self.assertTrue(severity_gap_queue[0]["source_outcome_id"])
+        self.assertIn("lacks provider gap severity fields", severity_gap_queue[0]["external_provider_gap_severity_observation_gap_reason"])
+        self.assertIn("do not use later", severity_gap_queue[0]["external_provider_gap_severity_observation_gap_action"])
+        self.assertEqual(severity_gap_queue[0]["external_provider_gap_severity_observation_backfill_policy"], "decision_time_only")
+        self.assertIn(
+            "external_provider_primary_gap_severity",
+            severity_gap_queue[0]["minimum_external_provider_gap_severity_fields_to_backfill"],
+        )
+        pending_friction = {row["key"]: row for row in summary["pending_by_approval_data_friction_bucket"]}
+        self.assertEqual(pending_friction["earnings_and_external_review"]["pending_count"], 3)
+        self.assertEqual(pending_friction["unknown"]["pending_count"], 3)
+        pending_earnings_status = {row["key"]: row for row in summary["pending_by_earnings_event_status"]}
+        self.assertEqual(pending_earnings_status["estimated"]["pending_count"], 3)
+        self.assertEqual(pending_earnings_status["no_event"]["pending_count"], 3)
+        pending_approval_gate = {row["key"]: row for row in summary["pending_by_approval_gate_status"]}
+        self.assertEqual(pending_approval_gate["blocked_until_confirmation"]["pending_count"], 3)
+        self.assertEqual(pending_approval_gate["unknown"]["pending_count"], 3)
+        pending_approval_blocker = {row["key"]: row for row in summary["pending_by_approval_blocker_bucket"]}
+        self.assertEqual(pending_approval_blocker["blocked_until_confirmation"]["pending_count"], 3)
+        self.assertEqual(pending_approval_blocker["no_approval_context"]["pending_count"], 3)
         self.assertEqual(sum(row["due_count"] for row in summary["pending_external_alignment_due_dates"]), 3)
         self.assertEqual(sum(row["aligned_count"] for row in summary["pending_external_alignment_due_dates"]), 3)
         self.assertEqual(summary["pending_external_alignment_due_dates"][0]["due_date"], estimated_label_due_date(date(2026, 1, 2), "3m").isoformat())
@@ -635,17 +1103,79 @@ class BacktestTests(unittest.TestCase):
         self.assertEqual(nvda_five_day["coverage_adjusted_external_signal_score"], 5.0)
         self.assertEqual(nvda_five_day["external_coverage_multiplier"], 0.25)
         self.assertEqual(nvda_five_day["external_feed_status"], "limited")
+        self.assertEqual(nvda_five_day["external_provider_gap_count"], 4)
+        self.assertEqual(nvda_five_day["external_provider_transient_gap_count"], 1)
+        self.assertEqual(nvda_five_day["external_provider_runtime_gap_count"], 1)
+        self.assertEqual(nvda_five_day["external_provider_primary_gap_severity"], "configuration_required")
         self.assertEqual(nvda_five_day["external_provider_count"], 6)
         self.assertEqual(nvda_five_day["external_provider_ok_count"], 1)
         self.assertEqual(nvda_five_day["external_provider_ok_ratio"], 0.1667)
         self.assertEqual(nvda_five_day["external_signal_count"], 4)
         self.assertEqual(nvda_five_day["external_source_count"], 3)
+        self.assertEqual(nvda_five_day["approval_data_friction_bucket"], "earnings_and_external_review")
+        self.assertEqual(nvda_five_day["approval_data_friction_score"], 68.33)
+        self.assertIn("external_feed_reliability_review_required", nvda_five_day["approval_data_friction_reasons"])
+        self.assertEqual(nvda_five_day["approval_data_friction_penalty"], 4.1)
+        self.assertEqual(nvda_five_day["earnings_days_until"], 8)
+        self.assertEqual(nvda_five_day["earnings_event_date"], "2026-01-12")
+        self.assertEqual(nvda_five_day["earnings_event_status"], "estimated")
+        self.assertEqual(nvda_five_day["earnings_confirmation_bucket"], "confirmation_required")
+        self.assertTrue(nvda_five_day["approval_required"])
+        self.assertEqual(nvda_five_day["approval_gate_status"], "blocked_until_confirmation")
+        self.assertEqual(nvda_five_day["approval_open_check_count"], 2)
+        self.assertEqual(nvda_five_day["approval_blocking_checks"], ["earnings_date_confirmed", "external_feed_reliability_reviewed"])
+        self.assertEqual(nvda_five_day["approval_blocker_bucket"], "blocked_until_confirmation")
         history = outcome_history_from_backtest(summary)
         self.assertEqual(len(history), 4)
         self.assertTrue(all(row["forward_return_pct"] > 0 for row in history))
         nvda_history = next(row for row in history if row["symbol"] == "NVDA" and row["horizon"] == "5d")
         self.assertEqual(nvda_history["coverage_adjusted_external_signal_score"], 5.0)
         self.assertEqual(nvda_history["external_feed_status"], "limited")
+        self.assertEqual(nvda_history["external_provider_primary_gap_severity"], "configuration_required")
+        self.assertEqual(nvda_history["approval_data_friction_bucket"], "earnings_and_external_review")
+        self.assertEqual(nvda_history["earnings_event_status"], "estimated")
+        self.assertEqual(nvda_history["earnings_confirmation_bucket"], "confirmation_required")
+        self.assertEqual(nvda_history["approval_gate_status"], "blocked_until_confirmation")
+        self.assertEqual(nvda_history["approval_blocker_bucket"], "blocked_until_confirmation")
+
+    def test_include_current_examples_replaces_stale_same_session_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            reports = Path(tmp)
+            stale_payload = {
+                "as_of": "2026-05-26",
+                "session": "intraday",
+                "recommendation_training_examples": [
+                    {
+                        "example_id": "stale-avgo",
+                        "as_of": "2026-05-26",
+                        "session": "intraday",
+                        "symbol": "AVGO",
+                        "trade_action": "add",
+                        "recommended_delta_weight": 0.01,
+                    }
+                ],
+            }
+            (reports / "2026-05-26-intraday.json").write_text(json.dumps(stale_payload), encoding="utf-8")
+
+            summary = build_backtest_summary(
+                reports,
+                as_of=date(2026, 5, 27),
+                price_history={},
+                include_current_examples=[
+                    {
+                        "example_id": "current-nvda",
+                        "as_of": "2026-05-26",
+                        "session": "intraday",
+                        "symbol": "NVDA",
+                        "trade_action": "trim",
+                        "recommended_delta_weight": -0.01,
+                    }
+                ],
+            )
+
+        self.assertEqual(summary["trial_count"], 1)
+        self.assertEqual({row["symbol"] for row in summary["outcomes"]}, {"NVDA"})
+        self.assertEqual(summary["pending_outcome_count"], 5)
 
     def test_reconstructs_trials_from_public_action_queue(self):
         with tempfile.TemporaryDirectory() as tmp:

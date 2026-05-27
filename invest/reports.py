@@ -17,14 +17,14 @@ from .calendars import build_calendar_snapshot
 from .config import AppConfig
 from .earnings import build_earnings_events, earnings_health_summary
 from .engine import build_engine_snapshot
-from .external_signals import build_external_signal_snapshot, external_provider_health_detail
+from .external_signals import build_external_signal_snapshot, external_provider_gap_rows, external_provider_health_detail
 from .features import build_feature_matrix
 from .instrumentation import build_instrumentation_audit
 from .ideas import build_idea_book
 from .macro import DEFAULT_MACRO_SYMBOLS, build_macro_dashboard
 from .macro_fred import DEFAULT_FRED_SERIES, build_fred_macro_snapshot
 from .managers import build_manager_radar
-from .market import fetch_daily_prices, fetch_return_windows
+from .market import build_price_audit, fetch_daily_prices, fetch_return_windows
 from .news import enrich_news_item, fetch_many
 from .outcomes import build_outcome_diagnostics, build_training_examples
 from .paper import build_paper_portfolio
@@ -46,6 +46,31 @@ from .valuation import (
 
 
 WEAK_SOURCE_STATUSES = {"missing", "stale", "limited", "estimated", "unknown", "failed", "error"}
+APPROVAL_ACTION_METADATA_FIELDS = [
+    "earnings_days_until",
+    "earnings_event_date",
+    "earnings_event_source",
+    "earnings_confirmed_or_estimated",
+    "earnings_risk_window",
+    "earnings_confirmation_required",
+    "external_signal_score",
+    "coverage_adjusted_external_signal_score",
+    "external_coverage_multiplier",
+    "external_feed_status",
+    "external_provider_count",
+    "external_provider_ok_count",
+    "external_provider_ok_ratio",
+    "external_provider_gap_count",
+    "external_provider_configuration_gap_count",
+    "external_provider_transient_gap_count",
+    "external_provider_stale_gap_count",
+    "external_provider_runtime_gap_count",
+    "external_provider_other_gap_count",
+    "external_provider_primary_gap_severity",
+    "external_provider_gap_severity_score",
+    "external_signal_count",
+    "external_source_count",
+]
 
 
 NEWS_ALIASES = {
@@ -175,6 +200,23 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         research_book=research_book,
     )
     approval_tickets = build_approval_tickets(as_of, session, portfolio, portfolio_benchmark, cards)
+    quote_prices = {**prices, **macro_prices}
+    price_audit = build_price_audit(
+        unique_symbols(expand_symbol_proxies(research_symbols) + macro_symbols),
+        quote_prices,
+        return_windows,
+        focus_symbols=unique_symbols(
+            [
+                str(row.get("symbol") or "")
+                for row in (portfolio.get("by_symbol") or [])
+                if not row.get("is_cash")
+            ]
+            + [
+                str(row.get("symbol") or "")
+                for row in (portfolio_benchmark.get("action_queue") or [])
+            ]
+        ),
+    )
     weekly_research = (
         build_weekly_research(as_of, ideas, cards, portfolio_benchmark, macro)
         if session == "weekly"
@@ -192,7 +234,9 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         broker_result_count=portfolio.get("position_count", 0),
         macro=macro,
         external_signals=external_signals,
+        price_audit=price_audit,
     )
+    attach_data_health_approval_blocker_summary(data_health, approval_tickets)
     calendars = build_calendar_snapshot(config, as_of, manager_radar, earnings_events)
     recommendation_training_examples = build_training_examples(
         as_of,
@@ -253,6 +297,7 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         "portfolio_valuation_private": portfolio_valuation_private,
         "macro": macro,
         "external_signals": external_signals,
+        "price_audit": price_audit,
         "company_underwriting": company_underwriting,
         "sector_underwriting": sector_underwriting,
         "transactions": [dict(row) for row in recent_transactions],
@@ -463,12 +508,414 @@ def render_data_health(lines: list[str], payload: dict[str, Any]) -> None:
         f"- Recommendation posture: **{health.get('recommendation_posture', 'normal')}**. "
         f"{health.get('summary', '')}"
     )
+    blocker_summary = health.get("approval_blocker_summary") or {}
+    if blocker_summary.get("status") == "attention":
+        blocker_parts = [
+            f"{int(blocker_summary.get('blocked_ticket_count') or 0)} blocked tickets",
+            f"{int(blocker_summary.get('total_source_blocker_count') or 0)} source blockers",
+            f"{int(blocker_summary.get('open_check_count') or 0)} open checks",
+        ]
+        blocked_symbols = blocker_summary.get("blocked_symbols") or []
+        if blocked_symbols:
+            blocker_parts.append("symbols " + ", ".join(str(symbol) for symbol in blocked_symbols[:8]))
+        lines.append("- Approval blockers: " + "; ".join(blocker_parts) + ".")
+        blocker_details = []
+        open_checks = format_count_map(blocker_summary.get("open_check_counts") or {})
+        if open_checks:
+            blocker_details.append("open checks " + open_checks)
+        provider_gaps = format_count_map(blocker_summary.get("provider_gap_source_counts") or {})
+        if provider_gaps:
+            blocker_details.append("provider gaps " + provider_gaps)
+        provider_gap_severities = format_count_map(blocker_summary.get("provider_gap_severity_counts") or {})
+        if provider_gap_severities:
+            blocker_details.append("gap severities " + provider_gap_severities)
+        priority_counts = format_count_map(blocker_summary.get("confirmation_priority_counts") or {})
+        if priority_counts:
+            blocker_details.append("confirmation priorities " + priority_counts)
+        next_deadline = blocker_summary.get("next_confirmation_deadline")
+        next_symbols = blocker_summary.get("next_confirmation_symbols") or []
+        if next_deadline:
+            symbol_text = f" ({', '.join(str(symbol) for symbol in next_symbols[:6])})" if next_symbols else ""
+            blocker_details.append(f"next confirmation {next_deadline}{symbol_text}")
+        if blocker_details:
+            lines.append("  Blocker detail: " + "; ".join(blocker_details) + ".")
     for source in sources:
         lines.append(
             f"- {source.get('label', source.get('source', 'Source'))}: "
             f"{source.get('status', 'unknown')} - {source.get('detail', '')}"
         )
+        provider_gaps = source.get("provider_gaps") or []
+        if provider_gaps:
+            lines.append(
+                "  Provider gaps: "
+                + "; ".join(
+                    f"{provider_gap_report_label(row)} - {row.get('remediation', row.get('detail', 'review feed'))}"
+                    for row in provider_gaps[:4]
+                )
+                + "."
+            )
+        confirmation_gaps = source.get("confirmation_gaps") or []
+        if confirmation_gaps:
+            lines.append(
+                "  Confirmation gaps: "
+                + "; ".join(
+                    confirmation_gap_phrase(row)
+                    for row in confirmation_gaps[:4]
+                )
+                + "."
+            )
+        approval_external_gaps = source.get("approval_blocked_external_gaps") or []
+        if approval_external_gaps:
+            visible = [approval_blocked_external_phrase(row) for row in approval_external_gaps[:5]]
+            if len(approval_external_gaps) > 5:
+                visible.append(f"+{len(approval_external_gaps) - 5} more")
+            lines.append("  Approval-blocked external tickets: " + "; ".join(visible) + ".")
+        approval_confirmation_gaps = source.get("approval_blocked_confirmation_gaps") or []
+        if approval_confirmation_gaps:
+            visible = [approval_blocked_confirmation_phrase(row) for row in approval_confirmation_gaps[:5]]
+            if len(approval_confirmation_gaps) > 5:
+                visible.append(f"+{len(approval_confirmation_gaps) - 5} more")
+            lines.append("  Approval-blocked confirmation tickets: " + "; ".join(visible) + ".")
     lines.append("")
+
+
+def format_count_map(counts: dict[str, Any], limit: int = 4) -> str:
+    items = []
+    for key, value in counts.items():
+        item = str(key)
+        if not item.strip():
+            continue
+        try:
+            count = int(value)
+        except (TypeError, ValueError):
+            continue
+        if count > 0:
+            items.append((item, count))
+    if not items:
+        return ""
+    items.sort(key=lambda item: (-item[1], item[0]))
+    visible = items[:limit]
+    suffix = f", +{len(items) - limit} more" if len(items) > limit else ""
+    return ", ".join(f"{key}={value}" for key, value in visible) + suffix
+
+
+def provider_gap_report_label(row: dict[str, Any]) -> str:
+    label = str(row.get("label") or row.get("source") or "provider")
+    severity = provider_gap_severity_label(row.get("severity"))
+    if severity:
+        return f"{label} ({severity})"
+    return label
+
+
+def provider_gap_severity_label(severity: Any) -> str:
+    label = str(severity or "").replace("_", " ").strip()
+    return label
+
+
+def confirmation_gap_phrase(row: dict[str, Any]) -> str:
+    symbol = row.get("symbol", "symbol")
+    event_date = row.get("event_date", "date")
+    details = []
+    risk_window = str(row.get("risk_window") or "")
+    if risk_window and risk_window != "unknown":
+        details.append(risk_window)
+    priority = str(row.get("confirmation_priority") or "")
+    if priority:
+        details.append(priority)
+    deadline = row.get("confirmation_deadline")
+    if deadline:
+        deadline_text = f"deadline {deadline}"
+        due_text = confirmation_deadline_due_phrase(row.get("days_to_confirmation_deadline"))
+        if due_text:
+            deadline_text += f" {due_text}"
+        details.append(deadline_text)
+    prefix = f"{symbol} {event_date}"
+    if details:
+        prefix += " (" + ", ".join(details) + ")"
+    return f"{prefix} - {row.get('remediation', 'confirm source')}"
+
+
+def confirmation_deadline_due_phrase(days: Any) -> str:
+    try:
+        value = int(days)
+    except (TypeError, ValueError):
+        return ""
+    if value < 0:
+        return f"overdue by {abs(value)}d"
+    if value == 0:
+        return "today"
+    return f"in {value}d"
+
+
+def approval_blocked_external_phrase(row: dict[str, Any]) -> str:
+    symbol = str(row.get("symbol") or "symbol").upper()
+    details = approval_ticket_detail_parts(row)
+    providers = [
+        str(source)
+        for source in row.get("provider_gap_sources") or []
+        if str(source).strip()
+    ]
+    if providers:
+        provider_text = ", ".join(providers[:4])
+        if len(providers) > 4:
+            provider_text += f", +{len(providers) - 4} more"
+        details.append(f"providers {provider_text}")
+    severities = [
+        provider_gap_severity_label(severity)
+        for severity in row.get("provider_gap_severities") or []
+        if provider_gap_severity_label(severity)
+    ]
+    if severities:
+        severity_text = ", ".join(severities[:4])
+        if len(severities) > 4:
+            severity_text += f", +{len(severities) - 4} more"
+        details.append(f"gap severities {severity_text}")
+    return f"{symbol} (" + "; ".join(details) + ")"
+
+
+def approval_blocked_confirmation_phrase(row: dict[str, Any]) -> str:
+    symbol = str(row.get("symbol") or "symbol").upper()
+    details = approval_ticket_detail_parts(row)
+    event_date = row.get("event_date")
+    if event_date:
+        details.append(f"event {event_date}")
+    deadline = row.get("confirmation_deadline")
+    if deadline:
+        deadline_text = f"deadline {deadline}"
+        due_text = confirmation_deadline_due_phrase(row.get("days_to_confirmation_deadline"))
+        if due_text:
+            deadline_text += f" {due_text}"
+        details.append(deadline_text)
+    priority = str(row.get("confirmation_priority") or "")
+    if priority:
+        details.append(priority)
+    return f"{symbol} (" + "; ".join(details) + ")"
+
+
+def approval_ticket_detail_parts(row: dict[str, Any]) -> list[str]:
+    details = [str(row.get("approval_gate_status") or "approval_required")]
+    action = str(row.get("trade_action") or "").strip()
+    delta = approval_ticket_delta_phrase(row.get("recommended_delta_weight"))
+    if action and delta:
+        details.append(f"{action} {delta}")
+    elif action:
+        details.append(action)
+    elif delta:
+        details.append(delta)
+    open_check_count = approval_open_check_count(row)
+    if open_check_count:
+        check_label = "open check" if open_check_count == 1 else "open checks"
+        details.append(f"{open_check_count} {check_label}")
+    return details
+
+
+def approval_ticket_delta_phrase(value: Any) -> str:
+    try:
+        delta = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if not delta:
+        return ""
+    return signed_weight_label(delta)
+
+
+def approval_open_check_count(row: dict[str, Any]) -> int:
+    try:
+        value = int(row.get("approval_open_check_count") or 0)
+    except (TypeError, ValueError):
+        value = 0
+    checks = [
+        check
+        for check in row.get("approval_blocking_checks") or []
+        if str(check).strip()
+    ]
+    return value or len(checks)
+
+
+def attach_data_health_approval_blocker_summary(data_health: dict[str, Any], approval_tickets: list[dict[str, Any]]) -> None:
+    sources = [row for row in data_health.get("sources", []) if isinstance(row, dict)]
+    provider_gap_sources = [
+        str(row.get("source") or "")
+        for source in sources
+        if source.get("source") == "external_signals"
+        for row in source.get("provider_gaps") or []
+        if isinstance(row, dict) and row.get("source")
+    ]
+    provider_gap_severities = [
+        str(row.get("severity") or "")
+        for source in sources
+        if source.get("source") == "external_signals"
+        for row in source.get("provider_gaps") or []
+        if isinstance(row, dict) and row.get("severity")
+    ]
+    confirmation_gap_by_symbol = {
+        str(row.get("symbol") or "").upper(): row
+        for source in sources
+        if source.get("source") == "earnings"
+        for row in source.get("confirmation_gaps") or []
+        if isinstance(row, dict) and row.get("symbol")
+    }
+
+    blockers: dict[str, dict[str, Any]] = {}
+    external_count = 0
+    confirmation_count = 0
+    ticket_context_by_symbol: dict[str, dict[str, Any]] = {}
+    external_blocker_rows: list[dict[str, Any]] = []
+    provider_gap_source_counts: dict[str, int] = {}
+    provider_gap_severity_counts: dict[str, int] = {}
+    confirmation_priority_counts: dict[str, int] = {}
+    confirmation_deadline_symbols: dict[str, set[str]] = {}
+
+    for ticket in approval_tickets:
+        if not isinstance(ticket, dict):
+            continue
+        pending_checks = [
+            str(check.get("check") or "")
+            for check in ticket.get("approval_checks") or []
+            if isinstance(check, dict) and check.get("status") != "passed" and check.get("check")
+        ]
+        is_external_blocked = "external_feed_reliability_reviewed" in pending_checks
+        is_confirmation_blocked = "earnings_date_confirmed" in pending_checks
+        if not is_external_blocked and not is_confirmation_blocked:
+            continue
+        symbol = str(ticket.get("symbol") or "").upper()
+        ticket_id = str(ticket.get("ticket_id") or "").strip()
+        key = ticket_id or symbol
+        if not key:
+            continue
+        gate_status = str(ticket.get("approval_gate_status") or approval_gate_status(ticket.get("approval_checks") or []))
+        open_check_count = int(ticket.get("approval_open_check_count") or len(pending_checks))
+        ticket_context_by_symbol[symbol] = {
+            "ticket_id": ticket_id,
+            "symbol": symbol,
+            "trade_action": ticket.get("trade_action", ""),
+            "recommended_delta_weight": ticket.get("recommended_delta_weight", 0),
+            "action_risk_flags": ticket.get("risk_flags", []),
+            "action_confirmation_required": bool(ticket.get("earnings_confirmation_required", False)),
+            "approval_gate_status": gate_status,
+            "approval_open_check_count": open_check_count,
+            "approval_blocking_checks": pending_checks,
+        }
+        blockers[key] = {
+            "ticket_id": ticket_id,
+            "symbol": symbol,
+            "approval_blocking_checks": pending_checks,
+        }
+        if is_external_blocked:
+            external_count += 1
+            for source in provider_gap_sources:
+                increment_count(provider_gap_source_counts, source)
+            for severity in provider_gap_severities:
+                increment_count(provider_gap_severity_counts, severity)
+            external_blocker_rows.append(
+                {
+                    "ticket_id": ticket_id,
+                    "symbol": symbol,
+                    "trade_action": ticket.get("trade_action", ""),
+                    "recommended_delta_weight": ticket.get("recommended_delta_weight", 0),
+                    "approval_gate_status": gate_status,
+                    "approval_open_check_count": open_check_count,
+                    "approval_blocking_checks": pending_checks,
+                    "provider_gap_count": len(provider_gap_sources),
+                    "provider_gap_sources": sorted(set(provider_gap_sources)),
+                    "provider_gap_severities": sorted(set(provider_gap_severities)),
+                }
+            )
+        if is_confirmation_blocked:
+            confirmation_count += 1
+            gap = confirmation_gap_by_symbol.get(symbol) or {}
+            priority = str(gap.get("confirmation_priority") or "")
+            if priority:
+                increment_count(confirmation_priority_counts, priority)
+            deadline = str(gap.get("confirmation_deadline") or "")
+            if deadline:
+                confirmation_deadline_symbols.setdefault(deadline, set()).add(symbol)
+
+    attach_source_blocker_rows(sources, ticket_context_by_symbol, external_blocker_rows)
+
+    if not external_count and not confirmation_count:
+        data_health["approval_blocker_summary"] = {
+            "status": "ok",
+            "total_source_blocker_count": 0,
+            "external_gap_ticket_count": 0,
+            "earnings_confirmation_ticket_count": 0,
+            "visible_blocker_row_count": 0,
+            "blocked_ticket_count": 0,
+            "blocked_symbols": [],
+            "open_check_count": 0,
+            "open_check_counts": {},
+            "provider_gap_source_counts": {},
+            "provider_gap_severity_counts": {},
+            "confirmation_priority_counts": {},
+            "next_confirmation_deadline": None,
+            "next_confirmation_symbols": [],
+        }
+        return
+
+    open_check_counts: dict[str, int] = {}
+    for blocker in blockers.values():
+        for check in blocker.get("approval_blocking_checks") or []:
+            increment_count(open_check_counts, check)
+
+    next_deadline = min(confirmation_deadline_symbols) if confirmation_deadline_symbols else None
+    data_health["approval_blocker_summary"] = {
+        "status": "attention",
+        "total_source_blocker_count": external_count + confirmation_count,
+        "external_gap_ticket_count": external_count,
+        "earnings_confirmation_ticket_count": confirmation_count,
+        "visible_blocker_row_count": external_count + confirmation_count,
+        "blocked_ticket_count": len(blockers),
+        "blocked_symbols": sorted({row.get("symbol") for row in blockers.values() if row.get("symbol")}),
+        "open_check_count": sum(open_check_counts.values()),
+        "open_check_counts": dict(sorted(open_check_counts.items())),
+        "provider_gap_source_counts": dict(sorted(provider_gap_source_counts.items())),
+        "provider_gap_severity_counts": dict(sorted(provider_gap_severity_counts.items())),
+        "confirmation_priority_counts": dict(sorted(confirmation_priority_counts.items())),
+        "next_confirmation_deadline": next_deadline,
+        "next_confirmation_symbols": sorted(confirmation_deadline_symbols.get(next_deadline, set())) if next_deadline else [],
+    }
+
+
+def attach_source_blocker_rows(
+    sources: list[dict[str, Any]],
+    ticket_context_by_symbol: dict[str, dict[str, Any]],
+    external_blocker_rows: list[dict[str, Any]],
+) -> None:
+    for source in sources:
+        if source.get("source") == "external_signals":
+            source["approval_blocked_external_gap_count"] = len(external_blocker_rows)
+            source["approval_blocked_external_gaps"] = external_blocker_rows[:8]
+        if source.get("source") != "earnings":
+            continue
+        confirmation_gaps = []
+        approval_blocked = []
+        action_linked_count = 0
+        for gap in source.get("confirmation_gaps") or []:
+            if not isinstance(gap, dict):
+                continue
+            row = dict(gap)
+            context = ticket_context_by_symbol.get(str(row.get("symbol") or "").upper())
+            if context:
+                row.update(context)
+                row["action_linked"] = True
+                row["approval_ticket_linked"] = True
+                action_linked_count += 1
+                if row.get("approval_gate_status") == "blocked_until_confirmation":
+                    approval_blocked.append(row)
+            else:
+                row["action_linked"] = False
+                row["approval_ticket_linked"] = False
+            confirmation_gaps.append(row)
+        source["confirmation_gaps"] = confirmation_gaps
+        source["action_linked_confirmation_gap_count"] = action_linked_count
+        source["approval_blocked_confirmation_gap_count"] = len(approval_blocked)
+        source["approval_blocked_confirmation_gaps"] = approval_blocked[:8]
+
+
+def increment_count(counts: dict[str, int], key: Any) -> None:
+    item = str(key or "")
+    if item:
+        counts[item] = counts.get(item, 0) + 1
 
 
 def render_audit_snapshot(lines: list[str], payload: dict[str, Any]) -> None:
@@ -690,6 +1137,54 @@ def render_outcome_diagnostics(lines: list[str], payload: dict[str, Any]) -> Non
                 f"{external_projection.get('next_external_fast_label_due_date')}; "
                 f"{external_projection.get('external_fast_labels_due_next_30d', 0)} due within 30 days."
             )
+    approval_projection = diagnostics.get("approval_learning_readiness_projection") or {}
+    if approval_projection:
+        approval_line = (
+            "- Approval-gated label projection: "
+            f"{approval_projection.get('pending_approval_label_count', 0)} pending labels across "
+            f"{approval_projection.get('pending_approval_blocker_bucket_count', 0)} blocker buckets"
+        )
+        blocker_phrases = pending_bucket_phrases(approval_projection.get("pending_approval_blocker_buckets") or [])
+        if blocker_phrases:
+            approval_line += ": " + "; ".join(blocker_phrases)
+        if approval_projection.get("next_approval_label_due_date"):
+            approval_line += (
+                f"; next approval-gated label due {approval_projection.get('next_approval_label_due_date')} adds "
+                f"{approval_projection.get('next_approval_label_due_count', 0)} labels"
+            )
+        if approval_projection.get("next_approval_learning_label_due_date"):
+            approval_line += (
+                f"; next learning-eligible approval label due "
+                f"{approval_projection.get('next_approval_learning_label_due_date')} adds "
+                f"{approval_projection.get('next_approval_learning_label_due_count', 0)} labels"
+            )
+        lines.append(approval_line + ".")
+    friction_projection = diagnostics.get("approval_data_friction_learning_readiness_projection") or {}
+    if friction_projection:
+        friction_line = (
+            "- Approval data-friction label projection: "
+            f"{friction_projection.get('pending_approval_data_friction_label_count', 0)} pending labels across "
+            f"{friction_projection.get('pending_approval_data_friction_bucket_count', 0)} friction buckets"
+        )
+        friction_phrases = pending_bucket_phrases(
+            friction_projection.get("pending_approval_data_friction_buckets") or [],
+            skip_keys={"clear", "unknown", ""},
+        )
+        if friction_phrases:
+            friction_line += ": " + "; ".join(friction_phrases)
+        if friction_projection.get("next_approval_data_friction_label_due_date"):
+            friction_line += (
+                f"; next friction label due "
+                f"{friction_projection.get('next_approval_data_friction_label_due_date')} adds "
+                f"{friction_projection.get('next_approval_data_friction_label_due_count', 0)} labels"
+            )
+        if friction_projection.get("next_approval_data_friction_learning_label_due_date"):
+            friction_line += (
+                f"; next learning-eligible friction label due "
+                f"{friction_projection.get('next_approval_data_friction_learning_label_due_date')} adds "
+                f"{friction_projection.get('next_approval_data_friction_learning_label_due_count', 0)} labels"
+            )
+        lines.append(friction_line + ".")
     horizon_counts = diagnostics.get("horizon_label_counts") or []
     if horizon_counts:
         lines.append("- Label maturity by horizon: " + ", ".join(
@@ -793,6 +1288,198 @@ def render_backtest_summary(lines: list[str], payload: dict[str, Any]) -> None:
     external_alignment_bands = calibration_band_phrases(backtest.get("by_external_alignment") or [])
     if external_alignment_bands:
         lines.append("- External alignment outcomes: " + "; ".join(external_alignment_bands) + ".")
+    external_provider_gap_severity_bands = calibration_band_phrases(backtest.get("by_external_provider_gap_severity") or [])
+    if external_provider_gap_severity_bands:
+        lines.append("- External provider gap severity outcomes: " + "; ".join(external_provider_gap_severity_bands) + ".")
+    external_provider_gap_severity_exposure_bands = calibration_band_phrases(
+        backtest.get("by_external_provider_gap_severity_exposure") or []
+    )
+    if external_provider_gap_severity_exposure_bands:
+        lines.append(
+            "- External provider gap severity exposure outcomes: "
+            + "; ".join(external_provider_gap_severity_exposure_bands)
+            + "."
+        )
+    friction_bands = calibration_band_phrases(backtest.get("by_approval_data_friction_bucket") or [])
+    if friction_bands:
+        lines.append("- Approval data-friction outcomes: " + "; ".join(friction_bands) + ".")
+    earnings_confirmation_bands = calibration_band_phrases(backtest.get("by_earnings_confirmation_bucket") or [])
+    if earnings_confirmation_bands:
+        lines.append("- Earnings confirmation outcomes: " + "; ".join(earnings_confirmation_bands) + ".")
+    pending_earnings = pending_earnings_label_phrase(backtest)
+    if pending_earnings:
+        lines.append(f"- Pending earnings label buckets: {pending_earnings}.")
+    pending_approval = pending_approval_label_phrase(backtest)
+    if pending_approval:
+        lines.append(f"- Pending approval label buckets: {pending_approval}.")
+    pending_friction = pending_approval_data_friction_phrase(backtest)
+    if pending_friction:
+        lines.append(f"- Pending approval data-friction labels: {pending_friction}.")
+    pending_provider_gap_severity = pending_external_provider_gap_severity_phrase(backtest)
+    if pending_provider_gap_severity:
+        lines.append(f"- Pending external provider gap severity labels: {pending_provider_gap_severity}.")
+    pending_provider_gap_severity_exposure = pending_external_provider_gap_severity_exposure_phrase(backtest)
+    if pending_provider_gap_severity_exposure:
+        lines.append(f"- Pending external provider gap severity exposures: {pending_provider_gap_severity_exposure}.")
+    pending_provider_gap_observation = pending_external_provider_gap_severity_observation_phrase(backtest)
+    if pending_provider_gap_observation:
+        lines.append(f"- Pending external provider gap severity observation: {pending_provider_gap_observation}.")
+    severity_observation_gap_queue = backtest.get("pending_external_provider_gap_severity_observation_gap_queue") or []
+    severity_observation_gap_count = backtest.get(
+        "pending_external_provider_gap_severity_observation_gap_count",
+        len(severity_observation_gap_queue),
+    )
+    if severity_observation_gap_queue:
+        severity_observation_work_items = (
+            backtest.get("pending_external_provider_gap_severity_observation_gap_work_item_queue") or []
+        )
+        severity_observation_work_item_count = int(
+            backtest.get("pending_external_provider_gap_severity_observation_gap_work_item_count")
+            or len(severity_observation_work_items)
+        )
+        severity_observation_hidden_work_item_count = int(
+            backtest.get("pending_external_provider_gap_severity_observation_gap_hidden_work_item_count") or 0
+        )
+        severity_observation_visible_work_item_label_count = int(
+            backtest.get("pending_external_provider_gap_severity_observation_gap_visible_work_item_label_count")
+            or len(severity_observation_gap_queue)
+        )
+        severity_observation_hidden_work_item_label_count = int(
+            backtest.get("pending_external_provider_gap_severity_observation_gap_hidden_work_item_label_count")
+            or backtest.get("pending_external_provider_gap_severity_observation_gap_hidden_label_count")
+            or 0
+        )
+        severity_observation_visibility = (
+            f" ({len(severity_observation_gap_queue)} visible, {severity_observation_hidden_work_item_label_count} hidden)"
+            if severity_observation_hidden_work_item_label_count
+            else ""
+        )
+        if severity_observation_work_items:
+            severity_observation_visibility = (
+                f" ({len(severity_observation_work_items)} visible work items covering "
+                f"{severity_observation_visible_work_item_label_count} labels; "
+                f"{severity_observation_hidden_work_item_count} hidden work items covering "
+                f"{severity_observation_hidden_work_item_label_count} labels)"
+            )
+            severity_observation_items = severity_observation_work_items[:5]
+        else:
+            severity_observation_items = severity_observation_gap_queue[:5]
+        lines.append(
+            f"- Provider gap severity observation backfill queue: {severity_observation_gap_count} labels"
+            f" / {severity_observation_work_item_count} work items missing severity context"
+            f"{severity_observation_visibility}; "
+            + ", ".join(
+                provider_gap_severity_observation_backfill_item_phrase(row)
+                for row in severity_observation_items
+            )
+            + "."
+        )
+        severity_observation_due_dates = (
+            backtest.get("pending_external_provider_gap_severity_observation_gap_due_dates") or []
+        )
+        if severity_observation_due_dates:
+            lines.append("- Provider gap severity observation due dates: " + "; ".join(
+                f"{row.get('due_date')} ({provider_gap_severity_due_timing_phrase(row)}): "
+                f"{row.get('label_count', 0)} labels / "
+                f"{row.get('work_item_count', 0)} work items "
+                f"({row.get('visible_work_item_count', 0)} visible work items covering "
+                f"{row.get('visible_label_count', 0)} labels, "
+                f"{row.get('hidden_work_item_count', 0)} hidden work items covering "
+                f"{row.get('hidden_label_count', 0)} labels; cumulative "
+                f"{row.get('cumulative_label_count', row.get('label_count', 0))} labels / "
+                f"{row.get('cumulative_work_item_count', row.get('work_item_count', 0))} work items)"
+                for row in severity_observation_due_dates[:5]
+            ) + ".")
+        severity_observation_due_windows = (
+            backtest.get("pending_external_provider_gap_severity_observation_gap_due_window_counts") or []
+        )
+        if severity_observation_due_windows:
+            lines.append("- Provider gap severity observation due windows: " + "; ".join(
+                provider_gap_severity_due_window_count_phrase(row)
+                for row in severity_observation_due_windows[:6]
+            ) + ".")
+        severity_observation_horizons = (
+            backtest.get("pending_external_provider_gap_severity_observation_gap_horizon_counts") or []
+        )
+        if severity_observation_horizons:
+            lines.append("- Provider gap severity observation horizons: " + "; ".join(
+                provider_gap_severity_horizon_count_phrase(row)
+                for row in severity_observation_horizons[:5]
+            ) + ".")
+        severity_observation_roles = (
+            backtest.get("pending_external_provider_gap_severity_observation_gap_learning_role_counts") or []
+        )
+        if severity_observation_roles:
+            lines.append("- Provider gap severity observation learning roles: " + "; ".join(
+                provider_gap_severity_learning_role_count_phrase(row)
+                for row in severity_observation_roles[:4]
+            ) + ".")
+        hidden_calibration_queue = (
+            backtest.get(
+                "pending_external_provider_gap_severity_observation_gap_hidden_calibration_work_item_queue"
+            )
+            or []
+        )
+        if hidden_calibration_queue:
+            hidden_calibration_count = int(
+                backtest.get(
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_work_item_count"
+                )
+                or len(hidden_calibration_queue)
+            )
+            lines.append(
+                f"- Provider gap severity hidden calibration queue: {hidden_calibration_count} hidden "
+                "calibration work items; "
+                + ", ".join(
+                    provider_gap_severity_observation_backfill_item_phrase(row)
+                    for row in hidden_calibration_queue[:5]
+                )
+                + "."
+            )
+        hidden_calibration_report_batches = (
+            backtest.get(
+                "pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_queue"
+            )
+            or []
+        )
+        if hidden_calibration_report_batches:
+            hidden_calibration_report_batch_count = int(
+                backtest.get(
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_count"
+                )
+                or len(hidden_calibration_report_batches)
+            )
+            lines.append(
+                f"- Provider gap severity hidden calibration report batches: "
+                f"{hidden_calibration_report_batch_count} decision-time reports; "
+                + "; ".join(
+                    provider_gap_severity_hidden_calibration_report_batch_phrase(row)
+                    for row in hidden_calibration_report_batches[:5]
+                )
+                + "."
+            )
+        hidden_calibration_backfill_records = (
+            backtest.get(
+                "pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_queue"
+            )
+            or []
+        )
+        if hidden_calibration_backfill_records:
+            hidden_calibration_backfill_record_count = int(
+                backtest.get(
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_count"
+                )
+                or len(hidden_calibration_backfill_records)
+            )
+            lines.append(
+                f"- Provider gap severity hidden calibration backfill records: "
+                f"{hidden_calibration_backfill_record_count} ready records; "
+                + ", ".join(
+                    provider_gap_severity_hidden_calibration_backfill_record_phrase(row)
+                    for row in hidden_calibration_backfill_records[:5]
+                )
+                + "."
+            )
     alignment_due_dates = backtest.get("pending_external_alignment_due_dates") or []
     if alignment_due_dates:
         lines.append("- Pending external alignment due dates: " + "; ".join(
@@ -874,6 +1561,249 @@ def calibration_band_phrases(buckets: list[dict[str, Any]]) -> list[str]:
         else:
             phrases.append(f"{label} ({count} labels)")
     return phrases
+
+
+def pending_earnings_label_phrase(backtest: dict[str, Any]) -> str:
+    confirmation = pending_bucket_phrases(
+        backtest.get("pending_by_earnings_confirmation_bucket") or [],
+        skip_keys={"no_event", "unknown", ""},
+    )
+    risk_windows = pending_bucket_phrases(
+        backtest.get("pending_by_earnings_risk_window") or [],
+        skip_keys={"no_event", "unknown", ""},
+    )
+    parts = []
+    if confirmation:
+        parts.append("confirmation " + "; ".join(confirmation))
+    if risk_windows:
+        parts.append("risk windows " + "; ".join(risk_windows))
+    return " | ".join(parts)
+
+
+def pending_approval_label_phrase(backtest: dict[str, Any]) -> str:
+    return "; ".join(
+        pending_bucket_phrases(
+            backtest.get("pending_by_approval_blocker_bucket") or [],
+            skip_keys={"no_approval_context", "ready", "unknown", ""},
+        )
+    )
+
+
+def pending_approval_data_friction_phrase(backtest: dict[str, Any]) -> str:
+    return "; ".join(
+        pending_bucket_phrases(
+            backtest.get("pending_by_approval_data_friction_bucket") or [],
+            skip_keys={"clear", "unknown", ""},
+        )
+    )
+
+
+def pending_external_provider_gap_severity_phrase(backtest: dict[str, Any]) -> str:
+    return "; ".join(
+        pending_bucket_phrases(
+            backtest.get("pending_by_external_provider_gap_severity") or [],
+            skip_keys={"none", "unknown", ""},
+        )
+    )
+
+
+def pending_external_provider_gap_severity_exposure_phrase(backtest: dict[str, Any]) -> str:
+    return "; ".join(
+        pending_bucket_phrases(
+            backtest.get("pending_by_external_provider_gap_severity_exposure") or [],
+            skip_keys={"none", "unknown", ""},
+        )
+    )
+
+
+def pending_external_provider_gap_severity_observation_phrase(backtest: dict[str, Any]) -> str:
+    summary = backtest.get("pending_external_provider_gap_severity_observation_summary") or {}
+    pending_count = int(summary.get("pending_label_count") or 0)
+    if not pending_count:
+        return ""
+    observed = int(summary.get("observed_label_count") or 0)
+    unknown = int(summary.get("unknown_label_count") or 0)
+    ratio = summary.get("observed_ratio")
+    ratio_text = f"{float(ratio) * 100:.1f}%" if ratio is not None else "n/a"
+    parts = [f"{observed}/{pending_count} labels observed ({ratio_text})"]
+    if unknown:
+        due = summary.get("unknown_next_due_date")
+        due_text = f", next unknown due {due}" if due else ""
+        policy = summary.get("backfill_policy") or "decision_time_only"
+        parts.append(f"{unknown} unknown need {policy} backfill{due_text}")
+    return "; ".join(parts)
+
+
+def provider_gap_severity_due_timing_phrase(row: dict[str, Any]) -> str:
+    days = row.get("days_until_due")
+    due_window = row.get("due_window") or "unknown"
+    try:
+        days_int = int(days)
+    except (TypeError, ValueError):
+        return str(due_window)
+    if days_int < 0:
+        return f"overdue by {abs(days_int)} days, {due_window}"
+    if days_int == 0:
+        return f"due today, {due_window}"
+    if days_int == 1:
+        return f"in 1 day, {due_window}"
+    return f"in {days_int} days, {due_window}"
+
+
+def provider_gap_severity_due_window_count_phrase(row: dict[str, Any]) -> str:
+    label = pending_bucket_label(str(row.get("due_window") or "unknown"))
+    due_dates = int(row.get("due_date_count") or 0)
+    due_span = ""
+    if row.get("earliest_due_date") and row.get("latest_due_date"):
+        due_span = f", {row.get('earliest_due_date')} to {row.get('latest_due_date')}"
+    return (
+        f"{label}: {row.get('label_count', 0)} labels / {row.get('work_item_count', 0)} work items "
+        f"across {due_dates} due dates{due_span} "
+        f"({row.get('visible_label_count', 0)} visible labels, {row.get('hidden_label_count', 0)} hidden)"
+    )
+
+
+def provider_gap_severity_horizon_count_phrase(row: dict[str, Any]) -> str:
+    horizon = row.get("horizon") or "unknown"
+    role = pending_bucket_label(str(row.get("learning_role") or "unknown"))
+    next_due = row.get("next_due_date") or "unknown"
+    timing = provider_gap_severity_due_timing_phrase(
+        {"days_until_due": row.get("days_until_next_due"), "due_window": row.get("next_due_window")}
+    )
+    return (
+        f"{horizon} {role}: {row.get('label_count', 0)} labels / {row.get('work_item_count', 0)} "
+        f"work items, next {next_due} ({timing}); "
+        f"{row.get('visible_label_count', 0)} visible labels, {row.get('hidden_label_count', 0)} hidden"
+    )
+
+
+def provider_gap_severity_learning_role_count_phrase(row: dict[str, Any]) -> str:
+    role = pending_bucket_label(str(row.get("learning_role") or "unknown"))
+    horizons = ", ".join(str(horizon) for horizon in row.get("horizons") or []) or "unknown"
+    next_due = row.get("next_due_date") or "unknown"
+    timing = provider_gap_severity_due_timing_phrase(
+        {"days_until_due": row.get("days_until_next_due"), "due_window": row.get("next_due_window")}
+    )
+    coverage = row.get("visible_label_coverage_pct")
+    try:
+        coverage_text = f", {float(coverage):.1f}% visible"
+    except (TypeError, ValueError):
+        coverage_text = ""
+    visibility_status = row.get("queue_visibility_status")
+    if visibility_status:
+        coverage_text += f" ({pending_bucket_label(str(visibility_status))})"
+    due_visibility_text = provider_gap_severity_learning_role_visibility_due_phrase(row)
+    return (
+        f"{role}: {row.get('label_count', 0)} labels / {row.get('work_item_count', 0)} work items "
+        f"across {row.get('horizon_count', 0)} horizons ({horizons}), next {next_due} ({timing}); "
+        f"{row.get('visible_label_count', 0)} visible labels, {row.get('hidden_label_count', 0)} hidden"
+        f"{coverage_text}{due_visibility_text}"
+    )
+
+
+def provider_gap_severity_learning_role_visibility_due_phrase(row: dict[str, Any]) -> str:
+    parts = []
+    for visibility in ("visible", "hidden"):
+        due_date = row.get(f"next_{visibility}_due_date")
+        if not due_date:
+            continue
+        timing = provider_gap_severity_due_timing_phrase(
+            {
+                "days_until_due": row.get(f"days_until_next_{visibility}_due"),
+                "due_window": row.get(f"next_{visibility}_due_window"),
+            }
+        )
+        label_count = row.get(f"next_{visibility}_due_label_count", 0)
+        work_item_count = row.get(f"next_{visibility}_due_work_item_count", 0)
+        horizons = ", ".join(str(horizon) for horizon in row.get(f"next_{visibility}_due_horizons") or [])
+        horizon_text = f"; horizons {horizons}" if horizons else ""
+        parts.append(
+            f"{visibility} next {due_date} "
+            f"({timing}; {label_count} labels / {work_item_count} work items{horizon_text})"
+        )
+    return "; " + "; ".join(parts) if parts else ""
+
+
+def provider_gap_severity_observation_backfill_item_phrase(row: dict[str, Any]) -> str:
+    phrase = f"{row.get('symbol')} {row.get('horizon')} due {row.get('due_date')}"
+    observation_date = row.get("as_of") or row.get("required_external_provider_gap_severity_observation_date")
+    if observation_date:
+        phrase += f" from {observation_date}"
+        if row.get("session"):
+            phrase += f" {row.get('session')}"
+    if row.get("decision_time_report_json"):
+        phrase += f" via {row.get('decision_time_report_json')}"
+    if row.get("label_count"):
+        phrase += f" ({row.get('label_count')} labels)"
+    candidate = provider_gap_severity_candidate_phrase(row)
+    if candidate:
+        phrase += f"; {candidate}"
+    return phrase
+
+
+def provider_gap_severity_hidden_calibration_report_batch_phrase(row: dict[str, Any]) -> str:
+    report = row.get("decision_time_report_json") or "unknown report"
+    due_start = row.get("earliest_due_date") or "unknown"
+    due_end = row.get("latest_due_date") or due_start
+    due_text = due_start if due_start == due_end else f"{due_start}..{due_end}"
+    horizons = ", ".join(str(horizon) for horizon in row.get("horizons") or []) or "unknown horizon"
+    candidate = provider_gap_severity_candidate_phrase(row)
+    candidate_text = f"; {candidate}" if candidate else ""
+    return (
+        f"{report}: {row.get('work_item_count', 0)} work items / {row.get('label_count', 0)} labels "
+        f"due {due_text}; horizons {horizons}; {row.get('symbol_count', 0)} symbols"
+        f"{candidate_text}"
+    )
+
+
+def provider_gap_severity_hidden_calibration_backfill_record_phrase(row: dict[str, Any]) -> str:
+    symbol = row.get("symbol") or "unknown"
+    horizon = row.get("horizon") or "unknown"
+    report = row.get("source_report") or "unknown report"
+    status = row.get("candidate_apply_status") or "unknown"
+    candidate = provider_gap_severity_candidate_phrase(row)
+    candidate_text = f"; {candidate}" if candidate else ""
+    return f"{symbol} {horizon} from {report} apply {status}{candidate_text}"
+
+
+def provider_gap_severity_candidate_phrase(row: dict[str, Any]) -> str:
+    candidate_values = row.get("candidate_backfill_values")
+    candidate_values = candidate_values if isinstance(candidate_values, dict) else {}
+    candidate_status = str(row.get("candidate_backfill_status") or row.get("candidate_apply_status") or "")
+    if candidate_status == "ready":
+        severity = pending_bucket_label(str(candidate_values.get("external_provider_primary_gap_severity") or "unknown"))
+        gap_count = int(candidate_values.get("external_provider_gap_count") or 0)
+        return f"candidate {severity} ({gap_count} gaps)"
+    elif candidate_status:
+        return f"candidate {candidate_status}"
+    return ""
+
+
+def pending_bucket_phrases(rows: list[dict[str, Any]], skip_keys: set[str] | None = None, limit: int = 4) -> list[str]:
+    skip_keys = skip_keys or set()
+    phrases = []
+    for row in rows:
+        key = str(row.get("key") or "")
+        if key in skip_keys:
+            continue
+        count = int(row.get("pending_count") or 0)
+        if not count:
+            continue
+        label = pending_bucket_label(key)
+        next_due = row.get("next_due_date")
+        due = f" next {next_due}" if next_due else ""
+        phrases.append(f"{label} {count} labels{due}")
+        if len(phrases) >= limit:
+            break
+    return phrases
+
+
+def pending_bucket_label(key: str) -> str:
+    if key == "confirmation_required":
+        return "required"
+    if key == "no_confirmation_required":
+        return "not required"
+    return key.replace("_", " ")
 
 
 def calibration_priority_phrase(bucket: dict[str, Any]) -> str:
@@ -1086,6 +2016,11 @@ def render_approval_tickets(lines: list[str], payload: dict[str, Any]) -> None:
             f"{ticket.get('trade_action', 'study')} {ticket.get('recommended_delta_weight', 0):+,.2%}; "
             f"target {ticket.get('target_weight', 0):.2%}; confidence {ticket.get('confidence', 0)}/100."
         )
+        if ticket.get("approval_gate_status"):
+            lines.append(
+                f"  Gate: {ticket.get('approval_gate_status')}; "
+                f"{ticket.get('approval_open_check_count', 0)} open checks."
+            )
         if ticket.get("constraint_notes"):
             lines.append(f"  Constraints: {'; '.join(ticket['constraint_notes'][:3])}.")
         lines.append(f"  Rationale: {ticket.get('rationale') or ticket.get('action') or ''}")
@@ -1189,6 +2124,66 @@ def build_weekly_research(
     }
 
 
+def build_approval_checks(ticket: dict[str, Any]) -> list[dict[str, Any]]:
+    checks = [
+        {
+            "check": "approval_only_no_live_order",
+            "status": "passed",
+            "detail": "Ticket is approval-only; AlloIQ does not place live orders.",
+        }
+    ]
+    sizing_fields = ("current_weight", "recommended_delta_weight", "post_action_weight", "target_weight")
+    missing_sizing_fields = [field for field in sizing_fields if ticket.get(field) is None]
+    checks.append(
+        {
+            "check": "sizing_weights_present",
+            "status": "pending" if missing_sizing_fields else "passed",
+            "detail": (
+                "Missing sizing fields: " + ", ".join(missing_sizing_fields)
+                if missing_sizing_fields
+                else "Current, delta, post-action, and target weights are present."
+            ),
+        }
+    )
+    delta = abs(float(ticket.get("recommended_delta_weight") or 0))
+    risk_flags = ticket.get("risk_flags") or []
+    needs_earnings_confirmation = bool(ticket.get("earnings_confirmation_required")) and delta > 0.00001
+    if needs_earnings_confirmation:
+        checks.append(
+            {
+                "check": "earnings_date_confirmed",
+                "status": "pending",
+                "detail": "Confirm the estimated earnings date from a primary source before approving this ticket.",
+            }
+        )
+    external_status = str(ticket.get("external_feed_status") or "").strip().lower()
+    if external_status and external_status != "ok":
+        checks.append(
+            {
+                "check": "external_feed_reliability_reviewed",
+                "status": "pending",
+                "detail": f"External signal feed status is {external_status}; review provider coverage before approval.",
+            }
+        )
+    if risk_flags:
+        checks.append(
+            {
+                "check": "risk_flags_reviewed",
+                "status": "pending",
+                "detail": "Review active risk flags: " + ", ".join(str(flag) for flag in risk_flags),
+            }
+        )
+    return checks
+
+
+def approval_gate_status(checks: list[dict[str, Any]]) -> str:
+    if any(check.get("check") == "earnings_date_confirmed" and check.get("status") != "passed" for check in checks):
+        return "blocked_until_confirmation"
+    if any(check.get("status") != "passed" for check in checks):
+        return "review_required"
+    return "ready_for_review"
+
+
 def build_approval_tickets(
     as_of: date,
     session: str,
@@ -1264,6 +2259,13 @@ def build_approval_tickets(
             "estimated_shares": round(estimated_shares, 4) if estimated_shares is not None else None,
             "sizing_basis": action.get("sizing_basis", "portfolio-weight target delta for the approval-only trade feed"),
         }
+        for field in APPROVAL_ACTION_METADATA_FIELDS:
+            if field in action:
+                ticket[field] = action.get(field)
+        approval_checks = build_approval_checks(ticket)
+        ticket["approval_checks"] = approval_checks
+        ticket["approval_open_check_count"] = sum(1 for check in approval_checks if check.get("status") != "passed")
+        ticket["approval_gate_status"] = approval_gate_status(approval_checks)
         tickets.append(ticket)
     return tickets
 
@@ -1351,6 +2353,7 @@ def build_data_health(
     broker_result_count: int,
     macro: dict[str, Any] | None = None,
     external_signals: dict[str, Any] | None = None,
+    price_audit: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     earnings_health = earnings_health_summary(earnings_events)
     sources = [
@@ -1390,6 +2393,8 @@ def build_data_health(
                 if earnings_events
                 else "No manual, provider, IR, SEC, or news earnings markers available."
             ),
+            "confirmation_gap_count": earnings_health["confirmation_gap_count"],
+            "confirmation_gaps": earnings_health["confirmation_gaps"],
         },
     ]
     fred_macro = (macro or {}).get("fred_macro") or {}
@@ -1406,12 +2411,26 @@ def build_data_health(
             }
         )
     if external_signals:
+        provider_gaps = external_provider_gap_rows(external_signals)
         sources.append(
             {
                 "source": "external_signals",
                 "label": "External signal feeds",
                 "status": external_signal_health_status(external_signals),
                 "detail": external_provider_health_detail(external_signals),
+                "provider_gap_count": len(external_provider_gap_rows(external_signals, limit=None)),
+                "provider_gaps": provider_gaps,
+            }
+        )
+    if price_audit:
+        sources.append(
+            {
+                "source": "price_audit",
+                "label": "Real-time price window audit",
+                "status": price_audit.get("status", "unknown"),
+                "detail": price_audit.get("detail", ""),
+                "provider_gap_count": len(price_audit.get("issues") or []),
+                "provider_gaps": price_audit.get("issues", [])[:8],
             }
         )
     if stale_vanguard and stale_vanguard.get("is_stale"):
@@ -1521,8 +2540,8 @@ def build_methodology(
             "cadence": [
                 {"kind": "premarket", "when": "8:00 AM ET on NYSE trading days", "purpose": "Refresh holdings, filings, overnight catalysts, macro tape, and trade tickets before the open."},
                 {"kind": "market_open", "when": "9:30 AM ET on NYSE trading days", "purpose": "Refresh live open prices, position weights, risk moves, and opening-bell add/trim changes."},
-                {"kind": "intraday", "when": "10:00 AM, 11:00 AM, 1:00 PM, 2:00 PM, and 3:00 PM ET on NYSE trading days", "purpose": "Refresh hourly price action, catalyst changes, risk gates, and recommendation deltas during market hours."},
-                {"kind": "midday", "when": "12:00 PM ET on NYSE trading days", "purpose": "Refresh intraday price moves, catalysts, risk gates, and add/trim tickets for midday trade decisions."},
+                {"kind": "intraday", "when": "10:00 AM, 11:00 AM, 12:00 PM, 2:00 PM, and 3:00 PM ET on NYSE trading days", "purpose": "Refresh hourly price action, catalyst changes, risk gates, and recommendation deltas during market hours."},
+                {"kind": "midday", "when": "1:00 PM ET on NYSE trading days", "purpose": "Refresh intraday price moves, catalysts, risk gates, and add/trim tickets for midday trade decisions."},
                 {"kind": "market_close", "when": "4:00 PM ET on NYSE trading days", "purpose": "Refresh close-of-session prices, risk changes, and urgent add/trim alerts before the post-close brief."},
                 {"kind": "postmarket", "when": "4:30 PM ET on NYSE trading days", "purpose": "Refresh end-of-day price action, attribution, catalysts, and follow-up ticket state."},
                 {"kind": "weekly", "when": "Sunday morning ET", "purpose": "Run full idea research, thesis/falsifier review, and weekly opportunity/risk queue."},
@@ -1985,6 +3004,12 @@ def build_portfolio_benchmark(
                         "risk_flags": action.get("risk_flags", target.get("risk_flags", [])),
                         "constraint_notes": action.get("constraint_notes", target.get("constraint_notes", [])),
                         "confidence": action.get("confidence", target.get("confidence", 0)),
+                        "earnings_days_until": action.get("earnings_days_until", target.get("earnings_days_until")),
+                        "earnings_event_date": action.get("earnings_event_date", target.get("earnings_event_date", "")),
+                        "earnings_event_source": action.get("earnings_event_source", target.get("earnings_event_source", "")),
+                        "earnings_confirmed_or_estimated": action.get("earnings_confirmed_or_estimated", target.get("earnings_confirmed_or_estimated", "")),
+                        "earnings_risk_window": action.get("earnings_risk_window", target.get("earnings_risk_window", "")),
+                        "earnings_confirmation_required": action.get("earnings_confirmation_required", target.get("earnings_confirmation_required", False)),
                     }
                 )
         sizing_plan["action_queue"] = action_queue

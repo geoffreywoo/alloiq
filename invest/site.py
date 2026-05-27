@@ -36,12 +36,14 @@ from .backtest import (
     pending_group_summaries,
     PENDING_EXTERNAL_ALIGNMENT_MEASUREMENT_GAP_QUEUE_LIMIT,
 )
-from .earnings import earnings_health_summary
-from .external_signals import external_provider_health_detail
-from .features import external_coverage_multiplier
+from .earnings import earnings_confirmation_gaps, earnings_health_summary
+from .external_signals import external_provider_gap_rows, external_provider_health_detail
+from .features import external_coverage_multiplier, external_provider_gap_features
 from .instrumentation import build_instrumentation_audit
 from .managers import manager_group_label
 from .outcomes import (
+    approval_data_friction_learning_readiness_projection,
+    approval_learning_readiness_projection,
     external_learning_readiness_projection,
     label_maturity,
     learning_readiness_projection,
@@ -289,6 +291,7 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
         public_payload.get("calendars") or default_calendars(public_payload)
     )
     normalize_public_earnings_health(public_payload)
+    sync_data_health_approval_blocker_summary(public_payload)
     public_payload["engine"] = sanitize_public_section(
         public_payload.get("engine") or default_engine(public_payload)
     )
@@ -333,6 +336,9 @@ def normalize_public_external_reliability(payload: dict[str, Any]) -> None:
         external["provider_ok_count"] = provider_ok_count
         external["provider_ok_ratio"] = provider_ok_ratio
         external["status"] = external_status_from_counts(status_counts, int(external.get("signal_count") or 0))
+        provider_gaps = external_provider_gap_rows(external, limit=None)
+        external["provider_gap_count"] = len(provider_gaps)
+        external["provider_gaps"] = provider_gaps[:8]
     payload["external_signals"] = external
     sync_external_signal_data_health(payload, external)
 
@@ -349,6 +355,19 @@ def normalize_public_external_reliability(payload: dict[str, Any]) -> None:
                 if row.get(key) is None or row.get(key) == "":
                     row[key] = feature.get(key)
         fill_external_reliability(row, by_symbol.get(str(row.get("symbol") or "").upper()) or {}, external)
+    for rows in (
+        ((payload.get("portfolio_benchmark") or {}).get("action_queue") or []),
+        (payload.get("approval_tickets") or []),
+    ):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            feature = features_by_symbol.get(str(row.get("symbol") or "").upper())
+            if feature:
+                for key in EXTERNAL_RELIABILITY_KEYS:
+                    if row.get(key) is None or row.get(key) == "":
+                        row[key] = feature.get(key)
+            fill_external_reliability(row, by_symbol.get(str(row.get("symbol") or "").upper()) or {}, external)
 
 
 def normalize_public_outcome_diagnostics(payload: dict[str, Any]) -> None:
@@ -380,6 +399,16 @@ def normalize_public_outcome_diagnostics(payload: dict[str, Any]) -> None:
         external_projection = external_learning_readiness_projection(backtest, as_of)
         if external_projection:
             diagnostics["external_learning_readiness_projection"] = external_projection
+    approval_projection = diagnostics.get("approval_learning_readiness_projection")
+    if due_dates_changed or not isinstance(approval_projection, dict) or not approval_projection:
+        approval_projection = approval_learning_readiness_projection(backtest, as_of)
+        if approval_projection:
+            diagnostics["approval_learning_readiness_projection"] = approval_projection
+    friction_projection = diagnostics.get("approval_data_friction_learning_readiness_projection")
+    if due_dates_changed or not isinstance(friction_projection, dict) or not friction_projection:
+        friction_projection = approval_data_friction_learning_readiness_projection(backtest, as_of)
+        if friction_projection:
+            diagnostics["approval_data_friction_learning_readiness_projection"] = friction_projection
     payload["outcome_diagnostics"] = diagnostics
 
 
@@ -529,6 +558,14 @@ EXTERNAL_RELIABILITY_KEYS = [
     "external_provider_count",
     "external_provider_ok_count",
     "external_provider_ok_ratio",
+    "external_provider_gap_count",
+    "external_provider_configuration_gap_count",
+    "external_provider_transient_gap_count",
+    "external_provider_stale_gap_count",
+    "external_provider_runtime_gap_count",
+    "external_provider_other_gap_count",
+    "external_provider_primary_gap_severity",
+    "external_provider_gap_severity_score",
     "external_signal_count",
     "external_source_count",
 ]
@@ -541,6 +578,7 @@ def fill_external_reliability(row: dict[str, Any], symbol_external: dict[str, An
     provider_count = int_value(row.get("external_provider_count"), global_external.get("provider_count"), 0)
     provider_ok_count = int_value(row.get("external_provider_ok_count"), global_external.get("provider_ok_count"), 0)
     provider_ok_ratio = numeric_value(row.get("external_provider_ok_ratio"), global_external.get("provider_ok_ratio"), None)
+    gap_features = external_provider_gap_features(global_external)
     feed_status = row.get("external_feed_status") or symbol_external.get("external_status") or symbol_external.get("status") or global_external.get("status") or "unknown"
     coverage_input = {
         "provider_count": provider_count,
@@ -557,6 +595,14 @@ def fill_external_reliability(row: dict[str, Any], symbol_external: dict[str, An
     row["external_provider_count"] = provider_count
     row["external_provider_ok_count"] = provider_ok_count
     row["external_provider_ok_ratio"] = round(float(provider_ok_ratio or 0), 4)
+    row["external_provider_gap_count"] = int_value(row.get("external_provider_gap_count"), gap_features.get("gap_count"), 0)
+    row["external_provider_configuration_gap_count"] = int_value(row.get("external_provider_configuration_gap_count"), gap_features.get("configuration_gap_count"), 0)
+    row["external_provider_transient_gap_count"] = int_value(row.get("external_provider_transient_gap_count"), gap_features.get("transient_gap_count"), 0)
+    row["external_provider_stale_gap_count"] = int_value(row.get("external_provider_stale_gap_count"), gap_features.get("stale_gap_count"), 0)
+    row["external_provider_runtime_gap_count"] = int_value(row.get("external_provider_runtime_gap_count"), gap_features.get("runtime_gap_count"), 0)
+    row["external_provider_other_gap_count"] = int_value(row.get("external_provider_other_gap_count"), gap_features.get("other_gap_count"), 0)
+    row["external_provider_primary_gap_severity"] = str(row.get("external_provider_primary_gap_severity") or gap_features.get("primary_gap_severity") or "")
+    row["external_provider_gap_severity_score"] = numeric_value(row.get("external_provider_gap_severity_score"), gap_features.get("gap_severity_score"), 0.0)
     row["external_signal_count"] = signal_count
     row["external_source_count"] = source_count
 
@@ -577,11 +623,17 @@ def sync_external_signal_data_health(payload: dict[str, Any], external: dict[str
     provider_count = int(external.get("provider_count") or 0)
     if not provider_count:
         return
+    provider_gaps = external_provider_gap_rows(external, limit=None)
+    approval_blockers = external_feed_approval_blockers(payload, external, provider_gaps)
     row = {
         "source": "external_signals",
         "label": "External signal feeds",
         "status": str(external.get("status") or "unknown"),
         "detail": external_provider_health_detail(external),
+        "provider_gap_count": len(provider_gaps),
+        "provider_gaps": provider_gaps[:8],
+        "approval_blocked_external_gap_count": len(approval_blockers),
+        "approval_blocked_external_gaps": approval_blockers[:8],
     }
     data_health = payload.setdefault("data_health", {})
     sources = [
@@ -605,16 +657,67 @@ def sync_external_signal_data_health(payload: dict[str, Any], external: dict[str
     )
 
 
+def external_feed_approval_blockers(
+    payload: dict[str, Any],
+    external: dict[str, Any],
+    provider_gaps: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    provider_sources = [str(row.get("source") or "") for row in provider_gaps if row.get("source")]
+    provider_severities = sorted(
+        {
+            str(row.get("severity") or "")
+            for row in provider_gaps
+            if row.get("severity")
+        }
+    )
+    blockers = []
+    for ticket in payload.get("approval_tickets") or []:
+        if not isinstance(ticket, dict):
+            continue
+        pending_checks = [
+            str(check.get("check") or "")
+            for check in ticket.get("approval_checks") or []
+            if isinstance(check, dict) and check.get("status") != "passed" and check.get("check")
+        ]
+        feed_status = str(ticket.get("external_feed_status") or external.get("status") or "").strip().lower()
+        if "external_feed_reliability_reviewed" not in pending_checks and feed_status == "ok":
+            continue
+        symbol = str(ticket.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        blockers.append(
+            {
+                "symbol": symbol,
+                "ticket_id": ticket.get("ticket_id", ""),
+                "trade_action": ticket.get("trade_action", ""),
+                "recommended_delta_weight": ticket.get("recommended_delta_weight", 0),
+                "external_feed_status": feed_status or "unknown",
+                "external_provider_ok_ratio": ticket.get("external_provider_ok_ratio", external.get("provider_ok_ratio")),
+                "approval_gate_status": ticket.get("approval_gate_status", ""),
+                "approval_open_check_count": int(ticket.get("approval_open_check_count") or 0),
+                "approval_blocking_checks": pending_checks,
+                "provider_gap_count": len(provider_gaps),
+                "provider_gap_sources": provider_sources[:8],
+                "provider_gap_severities": provider_severities,
+                "remediation": "Review provider gaps before treating external signals as high-confidence evidence for this ticket.",
+            }
+        )
+    blockers.sort(key=external_feed_approval_blocker_sort_key)
+    return blockers
+
+
+def external_feed_approval_blocker_sort_key(row: dict[str, Any]) -> tuple[int, float, str]:
+    gate_rank = 0 if row.get("approval_gate_status") == "blocked_until_confirmation" else 1
+    try:
+        delta = abs(float(row.get("recommended_delta_weight") or 0))
+    except (TypeError, ValueError):
+        delta = 0.0
+    return (gate_rank, -delta, str(row.get("symbol") or ""))
+
+
 def refresh_public_instrumentation_audit(public_payload: dict[str, Any]) -> None:
     normalize_public_counted_sections(public_payload)
-    instrumentation_audit = build_instrumentation_audit(public_payload)
-    public_payload["instrumentation_audit"] = sanitize_public_section(instrumentation_audit)
     audit = public_payload.get("audit") or default_audit(public_payload)
-    audit["instrumentation_health"] = {
-        "status": instrumentation_audit["status"],
-        "check_count": instrumentation_audit["check_count"],
-        "failure_count": instrumentation_audit["failure_count"],
-    }
     audit["source_freshness"] = source_freshness_from_data_health(public_payload.get("data_health") or {})
     gaps = [
         row for row in audit.get("data_gaps", [])
@@ -622,6 +725,16 @@ def refresh_public_instrumentation_audit(public_payload: dict[str, Any]) -> None
     ]
     gaps = sync_learning_gap_from_outcome_diagnostics(gaps, public_payload)
     gaps.extend(source_gaps_from_data_health(public_payload.get("data_health") or {}))
+    audit["data_gaps"] = gaps
+    public_payload["audit"] = audit
+
+    instrumentation_audit = build_instrumentation_audit(public_payload)
+    public_payload["instrumentation_audit"] = sanitize_public_section(instrumentation_audit)
+    audit["instrumentation_health"] = {
+        "status": instrumentation_audit["status"],
+        "check_count": instrumentation_audit["check_count"],
+        "failure_count": instrumentation_audit["failure_count"],
+    }
     if instrumentation_audit["status"] != "ok":
         audit["overall_status"] = "attention"
         gaps.extend(
@@ -670,6 +783,13 @@ def source_freshness_from_data_health(data_health: dict[str, Any]) -> list[dict[
             "label": source.get("label", ""),
             "status": source.get("status", "unknown"),
             "detail": source.get("detail", ""),
+            "provider_gap_count": source.get("provider_gap_count", 0),
+            "provider_gaps": source.get("provider_gaps", []),
+            "approval_blocked_external_gap_count": source.get("approval_blocked_external_gap_count", 0),
+            "approval_blocked_external_gaps": source.get("approval_blocked_external_gaps", []),
+            "confirmation_gap_count": source.get("confirmation_gap_count", 0),
+            "confirmation_gaps": source.get("confirmation_gaps", []),
+            "action_linked_confirmation_gap_count": source.get("action_linked_confirmation_gap_count", 0),
         }
         for source in data_health.get("sources", [])
     ]
@@ -682,6 +802,15 @@ def source_gaps_from_data_health(data_health: dict[str, Any]) -> list[dict[str, 
             "label": source.get("label", ""),
             "status": source.get("status", ""),
             "detail": source.get("detail", ""),
+            "provider_gap_count": source.get("provider_gap_count", 0),
+            "provider_gaps": source.get("provider_gaps", []),
+            "approval_blocked_external_gap_count": source.get("approval_blocked_external_gap_count", 0),
+            "approval_blocked_external_gaps": source.get("approval_blocked_external_gaps", []),
+            "confirmation_gap_count": source.get("confirmation_gap_count", 0),
+            "confirmation_gaps": source.get("confirmation_gaps", []),
+            "action_linked_confirmation_gap_count": source.get("action_linked_confirmation_gap_count", 0),
+            "approval_blocked_confirmation_gap_count": source.get("approval_blocked_confirmation_gap_count", 0),
+            "approval_blocked_confirmation_gaps": source.get("approval_blocked_confirmation_gaps", []),
         }
         for source in data_health.get("sources", [])
         if source.get("status") in WEAK_SOURCE_STATUSES
@@ -696,6 +825,17 @@ def normalize_public_earnings_health(public_payload: dict[str, Any]) -> None:
     if not events and not has_existing_earnings_source:
         return
     health = earnings_health_summary(events)
+    confirmation_gaps = enrich_earnings_confirmation_gaps(
+        earnings_confirmation_gaps(events, limit=None),
+        public_payload,
+    )
+    visible_confirmation_gaps = confirmation_gaps[:8]
+    action_linked_confirmation_gap_count = sum(1 for row in confirmation_gaps if row.get("action_linked"))
+    approval_blocked_confirmation_gaps = [
+        row for row in confirmation_gaps
+        if row.get("approval_gate_status") == "blocked_until_confirmation"
+    ]
+    visible_approval_blockers = approval_blocked_confirmation_gaps[:8]
     calendars = public_payload.setdefault("calendars", {})
     earnings = calendars.setdefault("earnings", {})
     earnings.update(
@@ -706,6 +846,11 @@ def normalize_public_earnings_health(public_payload: dict[str, Any]) -> None:
             "estimated_count": health["estimated_count"],
             "provider_date_count": health["provider_date_count"],
             "catalyst_marker_count": health["catalyst_marker_count"],
+            "confirmation_gap_count": health["confirmation_gap_count"],
+            "confirmation_gaps": visible_confirmation_gaps,
+            "action_linked_confirmation_gap_count": action_linked_confirmation_gap_count,
+            "approval_blocked_confirmation_gap_count": len(approval_blocked_confirmation_gaps),
+            "approval_blocked_confirmation_gaps": visible_approval_blockers,
             "source_quality": health["source_quality"],
         }
     )
@@ -727,6 +872,11 @@ def normalize_public_earnings_health(public_payload: dict[str, Any]) -> None:
             "label": "Earnings calendar",
             "status": health["status"],
             "detail": detail,
+            "confirmation_gap_count": health["confirmation_gap_count"],
+            "confirmation_gaps": visible_confirmation_gaps,
+            "action_linked_confirmation_gap_count": action_linked_confirmation_gap_count,
+            "approval_blocked_confirmation_gap_count": len(approval_blocked_confirmation_gaps),
+            "approval_blocked_confirmation_gaps": visible_approval_blockers,
         }
     )
     data_health["sources"] = sources
@@ -734,6 +884,219 @@ def normalize_public_earnings_health(public_payload: dict[str, Any]) -> None:
     if data_health["weak_source_count"]:
         data_health["recommendation_posture"] = "reduced_confidence"
         data_health["summary"] = "Recommendations are constrained by data freshness and remain approval-only."
+
+
+def sync_data_health_approval_blocker_summary(public_payload: dict[str, Any]) -> None:
+    data_health = public_payload.setdefault("data_health", {})
+    sources = [row for row in data_health.get("sources", []) if isinstance(row, dict)]
+    external_rows = approval_blocker_rows(sources, "approval_blocked_external_gaps")
+    confirmation_rows = approval_blocker_rows(sources, "approval_blocked_confirmation_gaps")
+    external_count = sum(int_value(source.get("approval_blocked_external_gap_count")) for source in sources)
+    confirmation_count = sum(int_value(source.get("approval_blocked_confirmation_gap_count")) for source in sources)
+
+    blockers: dict[str, dict[str, Any]] = {}
+    for row in external_rows:
+        add_approval_blocker(blockers, row, "external_provider_gap")
+    for row in confirmation_rows:
+        add_approval_blocker(blockers, row, "earnings_confirmation")
+
+    open_check_counts: dict[str, int] = {}
+    for blocker in blockers.values():
+        for check in blocker.get("approval_blocking_checks", set()):
+            increment_count(open_check_counts, check)
+
+    provider_gap_source_counts: dict[str, int] = {}
+    provider_gap_severity_counts: dict[str, int] = {}
+    for row in external_rows:
+        for source in row.get("provider_gap_sources") or []:
+            increment_count(provider_gap_source_counts, source)
+        for severity in row.get("provider_gap_severities") or []:
+            increment_count(provider_gap_severity_counts, severity)
+
+    confirmation_priority_counts: dict[str, int] = {}
+    confirmation_deadline_symbols: dict[str, set[str]] = {}
+    for row in confirmation_rows:
+        priority = str(row.get("confirmation_priority") or "")
+        if priority:
+            increment_count(confirmation_priority_counts, priority)
+        deadline = str(row.get("confirmation_deadline") or "")
+        symbol = str(row.get("symbol") or "").upper()
+        if deadline:
+            confirmation_deadline_symbols.setdefault(deadline, set())
+            if symbol:
+                confirmation_deadline_symbols[deadline].add(symbol)
+
+    next_deadline = min(confirmation_deadline_symbols) if confirmation_deadline_symbols else None
+    blocked_symbols = sorted(
+        {
+            str(blocker.get("symbol") or "").upper()
+            for blocker in blockers.values()
+            if blocker.get("symbol")
+        }
+    )
+    data_health["approval_blocker_summary"] = {
+        "status": "attention" if external_count or confirmation_count else "ok",
+        "total_source_blocker_count": external_count + confirmation_count,
+        "external_gap_ticket_count": external_count,
+        "earnings_confirmation_ticket_count": confirmation_count,
+        "visible_blocker_row_count": len(external_rows) + len(confirmation_rows),
+        "blocked_ticket_count": len(blockers),
+        "blocked_symbols": blocked_symbols,
+        "open_check_count": sum(int(count) for count in open_check_counts.values()),
+        "open_check_counts": dict(sorted(open_check_counts.items())),
+        "provider_gap_source_counts": dict(sorted(provider_gap_source_counts.items())),
+        "provider_gap_severity_counts": dict(sorted(provider_gap_severity_counts.items())),
+        "confirmation_priority_counts": dict(sorted(confirmation_priority_counts.items())),
+        "next_confirmation_deadline": next_deadline,
+        "next_confirmation_symbols": sorted(confirmation_deadline_symbols.get(next_deadline, set())) if next_deadline else [],
+    }
+
+
+def approval_blocker_rows(sources: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for source in sources:
+        for row in source.get(key) or []:
+            if isinstance(row, dict):
+                rows.append(row)
+    return rows
+
+
+def add_approval_blocker(blockers: dict[str, dict[str, Any]], row: dict[str, Any], blocker_type: str) -> None:
+    symbol = str(row.get("symbol") or "").upper()
+    ticket_id = str(row.get("ticket_id") or "").strip()
+    key = ticket_id or f"{blocker_type}:{symbol}"
+    if not key:
+        return
+    blocker = blockers.setdefault(
+        key,
+        {
+            "ticket_id": ticket_id,
+            "symbol": symbol,
+            "approval_gate_status": "",
+            "approval_open_check_count": 0,
+            "approval_blocking_checks": set(),
+            "blocker_types": set(),
+        },
+    )
+    if ticket_id and not blocker.get("ticket_id"):
+        blocker["ticket_id"] = ticket_id
+    if symbol and not blocker.get("symbol"):
+        blocker["symbol"] = symbol
+    gate_status = str(row.get("approval_gate_status") or "")
+    if gate_status == "blocked_until_confirmation" or not blocker.get("approval_gate_status"):
+        blocker["approval_gate_status"] = gate_status
+    blocker["approval_open_check_count"] = max(
+        int_value(blocker.get("approval_open_check_count")),
+        int_value(row.get("approval_open_check_count")),
+    )
+    for check in row.get("approval_blocking_checks") or []:
+        check_name = str(check or "")
+        if check_name:
+            blocker["approval_blocking_checks"].add(check_name)
+    blocker["blocker_types"].add(blocker_type)
+
+
+def increment_count(counts: dict[str, int], key: Any) -> None:
+    item = str(key or "")
+    if item:
+        counts[item] = counts.get(item, 0) + 1
+
+
+def enrich_earnings_confirmation_gaps(gaps: list[dict[str, Any]], public_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    action_by_symbol = action_queue_by_symbol(public_payload)
+    ticket_by_symbol = approval_ticket_by_symbol(public_payload)
+    enriched = []
+    for gap in gaps:
+        row = dict(gap)
+        symbol = str(row.get("symbol") or "").upper()
+        action = action_by_symbol.get(symbol)
+        if action:
+            row["action_linked"] = True
+            row["trade_action"] = action.get("trade_action", "")
+            row["recommended_delta_weight"] = action.get("recommended_delta_weight", 0)
+            row["action_risk_flags"] = action.get("risk_flags", [])
+            row["action_confirmation_required"] = bool(action.get("earnings_confirmation_required", False))
+            row["remediation"] = action_linked_confirmation_remediation(row)
+        else:
+            row["action_linked"] = False
+        ticket = ticket_by_symbol.get(symbol)
+        if ticket:
+            row["approval_ticket_linked"] = True
+            row["ticket_id"] = ticket.get("ticket_id", "")
+            row["approval_gate_status"] = ticket.get("approval_gate_status", "")
+            row["approval_open_check_count"] = int(ticket.get("approval_open_check_count") or 0)
+            row["approval_blocking_checks"] = [
+                str(check.get("check") or "")
+                for check in ticket.get("approval_checks") or []
+                if isinstance(check, dict) and check.get("status") != "passed" and check.get("check")
+            ]
+        else:
+            row["approval_ticket_linked"] = False
+        enriched.append(row)
+    enriched.sort(key=earnings_confirmation_gap_sort_key)
+    return enriched
+
+
+def action_queue_by_symbol(public_payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    rows = ((public_payload.get("portfolio_benchmark") or {}).get("action_queue") or [])
+    indexed: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        symbol = str(row.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        for candidate in equivalent_symbols(symbol):
+            indexed.setdefault(candidate, row)
+    return indexed
+
+
+def approval_ticket_by_symbol(public_payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    rows = public_payload.get("approval_tickets") or []
+    indexed: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        symbol = str(row.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        for candidate in equivalent_symbols(symbol):
+            indexed.setdefault(candidate, row)
+    return indexed
+
+
+def earnings_confirmation_gap_sort_key(row: dict[str, Any]) -> tuple[int, int, int, int, str]:
+    priority_order = {
+        "p0_blackout_confirmation": 0,
+        "p1_risk_window_confirmation": 1,
+        "p2_pre_risk_window_backfill": 2,
+        "p3_scheduled_backfill": 3,
+    }
+    days_to_deadline = row.get("days_to_confirmation_deadline")
+    try:
+        deadline_days = int(days_to_deadline)
+    except (TypeError, ValueError):
+        deadline_days = 9999
+    try:
+        days_until = abs(int(row.get("days_until") or 9999))
+    except (TypeError, ValueError):
+        days_until = 9999
+    return (
+        priority_order.get(str(row.get("confirmation_priority") or ""), 4),
+        deadline_days,
+        0 if row.get("action_linked") else 1,
+        days_until,
+        str(row.get("symbol") or ""),
+    )
+
+
+def action_linked_confirmation_remediation(row: dict[str, Any]) -> str:
+    trade_action = str(row.get("trade_action") or "trade")
+    event_date = str(row.get("event_date") or "the estimated date")
+    return (
+        "Confirm the earnings date via company IR or a manual event before approving "
+        f"the current {trade_action} ticket tied to {event_date}."
+    )
 
 
 def earnings_marker_detail(earnings_health: dict[str, Any]) -> str:
@@ -1138,8 +1501,8 @@ def default_methodology(payload: dict[str, Any]) -> dict[str, Any]:
             "cadence": [
                 {"kind": "premarket", "when": "8:00 AM ET on NYSE trading days", "purpose": "Refresh holdings, filings, overnight catalysts, macro tape, and trade tickets before the open."},
                 {"kind": "market_open", "when": "9:30 AM ET on NYSE trading days", "purpose": "Refresh live open prices, position weights, risk moves, and opening-bell add/trim changes."},
-                {"kind": "intraday", "when": "10:00 AM, 11:00 AM, 1:00 PM, 2:00 PM, and 3:00 PM ET on NYSE trading days", "purpose": "Refresh hourly price action, catalyst changes, risk gates, and recommendation deltas during market hours."},
-                {"kind": "midday", "when": "12:00 PM ET on NYSE trading days", "purpose": "Refresh intraday price moves, catalysts, risk gates, and add/trim tickets for midday trade decisions."},
+                {"kind": "intraday", "when": "10:00 AM, 11:00 AM, 12:00 PM, 2:00 PM, and 3:00 PM ET on NYSE trading days", "purpose": "Refresh hourly price action, catalyst changes, risk gates, and recommendation deltas during market hours."},
+                {"kind": "midday", "when": "1:00 PM ET on NYSE trading days", "purpose": "Refresh intraday price moves, catalysts, risk gates, and add/trim tickets for midday trade decisions."},
                 {"kind": "market_close", "when": "4:00 PM ET on NYSE trading days", "purpose": "Refresh close-of-session prices, risk changes, and urgent add/trim alerts before the post-close brief."},
                 {"kind": "postmarket", "when": "4:30 PM ET on NYSE trading days", "purpose": "Refresh end-of-day price action, attribution, catalysts, and follow-up ticket state."},
                 {"kind": "weekly", "when": "Sunday morning ET", "purpose": "Run full idea research, thesis/falsifier review, and weekly opportunity/risk queue."},

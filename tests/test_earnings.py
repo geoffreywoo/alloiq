@@ -174,6 +174,8 @@ class EarningsTests(unittest.TestCase):
             [
                 {
                     "symbol": "MRVL",
+                    "event_date": "2026-06-03",
+                    "days_until": 10,
                     "event_type": "earnings",
                     "source": "nasdaq_earnings_calendar",
                     "confirmed_or_estimated": "estimated",
@@ -190,6 +192,13 @@ class EarningsTests(unittest.TestCase):
         self.assertEqual(summary["provider_date_count"], 1)
         self.assertEqual(summary["estimated_count"], 1)
         self.assertEqual(summary["catalyst_marker_count"], 1)
+        self.assertEqual(summary["confirmation_gap_count"], 1)
+        self.assertEqual(summary["confirmation_gaps"][0]["symbol"], "MRVL")
+        self.assertEqual(summary["confirmation_gaps"][0]["confirmation_priority"], "p2_pre_risk_window_backfill")
+        self.assertEqual(summary["confirmation_gaps"][0]["confirmation_due"], "before_risk_window")
+        self.assertEqual(summary["confirmation_gaps"][0]["confirmation_deadline"], "2026-05-27")
+        self.assertEqual(summary["confirmation_gaps"][0]["days_to_confirmation_deadline"], 3)
+        self.assertIn("Backfill company IR/manual confirmation", summary["confirmation_gaps"][0]["remediation"])
 
 
 if __name__ == "__main__":

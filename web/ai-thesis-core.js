@@ -202,7 +202,7 @@ function managerTemplate(manager) {
               <th>GW Ex-cash Weight</th>
               <th>Entry Proxy</th>
               <th>Current Est.</th>
-              <th>Est. Return</th>
+              <th>Est. Since-entry Return</th>
               <th>Read</th>
             </tr>
           </thead>
@@ -238,11 +238,17 @@ function positionTemplate(position) {
       </td>
       <td>
         <strong class="${Number(position.entry_return_estimate_pct || 0) >= 0 ? "positive" : "negative"}">${escapeHtml(formatSignedPct(position.entry_return_estimate_pct))}</strong>
+        <span>${escapeHtml(positionReturnBasis(position))}</span>
         <span>${escapeHtml(position.valuation_confidence || "estimate")} confidence</span>
       </td>
       <td><span class="tag">${escapeHtml(relationship)}</span></td>
     </tr>
   `;
+}
+
+function positionReturnBasis(position) {
+  const firstSeen = position.first_seen_report_date ? ` since ${dateOnly(position.first_seen_report_date)}` : "";
+  return `Current px vs inferred 13F entry${firstSeen}; not forward`;
 }
 
 async function copyCoreCsv() {
@@ -259,7 +265,7 @@ async function copyCoreCsv() {
       "latest_report_price",
       "current_price",
       "current_value_estimate",
-      "entry_return_estimate_pct",
+      "since_entry_est_return_pct",
       "valuation_confidence",
       "report_date",
       "filing_date",
@@ -369,6 +375,11 @@ function formatSignedPct(value) {
   const numeric = Number(value);
   const prefix = numeric > 0 ? "+" : "";
   return `${prefix}${number.format(numeric)}%`;
+}
+
+function dateOnly(value) {
+  if (!value) return "date unavailable";
+  return String(value).slice(0, 10);
 }
 
 function labelize(value) {

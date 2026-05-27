@@ -9,11 +9,14 @@ from unittest.mock import patch
 from invest.config import AppConfig
 from invest.reports import (
     alias_matches,
+    attach_data_health_approval_blocker_summary,
+    build_approval_tickets,
     build_data_health,
     build_methodology,
     build_weekly_research,
     generate_brief,
     render_backtest_summary,
+    render_data_health,
     render_markdown,
     render_outcome_diagnostics,
     vanguard_staleness,
@@ -21,6 +24,51 @@ from invest.reports import (
 
 
 class ReportTests(unittest.TestCase):
+    def test_approval_tickets_preserve_action_confirmation_and_external_metadata(self):
+        tickets = build_approval_tickets(
+            date(2026, 5, 26),
+            "intraday",
+            {"gross_exposure": 1_000_000},
+            {
+                "action_queue": [
+                    {
+                        "symbol": "AVGO",
+                        "trade_action": "add",
+                        "current_weight": 0.05,
+                        "recommended_delta_weight": 0.03,
+                        "post_action_weight": 0.08,
+                        "target_weight": 0.08,
+                        "model_target_weight": 0.08,
+                        "earnings_days_until": 8,
+                        "earnings_event_date": "2026-06-03",
+                        "earnings_event_source": "nasdaq_earnings_calendar",
+                        "earnings_confirmed_or_estimated": "estimated",
+                        "earnings_risk_window": "clear",
+                        "earnings_confirmation_required": True,
+                        "external_feed_status": "limited",
+                        "external_coverage_multiplier": 0.3333,
+                        "external_provider_ok_ratio": 0.3333,
+                        "coverage_adjusted_external_signal_score": 4.79,
+                    }
+                ]
+            },
+            [{"symbol": "AVGO", "bucket": "semis_networking_hbm", "last_price": 100.0}],
+        )
+
+        ticket = tickets[0]
+
+        self.assertTrue(ticket["earnings_confirmation_required"])
+        self.assertEqual(ticket["earnings_event_date"], "2026-06-03")
+        self.assertEqual(ticket["earnings_confirmed_or_estimated"], "estimated")
+        self.assertEqual(ticket["external_feed_status"], "limited")
+        self.assertEqual(ticket["external_coverage_multiplier"], 0.3333)
+        self.assertEqual(ticket["coverage_adjusted_external_signal_score"], 4.79)
+        self.assertEqual(ticket["approval_gate_status"], "blocked_until_confirmation")
+        self.assertEqual(ticket["approval_open_check_count"], 2)
+        approval_checks = {check["check"]: check for check in ticket["approval_checks"]}
+        self.assertEqual(approval_checks["earnings_date_confirmed"]["status"], "pending")
+        self.assertEqual(approval_checks["external_feed_reliability_reviewed"]["status"], "pending")
+
     def test_report_renders_cited_news_and_public_weights_disclaimer(self):
         import tempfile
 
@@ -277,6 +325,227 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(health["weak_source_count"], 1)
         self.assertEqual(health["recommendation_posture"], "reduced_confidence")
 
+    def test_data_health_render_includes_approval_blocker_summary(self):
+        lines = []
+        render_data_health(
+            lines,
+            {
+                "data_health": {
+                    "recommendation_posture": "reduced_confidence",
+                    "summary": "Recommendations are constrained by data freshness.",
+                    "approval_blocker_summary": {
+                        "status": "attention",
+                        "total_source_blocker_count": 7,
+                        "external_gap_ticket_count": 5,
+                        "earnings_confirmation_ticket_count": 2,
+                        "blocked_ticket_count": 5,
+                        "blocked_symbols": ["AVGO", "GOOG", "MRVL", "MU", "NVDA"],
+                        "open_check_count": 11,
+                        "open_check_counts": {
+                            "external_feed_reliability_reviewed": 5,
+                            "risk_flags_reviewed": 4,
+                            "earnings_date_confirmed": 2,
+                        },
+                        "provider_gap_source_counts": {
+                            "alpha_vantage_news": 5,
+                            "eia_energy_power": 5,
+                        },
+                        "provider_gap_severity_counts": {
+                            "configuration_required": 10,
+                        },
+                        "confirmation_priority_counts": {
+                            "p0_blackout_confirmation": 1,
+                            "p2_pre_risk_window_backfill": 1,
+                        },
+                        "next_confirmation_deadline": "2026-05-26",
+                        "next_confirmation_symbols": ["MRVL"],
+                    },
+                    "sources": [
+                        {
+                            "source": "external_signals",
+                            "label": "External signal feeds",
+                            "status": "limited",
+                            "detail": "2/6 providers ok.",
+                            "approval_blocked_external_gaps": [
+                                {
+                                    "symbol": "AVGO",
+                                    "approval_gate_status": "review_required",
+                                    "trade_action": "add",
+                                    "recommended_delta_weight": 0.03,
+                                    "approval_open_check_count": 2,
+                                    "provider_gap_sources": ["alpha_vantage_news", "eia_energy_power"],
+                                    "provider_gap_severities": ["configuration_required"],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        text = "\n".join(lines)
+
+        self.assertIn("Approval blockers: 5 blocked tickets; 7 source blockers; 11 open checks", text)
+        self.assertIn("symbols AVGO, GOOG, MRVL, MU, NVDA", text)
+        self.assertIn("open checks external_feed_reliability_reviewed=5, risk_flags_reviewed=4, earnings_date_confirmed=2", text)
+        self.assertIn("provider gaps alpha_vantage_news=5, eia_energy_power=5", text)
+        self.assertIn("gap severities configuration_required=10", text)
+        self.assertIn("next confirmation 2026-05-26 (MRVL)", text)
+        self.assertIn(
+            "Approval-blocked external tickets: AVGO (review_required; add +3.0%; 2 open checks; providers alpha_vantage_news, eia_energy_power; gap severities configuration required)",
+            text,
+        )
+
+    def test_data_health_render_includes_confirmation_deadline_context(self):
+        lines = []
+        render_data_health(
+            lines,
+            {
+                "data_health": {
+                    "recommendation_posture": "reduced_confidence",
+                    "summary": "Recommendations are constrained by data freshness.",
+                    "sources": [
+                        {
+                            "source": "earnings",
+                            "label": "Earnings calendar",
+                            "status": "estimated",
+                            "detail": "2 estimated forward dates.",
+                            "confirmation_gaps": [
+                                {
+                                    "symbol": "MRVL",
+                                    "event_date": "2026-05-27",
+                                    "risk_window": "blackout",
+                                    "confirmation_priority": "p0_blackout_confirmation",
+                                    "confirmation_deadline": "2026-05-26",
+                                    "days_to_confirmation_deadline": 0,
+                                    "remediation": "Confirm the earnings date via company IR.",
+                                },
+                                {
+                                    "symbol": "AVGO",
+                                    "event_date": "2026-06-03",
+                                    "risk_window": "clear",
+                                    "confirmation_priority": "p2_pre_risk_window_backfill",
+                                    "confirmation_deadline": "2026-05-27",
+                                    "days_to_confirmation_deadline": 1,
+                                    "remediation": "Backfill company IR/manual confirmation.",
+                                },
+                            ],
+                            "approval_blocked_confirmation_gaps": [
+                                {
+                                    "symbol": "MRVL",
+                                    "approval_gate_status": "blocked_until_confirmation",
+                                    "trade_action": "trim",
+                                    "recommended_delta_weight": -0.01,
+                                    "approval_open_check_count": 3,
+                                    "event_date": "2026-05-27",
+                                    "confirmation_deadline": "2026-05-26",
+                                    "days_to_confirmation_deadline": 0,
+                                    "confirmation_priority": "p0_blackout_confirmation",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        text = "\n".join(lines)
+
+        self.assertIn(
+            "MRVL 2026-05-27 (blackout, p0_blackout_confirmation, deadline 2026-05-26 today)",
+            text,
+        )
+        self.assertIn(
+            "AVGO 2026-06-03 (clear, p2_pre_risk_window_backfill, deadline 2026-05-27 in 1d)",
+            text,
+        )
+        self.assertIn(
+            "Approval-blocked confirmation tickets: MRVL (blocked_until_confirmation; trim -1.0%; 3 open checks; event 2026-05-27; deadline 2026-05-26 today; p0_blackout_confirmation)",
+            text,
+        )
+
+    def test_report_data_health_summary_derived_from_approval_tickets(self):
+        data_health = {
+            "sources": [
+                {
+                    "source": "external_signals",
+                    "provider_gaps": [
+                        {"source": "alpha_vantage_news", "severity": "configuration_required"},
+                        {"source": "gdelt_global_news", "severity": "transient_network"},
+                    ],
+                },
+                {
+                    "source": "earnings",
+                    "confirmation_gaps": [
+                        {
+                            "symbol": "MRVL",
+                            "confirmation_deadline": "2026-05-26",
+                            "confirmation_priority": "p0_blackout_confirmation",
+                        }
+                    ],
+                },
+            ]
+        }
+        tickets = [
+            {
+                "ticket_id": "ticket-mrvl",
+                "symbol": "MRVL",
+                "trade_action": "trim",
+                "recommended_delta_weight": -0.01,
+                "approval_checks": [
+                    {"check": "external_feed_reliability_reviewed", "status": "pending"},
+                    {"check": "earnings_date_confirmed", "status": "pending"},
+                    {"check": "risk_flags_reviewed", "status": "pending"},
+                ],
+            },
+            {
+                "ticket_id": "ticket-nvda",
+                "symbol": "NVDA",
+                "approval_checks": [
+                    {"check": "external_feed_reliability_reviewed", "status": "pending"},
+                ],
+            },
+        ]
+
+        attach_data_health_approval_blocker_summary(data_health, tickets)
+
+        summary = data_health["approval_blocker_summary"]
+        self.assertEqual(summary["status"], "attention")
+        self.assertEqual(summary["total_source_blocker_count"], 3)
+        self.assertEqual(summary["external_gap_ticket_count"], 2)
+        self.assertEqual(summary["earnings_confirmation_ticket_count"], 1)
+        self.assertEqual(summary["blocked_ticket_count"], 2)
+        self.assertEqual(summary["blocked_symbols"], ["MRVL", "NVDA"])
+        self.assertEqual(
+            summary["open_check_counts"],
+            {"earnings_date_confirmed": 1, "external_feed_reliability_reviewed": 2, "risk_flags_reviewed": 1},
+        )
+        self.assertEqual(summary["provider_gap_source_counts"], {"alpha_vantage_news": 2, "gdelt_global_news": 2})
+        self.assertEqual(summary["provider_gap_severity_counts"], {"configuration_required": 2, "transient_network": 2})
+        self.assertEqual(summary["confirmation_priority_counts"], {"p0_blackout_confirmation": 1})
+        self.assertEqual(summary["next_confirmation_deadline"], "2026-05-26")
+        self.assertEqual(summary["next_confirmation_symbols"], ["MRVL"])
+        external_source = next(row for row in data_health["sources"] if row["source"] == "external_signals")
+        self.assertEqual(external_source["approval_blocked_external_gap_count"], 2)
+        self.assertEqual(external_source["approval_blocked_external_gaps"][0]["ticket_id"], "ticket-mrvl")
+        self.assertEqual(external_source["approval_blocked_external_gaps"][0]["trade_action"], "trim")
+        self.assertEqual(external_source["approval_blocked_external_gaps"][0]["recommended_delta_weight"], -0.01)
+        self.assertEqual(external_source["approval_blocked_external_gaps"][0]["provider_gap_count"], 2)
+        self.assertEqual(
+            external_source["approval_blocked_external_gaps"][0]["provider_gap_sources"],
+            ["alpha_vantage_news", "gdelt_global_news"],
+        )
+        self.assertEqual(
+            external_source["approval_blocked_external_gaps"][0]["provider_gap_severities"],
+            ["configuration_required", "transient_network"],
+        )
+        earnings_source = next(row for row in data_health["sources"] if row["source"] == "earnings")
+        self.assertEqual(earnings_source["action_linked_confirmation_gap_count"], 1)
+        self.assertEqual(earnings_source["approval_blocked_confirmation_gap_count"], 1)
+        self.assertEqual(earnings_source["approval_blocked_confirmation_gaps"][0]["ticket_id"], "ticket-mrvl")
+        self.assertEqual(earnings_source["approval_blocked_confirmation_gaps"][0]["approval_gate_status"], "blocked_until_confirmation")
+        self.assertTrue(earnings_source["confirmation_gaps"][0]["approval_ticket_linked"])
+
     def test_outcome_diagnostics_render_learning_readiness(self):
         lines = []
         render_outcome_diagnostics(
@@ -316,6 +585,34 @@ class ReportTests(unittest.TestCase):
                         "external_fast_labels_due_next_30d": 2,
                         "external_learning_ready_with_scheduled_pending_labels": False,
                     },
+                    "approval_learning_readiness_projection": {
+                        "pending_approval_label_count": 6,
+                        "pending_approval_learning_label_count": 4,
+                        "pending_approval_fast_label_count": 2,
+                        "pending_approval_blocker_bucket_count": 2,
+                        "pending_approval_blocker_buckets": [
+                            {"key": "review_required", "pending_count": 4, "next_due_date": "2026-05-31"},
+                            {"key": "blocked_until_confirmation", "pending_count": 2, "next_due_date": "2026-06-24"},
+                        ],
+                        "next_approval_label_due_date": "2026-05-31",
+                        "next_approval_label_due_count": 4,
+                        "next_approval_learning_label_due_date": "2026-06-24",
+                        "next_approval_learning_label_due_count": 2,
+                    },
+                    "approval_data_friction_learning_readiness_projection": {
+                        "pending_approval_data_friction_label_count": 6,
+                        "pending_approval_data_friction_learning_label_count": 4,
+                        "pending_approval_data_friction_fast_label_count": 2,
+                        "pending_approval_data_friction_bucket_count": 2,
+                        "pending_approval_data_friction_buckets": [
+                            {"key": "external_review", "pending_count": 4, "next_due_date": "2026-05-31"},
+                            {"key": "earnings_and_external_review", "pending_count": 2, "next_due_date": "2026-06-24"},
+                        ],
+                        "next_approval_data_friction_label_due_date": "2026-05-31",
+                        "next_approval_data_friction_label_due_count": 4,
+                        "next_approval_data_friction_learning_label_due_date": "2026-06-24",
+                        "next_approval_data_friction_learning_label_due_count": 2,
+                    },
                     "horizon_label_counts": [
                         {"horizon": "5d", "completed_count": 1, "pending_count": 4, "missing_price_count": 0},
                         {"horizon": "1m", "completed_count": 1, "pending_count": 4, "missing_price_count": 0},
@@ -351,6 +648,14 @@ class ReportTests(unittest.TestCase):
         self.assertIn("External-signal learning projection: 5/20 externally covered labels", md)
         self.assertIn("queued external labels do not yet cover the readiness threshold", md)
         self.assertIn("External-signal fast check: 2 5-day labels due 2026-05-31", md)
+        self.assertIn("Approval-gated label projection: 6 pending labels across 2 blocker buckets", md)
+        self.assertIn("review required 4 labels next 2026-05-31", md)
+        self.assertIn("blocked until confirmation 2 labels next 2026-06-24", md)
+        self.assertIn("next learning-eligible approval label due 2026-06-24 adds 2 labels", md)
+        self.assertIn("Approval data-friction label projection: 6 pending labels across 2 friction buckets", md)
+        self.assertIn("external review 4 labels next 2026-05-31", md)
+        self.assertIn("earnings and external review 2 labels next 2026-06-24", md)
+        self.assertIn("next learning-eligible friction label due 2026-06-24 adds 2 labels", md)
         self.assertIn("5d: 1 complete / 4 pending / 0 missing", md)
         self.assertIn("next learning-eligible label 1m due 2026-06-24, in 31 days", md)
         self.assertIn("all labels: 4 due within 7 days, 4 due within 30 days", md)
@@ -444,6 +749,405 @@ class ReportTests(unittest.TestCase):
                             "overprediction_count": 1,
                         },
                     ],
+                    "by_external_provider_gap_severity": [
+                        {
+                            "key": "configuration_required",
+                            "completed_count": 2,
+                            "mean_error": -9.0,
+                            "mean_absolute_error": 9.0,
+                            "underprediction_count": 0,
+                            "overprediction_count": 2,
+                        },
+                    ],
+                    "by_external_provider_gap_severity_exposure": [
+                        {
+                            "key": "configuration_required",
+                            "completed_count": 2,
+                            "mean_error": -9.0,
+                            "mean_absolute_error": 9.0,
+                            "underprediction_count": 0,
+                            "overprediction_count": 2,
+                        },
+                        {
+                            "key": "runtime_budget",
+                            "completed_count": 2,
+                            "mean_error": -7.0,
+                            "mean_absolute_error": 7.0,
+                            "underprediction_count": 0,
+                            "overprediction_count": 2,
+                        },
+                    ],
+                    "by_approval_data_friction_bucket": [
+                        {
+                            "key": "earnings_and_external_review",
+                            "completed_count": 2,
+                            "mean_error": -10.0,
+                            "mean_absolute_error": 10.0,
+                            "underprediction_count": 0,
+                            "overprediction_count": 2,
+                        },
+                    ],
+                    "by_earnings_confirmation_bucket": [
+                        {
+                            "key": "confirmation_required",
+                            "completed_count": 1,
+                            "mean_error": -6.0,
+                            "mean_absolute_error": 6.0,
+                            "underprediction_count": 0,
+                            "overprediction_count": 1,
+                        },
+                    ],
+                    "pending_by_earnings_confirmation_bucket": [
+                        {"key": "no_event", "pending_count": 2, "next_due_date": "2026-06-02"},
+                        {"key": "confirmation_required", "pending_count": 2, "next_due_date": "2026-06-25"},
+                    ],
+                    "pending_by_earnings_risk_window": [
+                        {"key": "unknown", "pending_count": 2, "next_due_date": "2026-06-02"},
+                        {"key": "blackout", "pending_count": 1, "next_due_date": "2026-06-25"},
+                        {"key": "clear", "pending_count": 1, "next_due_date": "2026-06-25"},
+                    ],
+                    "pending_by_approval_blocker_bucket": [
+                        {"key": "no_approval_context", "pending_count": 2, "next_due_date": "2026-06-02"},
+                        {"key": "blocked_until_confirmation", "pending_count": 1, "next_due_date": "2026-06-25"},
+                        {"key": "review_required", "pending_count": 2, "next_due_date": "2026-06-25"},
+                    ],
+                    "pending_by_approval_data_friction_bucket": [
+                        {"key": "clear", "pending_count": 2, "next_due_date": "2026-06-02"},
+                        {"key": "earnings_and_external_review", "pending_count": 3, "next_due_date": "2026-06-25"},
+                    ],
+                    "pending_by_external_provider_gap_severity": [
+                        {"key": "unknown", "pending_count": 2, "next_due_date": "2026-06-02"},
+                        {"key": "configuration_required", "pending_count": 3, "next_due_date": "2026-06-25"},
+                    ],
+                    "pending_by_external_provider_gap_severity_exposure": [
+                        {"key": "configuration_required", "pending_count": 3, "next_due_date": "2026-06-25"},
+                        {"key": "runtime_budget", "pending_count": 3, "next_due_date": "2026-06-25"},
+                        {"key": "transient_network", "pending_count": 3, "next_due_date": "2026-06-25"},
+                        {"key": "unknown", "pending_count": 2, "next_due_date": "2026-06-02"},
+                    ],
+                    "pending_external_provider_gap_severity_observation_summary": {
+                        "pending_label_count": 5,
+                        "observed_label_count": 3,
+                        "unknown_label_count": 2,
+                        "observed_ratio": 0.6,
+                        "unknown_next_due_date": "2026-06-02",
+                        "backfill_policy": "decision_time_only",
+                    },
+                    "pending_external_provider_gap_severity_observation_gap_count": 2,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_label_count": 0,
+                    "pending_external_provider_gap_severity_observation_gap_queue": [
+                        {"symbol": "AMD", "horizon": "5d", "due_date": "2026-06-02"},
+                        {"symbol": "ASML", "horizon": "1m", "due_date": "2026-06-25"},
+                    ],
+                    "pending_external_provider_gap_severity_observation_gap_work_item_count": 2,
+                    "pending_external_provider_gap_severity_observation_gap_visible_work_item_label_count": 2,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_work_item_label_count": 0,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_work_item_count": 0,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_work_item_count": 1,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_work_item_queue_limit": 8,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_work_item_queue": [
+                        {
+                            "external_provider_gap_severity_observation_work_item_id": "hidden-calibration-asml-1m",
+                            "symbol": "ASML",
+                            "horizon": "1m",
+                            "as_of": "2026-05-24",
+                            "session": "premarket",
+                            "decision_time_report_json": "2026-05-24-premarket.json",
+                            "decision_time_report_markdown": "2026-05-24-premarket.md",
+                            "decision_time_report_json_available": True,
+                            "decision_time_report_markdown_available": True,
+                            "due_date": "2026-06-25",
+                            "label_count": 1,
+                            "candidate_backfill_status": "ready",
+                            "candidate_source_section": "external_signals.source_statuses",
+                            "candidate_backfill_policy": "decision_time_external_signals_provider_status_only",
+                            "candidate_backfill_values": {
+                                "external_provider_gap_count": 2,
+                                "external_provider_configuration_gap_count": 1,
+                                "external_provider_runtime_gap_count": 0,
+                                "external_provider_stale_gap_count": 0,
+                                "external_provider_transient_gap_count": 1,
+                                "external_provider_other_gap_count": 0,
+                                "external_provider_primary_gap_severity": "configuration_required",
+                                "external_provider_gap_severity_score": 45.0,
+                            },
+                        }
+                    ],
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_count": 1,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_queue_limit": 8,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_report_batch_queue": [
+                        {
+                            "decision_time_report_json": "2026-05-24-premarket.json",
+                            "decision_time_report_markdown": "2026-05-24-premarket.md",
+                            "decision_time_report_json_available": True,
+                            "decision_time_report_markdown_available": True,
+                            "as_of": "2026-05-24",
+                            "session": "premarket",
+                            "label_count": 1,
+                            "work_item_count": 1,
+                            "due_date_count": 1,
+                            "earliest_due_date": "2026-06-25",
+                            "latest_due_date": "2026-06-25",
+                            "horizons": ["1m"],
+                            "symbols": ["ASML"],
+                            "symbol_count": 1,
+                            "candidate_backfill_status": "ready",
+                            "candidate_source_section": "external_signals.source_statuses",
+                            "candidate_backfill_policy": "decision_time_external_signals_provider_status_only",
+                            "candidate_backfill_values": {
+                                "external_provider_gap_count": 2,
+                                "external_provider_configuration_gap_count": 1,
+                                "external_provider_runtime_gap_count": 0,
+                                "external_provider_stale_gap_count": 0,
+                                "external_provider_transient_gap_count": 1,
+                                "external_provider_other_gap_count": 0,
+                                "external_provider_primary_gap_severity": "configuration_required",
+                                "external_provider_gap_severity_score": 45.0,
+                            },
+                        }
+                    ],
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_count": 1,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_queue_limit": 8,
+                    "pending_external_provider_gap_severity_observation_gap_hidden_calibration_backfill_record_queue": [
+                        {
+                            "external_provider_gap_severity_observation_backfill_record_id": "record-asml-1m",
+                            "external_provider_gap_severity_observation_work_item_id": "hidden-calibration-asml-1m",
+                            "candidate_apply_status": "ready",
+                            "candidate_apply_policy": "update_matching_recommendation_training_examples_by_source_trial_id",
+                            "target_section": "recommendation_training_examples",
+                            "symbol": "ASML",
+                            "horizon": "1m",
+                            "decision_as_of": "2026-05-24",
+                            "session": "premarket",
+                            "due_date": "2026-06-25",
+                            "source_report": "2026-05-24-premarket.json",
+                            "source_report_available": True,
+                            "source_outcome_ids": ["outcome-asml-1m"],
+                            "source_trial_ids": ["trial-asml"],
+                            "fields_to_backfill": [
+                                "external_provider_gap_count",
+                                "external_provider_configuration_gap_count",
+                                "external_provider_runtime_gap_count",
+                                "external_provider_stale_gap_count",
+                                "external_provider_transient_gap_count",
+                                "external_provider_other_gap_count",
+                                "external_provider_primary_gap_severity",
+                                "external_provider_gap_severity_score",
+                            ],
+                            "candidate_source_section": "external_signals.source_statuses",
+                            "candidate_backfill_policy": "decision_time_external_signals_provider_status_only",
+                            "candidate_backfill_values": {
+                                "external_provider_gap_count": 2,
+                                "external_provider_configuration_gap_count": 1,
+                                "external_provider_runtime_gap_count": 0,
+                                "external_provider_stale_gap_count": 0,
+                                "external_provider_transient_gap_count": 1,
+                                "external_provider_other_gap_count": 0,
+                                "external_provider_primary_gap_severity": "configuration_required",
+                                "external_provider_gap_severity_score": 45.0,
+                            },
+                        }
+                    ],
+                    "pending_external_provider_gap_severity_observation_gap_work_item_queue": [
+                        {
+                            "symbol": "AMD",
+                            "horizon": "5d",
+                            "as_of": "2026-05-24",
+                            "session": "premarket",
+                            "due_date": "2026-06-02",
+                            "days_until_due": 9,
+                            "due_window": "due_next_30d",
+                            "label_count": 1,
+                        },
+                        {
+                            "symbol": "ASML",
+                            "horizon": "1m",
+                            "as_of": "2026-05-24",
+                            "session": "premarket",
+                            "due_date": "2026-06-25",
+                            "days_until_due": 32,
+                            "due_window": "later",
+                            "label_count": 1,
+                        },
+                    ],
+                    "pending_external_provider_gap_severity_observation_gap_due_dates": [
+                        {
+                            "due_date": "2026-06-02",
+                            "days_until_due": 9,
+                            "due_window": "due_next_30d",
+                            "label_count": 1,
+                            "work_item_count": 1,
+                            "visible_label_count": 1,
+                            "visible_work_item_count": 1,
+                            "hidden_label_count": 0,
+                            "hidden_work_item_count": 0,
+                            "cumulative_label_count": 1,
+                            "cumulative_work_item_count": 1,
+                            "cumulative_visible_label_count": 1,
+                            "cumulative_visible_work_item_count": 1,
+                            "cumulative_hidden_label_count": 0,
+                            "cumulative_hidden_work_item_count": 0,
+                            "horizons": ["5d"],
+                            "symbols": ["AMD"],
+                        },
+                        {
+                            "due_date": "2026-06-25",
+                            "days_until_due": 32,
+                            "due_window": "later",
+                            "label_count": 1,
+                            "work_item_count": 1,
+                            "visible_label_count": 1,
+                            "visible_work_item_count": 1,
+                            "hidden_label_count": 0,
+                            "hidden_work_item_count": 0,
+                            "cumulative_label_count": 2,
+                            "cumulative_work_item_count": 2,
+                            "cumulative_visible_label_count": 2,
+                            "cumulative_visible_work_item_count": 2,
+                            "cumulative_hidden_label_count": 0,
+                            "cumulative_hidden_work_item_count": 0,
+                            "horizons": ["1m"],
+                            "symbols": ["ASML"],
+                        },
+                    ],
+                    "pending_external_provider_gap_severity_observation_gap_due_window_counts": [
+                        {
+                            "due_window": "due_next_30d",
+                            "label_count": 1,
+                            "work_item_count": 1,
+                            "visible_label_count": 1,
+                            "visible_work_item_count": 1,
+                            "hidden_label_count": 0,
+                            "hidden_work_item_count": 0,
+                            "due_date_count": 1,
+                            "earliest_due_date": "2026-06-02",
+                            "latest_due_date": "2026-06-02",
+                        },
+                        {
+                            "due_window": "later",
+                            "label_count": 1,
+                            "work_item_count": 1,
+                            "visible_label_count": 1,
+                            "visible_work_item_count": 1,
+                            "hidden_label_count": 0,
+                            "hidden_work_item_count": 0,
+                            "due_date_count": 1,
+                            "earliest_due_date": "2026-06-25",
+                            "latest_due_date": "2026-06-25",
+                        },
+                    ],
+                    "pending_external_provider_gap_severity_observation_gap_horizon_counts": [
+                        {
+                            "horizon": "5d",
+                            "learning_role": "fast_check",
+                            "label_count": 1,
+                            "work_item_count": 1,
+                            "visible_label_count": 1,
+                            "visible_work_item_count": 1,
+                            "hidden_label_count": 0,
+                            "hidden_work_item_count": 0,
+                            "due_date_count": 1,
+                            "next_due_date": "2026-06-02",
+                            "latest_due_date": "2026-06-02",
+                            "days_until_next_due": 9,
+                            "next_due_window": "due_next_30d",
+                            "next_visible_due_date": "2026-06-02",
+                            "latest_visible_due_date": "2026-06-02",
+                            "days_until_next_visible_due": 9,
+                            "next_visible_due_window": "due_next_30d",
+                            "next_visible_due_label_count": 1,
+                            "next_visible_due_work_item_count": 1,
+                            "next_visible_due_horizons": ["5d"],
+                            "next_hidden_due_label_count": 0,
+                            "next_hidden_due_work_item_count": 0,
+                            "next_hidden_due_horizons": [],
+                        },
+                        {
+                            "horizon": "1m",
+                            "learning_role": "calibration_label",
+                            "label_count": 1,
+                            "work_item_count": 1,
+                            "visible_label_count": 1,
+                            "visible_work_item_count": 1,
+                            "hidden_label_count": 0,
+                            "hidden_work_item_count": 0,
+                            "due_date_count": 1,
+                            "next_due_date": "2026-06-25",
+                            "latest_due_date": "2026-06-25",
+                            "days_until_next_due": 32,
+                            "next_due_window": "later",
+                            "next_visible_due_date": "2026-06-25",
+                            "latest_visible_due_date": "2026-06-25",
+                            "days_until_next_visible_due": 32,
+                            "next_visible_due_window": "later",
+                            "next_visible_due_label_count": 1,
+                            "next_visible_due_work_item_count": 1,
+                            "next_visible_due_horizons": ["1m"],
+                            "next_hidden_due_label_count": 0,
+                            "next_hidden_due_work_item_count": 0,
+                            "next_hidden_due_horizons": [],
+                        },
+                    ],
+                    "pending_external_provider_gap_severity_observation_gap_learning_role_counts": [
+                        {
+                            "learning_role": "fast_check",
+                            "label_count": 1,
+                            "work_item_count": 1,
+                            "visible_label_count": 1,
+                            "visible_work_item_count": 1,
+                            "hidden_label_count": 0,
+                            "hidden_work_item_count": 0,
+                            "due_date_count": 1,
+                            "horizon_count": 1,
+                            "horizons": ["5d"],
+                            "next_due_date": "2026-06-02",
+                            "latest_due_date": "2026-06-02",
+                            "days_until_next_due": 9,
+                            "next_due_window": "due_next_30d",
+                            "next_visible_due_date": "2026-06-02",
+                            "latest_visible_due_date": "2026-06-02",
+                            "days_until_next_visible_due": 9,
+                            "next_visible_due_window": "due_next_30d",
+                            "next_visible_due_label_count": 1,
+                            "next_visible_due_work_item_count": 1,
+                            "next_visible_due_horizons": ["5d"],
+                            "next_hidden_due_label_count": 0,
+                            "next_hidden_due_work_item_count": 0,
+                            "next_hidden_due_horizons": [],
+                            "visible_label_coverage_pct": 100.0,
+                            "visible_work_item_coverage_pct": 100.0,
+                            "queue_visibility_status": "fully_visible",
+                        },
+                        {
+                            "learning_role": "calibration_label",
+                            "label_count": 1,
+                            "work_item_count": 1,
+                            "visible_label_count": 1,
+                            "visible_work_item_count": 1,
+                            "hidden_label_count": 0,
+                            "hidden_work_item_count": 0,
+                            "due_date_count": 1,
+                            "horizon_count": 1,
+                            "horizons": ["1m"],
+                            "next_due_date": "2026-06-25",
+                            "latest_due_date": "2026-06-25",
+                            "days_until_next_due": 32,
+                            "next_due_window": "later",
+                            "next_visible_due_date": "2026-06-25",
+                            "latest_visible_due_date": "2026-06-25",
+                            "days_until_next_visible_due": 32,
+                            "next_visible_due_window": "later",
+                            "next_visible_due_label_count": 1,
+                            "next_visible_due_work_item_count": 1,
+                            "next_visible_due_horizons": ["1m"],
+                            "next_hidden_due_label_count": 0,
+                            "next_hidden_due_work_item_count": 0,
+                            "next_hidden_due_horizons": [],
+                            "visible_label_coverage_pct": 100.0,
+                            "visible_work_item_coverage_pct": 100.0,
+                            "queue_visibility_status": "fully_visible",
+                        },
+                    ],
                     "pending_external_alignment_due_dates": [
                         {"due_date": "2026-06-02", "due_count": 4, "conflict_count": 1, "aligned_count": 1}
                     ],
@@ -490,6 +1194,89 @@ class ReportTests(unittest.TestCase):
         self.assertIn("unknown (1 labels, mean error 1.0", md)
         self.assertIn("External coverage outcomes: thin_coverage (2 labels, mean error -12.0", md)
         self.assertIn("External alignment outcomes: conflict (1 labels, mean error -8.0", md)
+        self.assertIn("External provider gap severity outcomes: configuration_required (2 labels, mean error -9.0", md)
+        self.assertIn(
+            "External provider gap severity exposure outcomes: configuration_required (2 labels, mean error -9.0",
+            md,
+        )
+        self.assertIn("runtime_budget (2 labels, mean error -7.0", md)
+        self.assertIn("Approval data-friction outcomes: earnings_and_external_review (2 labels, mean error -10.0", md)
+        self.assertIn("Earnings confirmation outcomes: confirmation_required (1 labels, mean error -6.0", md)
+        self.assertIn("Pending earnings label buckets: confirmation required 2 labels next 2026-06-25", md)
+        self.assertIn("risk windows blackout 1 labels next 2026-06-25; clear 1 labels next 2026-06-25", md)
+        self.assertIn("Pending approval label buckets: blocked until confirmation 1 labels next 2026-06-25", md)
+        self.assertIn("review required 2 labels next 2026-06-25", md)
+        self.assertIn("Pending approval data-friction labels: earnings and external review 3 labels next 2026-06-25", md)
+        self.assertIn("Pending external provider gap severity labels: configuration required 3 labels next 2026-06-25", md)
+        self.assertIn(
+            "Pending external provider gap severity exposures: configuration required 3 labels next 2026-06-25; "
+            "runtime budget 3 labels next 2026-06-25; transient network 3 labels next 2026-06-25",
+            md,
+        )
+        self.assertIn(
+            "Pending external provider gap severity observation: 3/5 labels observed (60.0%); "
+            "2 unknown need decision_time_only backfill, next unknown due 2026-06-02",
+            md,
+        )
+        self.assertIn(
+            "Provider gap severity observation backfill queue: 2 labels / 2 work items missing severity context "
+            "(2 visible work items covering 2 labels; 0 hidden work items covering 0 labels); "
+            "AMD 5d due 2026-06-02 from 2026-05-24 premarket (1 labels), "
+            "ASML 1m due 2026-06-25 from 2026-05-24 premarket (1 labels)",
+            md,
+        )
+        self.assertIn(
+            "Provider gap severity observation due dates: 2026-06-02 (in 9 days, due_next_30d): "
+            "1 labels / 1 work items "
+            "(1 visible work items covering 1 labels, 0 hidden work items covering 0 labels; "
+            "cumulative 1 labels / 1 work items); "
+            "2026-06-25 (in 32 days, later): 1 labels / 1 work items "
+            "(1 visible work items covering 1 labels, 0 hidden work items covering 0 labels; "
+            "cumulative 2 labels / 2 work items)",
+            md,
+        )
+        self.assertIn(
+            "Provider gap severity observation due windows: due next 30d: 1 labels / 1 work items "
+            "across 1 due dates, 2026-06-02 to 2026-06-02 (1 visible labels, 0 hidden); "
+            "later: 1 labels / 1 work items across 1 due dates, 2026-06-25 to 2026-06-25 "
+            "(1 visible labels, 0 hidden)",
+            md,
+        )
+        self.assertIn(
+            "Provider gap severity observation horizons: 5d fast check: 1 labels / 1 work items, "
+            "next 2026-06-02 (in 9 days, due_next_30d); 1 visible labels, 0 hidden; "
+            "1m calibration label: 1 labels / 1 work items, next 2026-06-25 (in 32 days, later); "
+            "1 visible labels, 0 hidden",
+            md,
+        )
+        self.assertIn(
+            "Provider gap severity observation learning roles: fast check: 1 labels / 1 work items "
+            "across 1 horizons (5d), next 2026-06-02 (in 9 days, due_next_30d); "
+            "1 visible labels, 0 hidden, 100.0% visible (fully visible); "
+            "visible next 2026-06-02 (in 9 days, due_next_30d; 1 labels / 1 work items; horizons 5d); "
+            "calibration label: 1 labels / 1 work items "
+            "across 1 horizons (1m), next 2026-06-25 (in 32 days, later); "
+            "1 visible labels, 0 hidden, 100.0% visible (fully visible); "
+            "visible next 2026-06-25 (in 32 days, later; 1 labels / 1 work items; horizons 1m)",
+            md,
+        )
+        self.assertIn(
+            "Provider gap severity hidden calibration queue: 1 hidden calibration work items; "
+            "ASML 1m due 2026-06-25 from 2026-05-24 premarket via 2026-05-24-premarket.json "
+            "(1 labels); candidate configuration required (2 gaps)",
+            md,
+        )
+        self.assertIn(
+            "Provider gap severity hidden calibration report batches: 1 decision-time reports; "
+            "2026-05-24-premarket.json: 1 work items / 1 labels due 2026-06-25; horizons 1m; "
+            "1 symbols; candidate configuration required (2 gaps)",
+            md,
+        )
+        self.assertIn(
+            "Provider gap severity hidden calibration backfill records: 1 ready records; "
+            "ASML 1m from 2026-05-24-premarket.json apply ready; candidate configuration required (2 gaps)",
+            md,
+        )
         self.assertIn("Pending external alignment due dates: 2026-06-02: 4 labels (1 conflict, 1 aligned)", md)
         self.assertIn("External coverage gap priority: 2 labels needed", md)
         self.assertIn("gap-amd-1m", md)

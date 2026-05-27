@@ -66,6 +66,9 @@ def apply_action_limits(
     notes = list(action.get("constraint_notes", []))
     original_delta = delta
 
+    if earnings_event:
+        action.update(earnings_metadata(earnings_event))
+
     if delta > 0 and str(action.get("symbol", "")).upper() in limits["no_add_symbols"]:
         delta = 0.0
         target = current
@@ -83,6 +86,10 @@ def apply_action_limits(
         target = current
         flags.append("insufficient_signal_families")
         notes.append("Minimum independent signal-family count not met.")
+
+    if earnings_event and abs(original_delta) > 0 and earnings_confirmation_required(earnings_event):
+        flags.append("earnings_confirmation_required")
+        notes.append("Earnings date is provider-estimated; confirm via company IR/manual source before approval.")
 
     if earnings_event and delta > 0:
         days_until = earnings_event.get("days_until")
@@ -151,6 +158,14 @@ def apply_action_limits(
     action["sizing_basis"] = "trim-and-cash-funded portfolio-weight target delta for the trade feed"
     action["action"] = sizing_summary(action.get("trade_action", "watch"), delta, post_action, float(action.get("model_target_weight", target) or 0))
     action["sizing_summary"] = action["action"]
+    if action.get("positive_catalyst_gap_trim_block") and abs(delta) <= 0.000001:
+        blocked_target = float(action.get("blocked_model_target_weight") or action.get("model_target_weight") or target or post_action)
+        action["trade_action"] = "hold"
+        action["action"] = (
+            "Hold; positive catalyst gap blocks trim funding today "
+            f"despite unblocked model target {weight_label(blocked_target)}."
+        )
+        action["sizing_summary"] = action["action"]
     if abs(delta) <= 0.000001 and action.get("trade_action") == "watch" and original_delta > 0:
         action["trade_action"] = "watch"
         action["action"] = "Watch only; risk controls blocked the add until constraints clear."
@@ -194,6 +209,35 @@ def nearest_earnings_by_symbol(events: list[dict[str, Any]]) -> dict[str, dict[s
             for candidate in equivalent_symbols(symbol):
                 by_symbol[candidate] = event
     return by_symbol
+
+
+def earnings_metadata(event: dict[str, Any]) -> dict[str, Any]:
+    status = earnings_confirmation_status(event)
+    return {
+        "earnings_days_until": event.get("days_until"),
+        "earnings_event_date": event.get("event_date", ""),
+        "earnings_event_source": event.get("source", ""),
+        "earnings_confirmed_or_estimated": status,
+        "earnings_risk_window": event.get("risk_window", ""),
+        "earnings_confirmation_required": earnings_confirmation_required(event),
+    }
+
+
+def earnings_confirmation_status(event: dict[str, Any] | None) -> str:
+    if not event:
+        return ""
+    status = str(event.get("confirmed_or_estimated") or "").strip().lower()
+    if status:
+        return status
+    source = str(event.get("source") or "")
+    raw_status = str(event.get("status") or "").lower()
+    if source in {"manual", "company_ir_feed", "sec_company_submissions"} or raw_status in {"confirmed", "filed", "scheduled"}:
+        return "confirmed"
+    return "estimated" if event.get("event_type") == "earnings" else ""
+
+
+def earnings_confirmation_required(event: dict[str, Any] | None) -> bool:
+    return bool(event and event.get("event_type") == "earnings" and earnings_confirmation_status(event) == "estimated")
 
 
 def normalize_limits(limits: dict[str, Any] | None) -> dict[str, Any]:

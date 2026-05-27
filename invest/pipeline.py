@@ -23,6 +23,24 @@ class PortfolioSnapshotRegression(RuntimeError):
 
 
 BROKER_SYNC_KINDS = {"premarket", "midday", "postmarket", "weekly"}
+PIPELINE_RESULT_KEYS = frozenset({"kind", "privacy", "schedule", "status"})
+
+
+def extract_pipeline_result_json(text: str) -> dict[str, Any]:
+    decoder = json.JSONDecoder()
+    result: dict[str, Any] | None = None
+    for index, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            candidate, _ = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(candidate, dict) and PIPELINE_RESULT_KEYS.issubset(candidate):
+            result = candidate
+    if result is None:
+        raise ValueError("No pipeline result JSON object found in pipeline output")
+    return result
 
 
 def run_pipeline(

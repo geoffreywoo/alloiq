@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from invest.config import AppConfig
-from invest.pipeline import run_pipeline
+from invest.pipeline import extract_pipeline_result_json, run_pipeline
 
 
 class PipelineTests(unittest.TestCase):
@@ -139,6 +139,31 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(result["status"], "deferred")
             self.assertIn("Refusing to publish public snapshot", result["reason"])
             site.assert_not_called()
+
+    def test_extract_pipeline_result_json_ignores_nested_status_objects(self):
+        text = """
+Stored 13F 0000000000-26-000001 with 12 holdings
+{"status": "synced", "report_id": 123}
+{
+  "brokers": {"details": {"ibkr": {"status": "failed"}}},
+  "kind": "postmarket",
+  "privacy": "public",
+  "reason": "Refusing to publish public snapshot because broker sync failed/skipped.",
+  "schedule": {"should_run": true},
+  "status": "deferred",
+  "warehouse": {"status": "synced"}
+}
+{"status": "synced", "rows": 0}
+"""
+
+        result = extract_pipeline_result_json(text)
+
+        self.assertEqual(result["status"], "deferred")
+        self.assertIn("Refusing to publish public snapshot", result["reason"])
+
+    def test_extract_pipeline_result_json_requires_top_level_pipeline_shape(self):
+        with self.assertRaises(ValueError):
+            extract_pipeline_result_json('{"status": "synced"}')
 
 
 if __name__ == "__main__":

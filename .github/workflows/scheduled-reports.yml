@@ -166,23 +166,11 @@ jobs:
           fi
           python3 -m invest pipeline "${args[@]}" | tee /tmp/alloiq-pipeline-result.json
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
           from pathlib import Path
+          from invest.pipeline import extract_pipeline_result_json
 
           text = Path("/tmp/alloiq-pipeline-result.json").read_text(encoding="utf-8")
-          decoder = json.JSONDecoder()
-          result = None
-          for index, character in enumerate(text):
-              if character != "{":
-                  continue
-              try:
-                  candidate, _ = decoder.raw_decode(text[index:])
-              except json.JSONDecodeError:
-                  continue
-              if isinstance(candidate, dict) and "status" in candidate:
-                  result = candidate
-          if result is None:
-              raise SystemExit("No pipeline result JSON object found in pipeline output")
+          result = extract_pipeline_result_json(text)
           print(f"status={result.get('status', 'unknown')}")
           print("reason<<PIPELINE_REASON")
           print(str(result.get("reason", "")))

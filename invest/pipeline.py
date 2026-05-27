@@ -216,6 +216,7 @@ def apply_public_portfolio_fallback_if_needed(
         if row.get("symbol") and not row.get("is_cash")
     }
     update_portfolio_weight_fields(report_payload, fallback_weights)
+    normalize_fallback_rebalance_budget(report_payload)
     append_portfolio_fallback_health(report_payload, metadata)
     print(f"Using previous public portfolio fallback: {regression_reason}")
     return metadata
@@ -357,6 +358,22 @@ def action_weight_row(value: dict[str, Any]) -> bool:
             "trade_action",
         )
     )
+
+
+def normalize_fallback_rebalance_budget(report_payload: dict[str, Any]) -> None:
+    benchmark = report_payload.get("portfolio_benchmark") or {}
+    sizing = benchmark.get("sizing_plan") or {}
+    budget = sizing.get("rebalance_budget") or {}
+    if not budget:
+        return
+    starting_cash = float((report_payload.get("portfolio") or {}).get("cash_weight") or budget.get("starting_cash_weight") or 0)
+    budget["starting_cash_weight"] = round(starting_cash, 6)
+    budget["total_add_weight"] = 0.0
+    budget["total_trim_weight"] = 0.0
+    budget["net_delta_weight"] = 0.0
+    budget["cash_deployed_weight"] = 0.0
+    budget["cash_raised_weight"] = 0.0
+    budget["post_trade_cash_weight"] = round(starting_cash, 6)
 
 
 def append_portfolio_fallback_health(report_payload: dict[str, Any], metadata: dict[str, Any]) -> None:

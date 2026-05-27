@@ -325,11 +325,38 @@ def update_portfolio_weight_fields(value: Any, fallback_weights: dict[str, float
         return
     symbol = str(value.get("symbol") or "").upper()
     if symbol and symbol in fallback_weights:
+        current_weight = round(fallback_weights[symbol], 6)
         for key in ("portfolio_weight", "current_weight", "current_portfolio_weight"):
             if key in value:
-                value[key] = round(fallback_weights[symbol], 6)
+                value[key] = current_weight
+        if action_weight_row(value):
+            value["recommended_delta_weight"] = 0.0
+            value["post_action_weight"] = current_weight
+            value["target_weight"] = current_weight
+            value["trade_target_weight"] = current_weight
+            value["trade_action"] = "hold"
+            value["fallback_research_only"] = True
+            value["fallback_reason"] = "Live broker sync failed; keeping prior public portfolio weight."
+            max_allowed = float(value.get("max_allowed_weight") or current_weight or 0)
+            if "model_target_weight" in value:
+                value["model_target_weight"] = round(min(current_weight, max_allowed), 6)
+            if "risk_adjusted_target_weight" in value:
+                value["risk_adjusted_target_weight"] = round(min(current_weight, max_allowed), 6)
     for item in value.values():
         update_portfolio_weight_fields(item, fallback_weights)
+
+
+def action_weight_row(value: dict[str, Any]) -> bool:
+    return any(
+        key in value
+        for key in (
+            "recommended_delta_weight",
+            "post_action_weight",
+            "target_weight",
+            "trade_target_weight",
+            "trade_action",
+        )
+    )
 
 
 def append_portfolio_fallback_health(report_payload: dict[str, Any], metadata: dict[str, Any]) -> None:

@@ -132,7 +132,18 @@ class PipelineTests(unittest.TestCase):
                 "portfolio": {"position_count": 1, "symbol_count": 1},
                 "portfolio_benchmark": {
                     "action_queue": [
-                        {"symbol": "MU", "portfolio_weight": 0.0, "current_weight": 0.0},
+                        {
+                            "symbol": "MU",
+                            "portfolio_weight": 0.0,
+                            "current_weight": 0.0,
+                            "recommended_delta_weight": 0.03,
+                            "post_action_weight": 0.03,
+                            "target_weight": 0.03,
+                            "trade_target_weight": 0.03,
+                            "trade_action": "add",
+                            "model_target_weight": 0.03,
+                            "max_allowed_weight": 0.15,
+                        },
                     ],
                 },
                 "data_health": {
@@ -182,6 +193,9 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(updated_payload["portfolio"]["by_symbol"][1]["symbol"], "MU")
             self.assertEqual(updated_payload["portfolio"]["by_symbol"][1]["comparison_weight"], 0.25)
             self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][0]["portfolio_weight"], 0.25)
+            self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][0]["recommended_delta_weight"], 0.0)
+            self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][0]["post_action_weight"], 0.25)
+            self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][0]["trade_action"], "hold")
             self.assertEqual(updated_payload["data_health"]["sources"][0]["source"], "portfolio_fallback")
             self.assertEqual(updated_payload["data_health"]["recommendation_posture"], "reduced_confidence")
             self.assertNotIn("IBKR", json.dumps(updated_payload["portfolio_fallback"]))

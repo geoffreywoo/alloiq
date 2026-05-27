@@ -2,12 +2,20 @@ name: Scheduled Reports
 
 on:
   schedule:
-    - cron: "0 12,13 * * 1-5"
-    - cron: "30 13,14 * * 1-5"
-    - cron: "0 14-20 * * 1-5"
-    - cron: "0 16,17 * * 1-5"
-    - cron: "0 20,21 * * 1-5"
-    - cron: "30 20,21 * * 1-5"
+    - cron: "0 12 * * 1-5"
+    - cron: "0 13 * * 1-5"
+    - cron: "30 13 * * 1-5"
+    - cron: "0 14 * * 1-5"
+    - cron: "30 14 * * 1-5"
+    - cron: "0 15 * * 1-5"
+    - cron: "0 16 * * 1-5"
+    - cron: "0 17 * * 1-5"
+    - cron: "0 18 * * 1-5"
+    - cron: "0 19 * * 1-5"
+    - cron: "0 20 * * 1-5"
+    - cron: "30 20 * * 1-5"
+    - cron: "0 21 * * 1-5"
+    - cron: "30 21 * * 1-5"
     - cron: "0 14 * * 0"
   workflow_dispatch:
     inputs:
@@ -45,44 +53,6 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - name: Determine pipeline kind
-        id: pipeline
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "kind=${{ inputs.kind }}" >> "$GITHUB_OUTPUT"
-            echo "force=${{ inputs.force }}" >> "$GITHUB_OUTPUT"
-          else
-            case "${{ github.event.schedule }}" in
-              "0 12,13 * * 1-5")
-                echo "kind=premarket" >> "$GITHUB_OUTPUT"
-                ;;
-              "30 13,14 * * 1-5")
-                echo "kind=market_open" >> "$GITHUB_OUTPUT"
-                ;;
-              "0 14-20 * * 1-5")
-                echo "kind=intraday" >> "$GITHUB_OUTPUT"
-                ;;
-              "0 16,17 * * 1-5")
-                echo "kind=midday" >> "$GITHUB_OUTPUT"
-                ;;
-              "0 20,21 * * 1-5")
-                echo "kind=market_close" >> "$GITHUB_OUTPUT"
-                ;;
-              "30 20,21 * * 1-5")
-                echo "kind=postmarket" >> "$GITHUB_OUTPUT"
-                ;;
-              "0 14 * * 0")
-                echo "kind=weekly" >> "$GITHUB_OUTPUT"
-                ;;
-              *)
-                echo "Unknown schedule: ${{ github.event.schedule }}" >&2
-                exit 2
-                ;;
-            esac
-            echo "force=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -99,7 +69,43 @@ jobs:
       - name: Install Python package
         run: python3 -m pip install -e .
 
+      - name: Determine pipeline kind
+        id: pipeline
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          INPUT_KIND: ${{ inputs.kind }}
+          INPUT_FORCE: ${{ inputs.force }}
+        shell: bash
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "kind=$INPUT_KIND" >> "$GITHUB_OUTPUT"
+            echo "force=$INPUT_FORCE" >> "$GITHUB_OUTPUT"
+            echo "scheduled_at=" >> "$GITHUB_OUTPUT"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "reason=manual dispatch" >> "$GITHUB_OUTPUT"
+          else
+            python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os
+          from invest.scheduler import infer_scheduled_at_from_cron, kind_for_scheduled_at
+
+          scheduled_at = infer_scheduled_at_from_cron(os.environ["EVENT_SCHEDULE"])
+          kind = kind_for_scheduled_at(scheduled_at)
+          print(f"scheduled_at={scheduled_at.isoformat().replace('+00:00', 'Z')}")
+          print("force=false")
+          if kind:
+              print(f"kind={kind}")
+              print("should_run=true")
+              print(f"reason=scheduled {kind} slot")
+          else:
+              print("kind=noop")
+              print("should_run=false")
+              print("reason=no active ET report window for this seasonal duplicate slot")
+          PY
+          fi
+
       - name: Materialize private config
+        if: steps.pipeline.outputs.should_run == 'true'
         env:
           ALLOIQ_CONFIG_TOML: ${{ secrets.ALLOIQ_CONFIG_TOML }}
         shell: bash
@@ -112,17 +118,21 @@ jobs:
           printf '%s\n' "$ALLOIQ_CONFIG_TOML" > config/invest.toml
 
       - name: Migrate private warehouse
+        if: steps.pipeline.outputs.should_run == 'true'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python3 -m invest warehouse migrate
 
       - name: Python tests
+        if: steps.pipeline.outputs.should_run == 'true'
         run: python3 -m unittest discover -s tests
 
       - name: JavaScript syntax
+        if: steps.pipeline.outputs.should_run == 'true'
         run: node --check web/app.js
 
       - name: Build public site from committed snapshot
+        if: steps.pipeline.outputs.should_run == 'true'
         shell: bash
         run: |
           mkdir -p /tmp/alloiq-web-check/data
@@ -130,10 +140,13 @@ jobs:
           python3 -m invest site build --privacy public --out-dir /tmp/alloiq-web-check
 
       - name: Preserve previous public snapshot
+        if: steps.pipeline.outputs.should_run == 'true'
         shell: bash
         run: cp web/data/latest.json /tmp/alloiq-previous-latest.json || true
 
       - name: Run scheduled pipeline
+        id: scheduled_pipeline
+        if: steps.pipeline.outputs.should_run == 'true'
         env:
           IBKR_FLEX_TOKEN: ${{ secrets.IBKR_FLEX_TOKEN }}
           IBKR_FLEX_ACTIVITY_QUERY_ID: ${{ secrets.IBKR_FLEX_ACTIVITY_QUERY_ID }}
@@ -144,19 +157,28 @@ jobs:
           CFTC_APP_TOKEN: ${{ secrets.CFTC_APP_TOKEN }}
         shell: bash
         run: |
-          force_arg=""
+          args=(--kind "${{ steps.pipeline.outputs.kind }}" --privacy public)
           if [[ "${{ steps.pipeline.outputs.force }}" == "true" ]]; then
-            force_arg="--force"
+            args+=(--force)
           fi
-          python3 -m invest pipeline \
-            --kind "${{ steps.pipeline.outputs.kind }}" \
-            --privacy public \
-            $force_arg
+          if [[ -n "${{ steps.pipeline.outputs.scheduled_at }}" ]]; then
+            args+=(--scheduled-at "${{ steps.pipeline.outputs.scheduled_at }}")
+          fi
+          python3 -m invest pipeline "${args[@]}" | tee /tmp/alloiq-pipeline-result.json
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+
+          result = json.load(open("/tmp/alloiq-pipeline-result.json", encoding="utf-8"))
+          print(f"status={result.get('status', 'unknown')}")
+          print(f"reason={result.get('reason', '')}")
+          PY
 
       - name: Privacy scan public assets
+        if: steps.scheduled_pipeline.outputs.status == 'ran'
         run: python3 -m invest privacy-scan
 
       - name: Commit public data snapshot
+        if: steps.scheduled_pipeline.outputs.status == 'ran'
         shell: bash
         run: |
           git add web/data/latest.json web/data/reports.json
@@ -170,6 +192,7 @@ jobs:
           git push
 
       - name: Send Telegram briefing
+        if: steps.scheduled_pipeline.outputs.status == 'ran'
         env:
           ALLOIQ_TELEGRAM_BOT_TOKEN: ${{ secrets.ALLOIQ_TELEGRAM_BOT_TOKEN }}
           ALLOIQ_TELEGRAM_CHAT_ID: ${{ secrets.ALLOIQ_TELEGRAM_CHAT_ID }}

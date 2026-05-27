@@ -178,15 +178,18 @@ Schedules are defined in `.github/workflows/scheduled-reports.yml`:
 
 - Premarket: 8:00 AM ET on NYSE trading days.
 - Market open: 9:30 AM ET on NYSE trading days.
-- Intraday refresh: 10:00 AM, 11:00 AM, 1:00 PM, 2:00 PM, and 3:00 PM ET on NYSE trading days.
-- Midday: 12:00 PM ET on NYSE trading days.
+- Intraday refresh: 10:00 AM, 11:00 AM, 12:00 PM, 2:00 PM, and 3:00 PM ET on NYSE trading days.
+- Midday: 1:00 PM ET on NYSE trading days.
 - Market close: 4:00 PM ET on NYSE trading days.
 - Post-close: 4:30 PM ET on NYSE trading days.
 - Weekly idea research: Sunday morning ET.
 
-The workflow uses duplicate UTC cron windows for daylight saving time and lets
-the Python scheduler skip the non-matching duplicate. Manual runs can use
-`workflow_dispatch` with `force=true`.
+The workflow uses UTC cron slots that cover both daylight saving and standard
+time. It derives the intended cron slot before calling the Python scheduler, so
+late GitHub Actions starts still evaluate the intended ET report window instead
+of the delayed runner start time. Seasonal duplicate slots no-op before secrets,
+pipeline, or Telegram delivery. Manual runs can use `workflow_dispatch` with
+`force=true`.
 
 Required GitHub repository secrets:
 

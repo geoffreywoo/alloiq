@@ -7,7 +7,16 @@ from .risk import normalize_limits
 from .symbols import proxied_lookup, symbol_proxy_key
 
 
-SIZING_VERSION = "2026-05-target-weight-sizing-v1"
+SIZING_VERSION = "2026-05-target-weight-sizing-v2"
+
+CONSTRUCTIVE_CATALYST_EVENTS = {
+    "capex_signal",
+    "contract_win",
+    "earnings_revision",
+    "supply_constraint",
+    "technical_breakout",
+}
+HARD_NEGATIVE_EVENTS = {"crowding_warning", "financing_risk", "regulatory_risk"}
 
 
 def build_sizing_plan(
@@ -36,6 +45,7 @@ def build_sizing_plan(
     cash_deployable_weight = cash_deployment_budget(cash_weight, normalized_limits)
     target_total = min(1.0, starting_equity_weight + cash_deployable_weight)
     normalize_model_targets(targets, target_total=target_total)
+    apply_positive_catalyst_gap_trim_blocks(targets)
     apply_cash_aware_budget(targets, normalized_limits, cash_deployable_weight)
     targets.sort(key=lambda row: (abs(float(row.get("recommended_delta_weight") or 0)), float(row.get("risk_adjusted_expected_return") or 0)), reverse=True)
     actions = [row for row in targets if should_publish_action(row)]
@@ -43,6 +53,7 @@ def build_sizing_plan(
     published_actions = actions[:12]
     rebalance_budget = rebalance_budget_summary(published_actions, normalized_limits, starting_cash_weight=cash_weight, max_cash_deploy_weight=cash_deployable_weight)
     annotate_action_funding(published_actions, rebalance_budget)
+    target_summary = model_target_summary(targets, target_total)
     return {
         "version": SIZING_VERSION,
         "model_policy_version": MODEL_POLICY_VERSION,
@@ -51,6 +62,12 @@ def build_sizing_plan(
         "action_count": len(published_actions),
         "starting_equity_weight": round_weight(starting_equity_weight),
         "target_total_weight": round_weight(target_total),
+        "model_target_total_weight": target_summary["model_target_total_weight"],
+        "model_target_utilization_pct": target_summary["model_target_utilization_pct"],
+        "model_target_unallocated_weight": target_summary["model_target_unallocated_weight"],
+        "model_target_overallocated_weight": target_summary["model_target_overallocated_weight"],
+        "max_allowed_binding_count": target_summary["max_allowed_binding_count"],
+        "max_allowed_binding_symbols": target_summary["max_allowed_binding_symbols"],
         "cash_reserve_weight": round_weight(cash_weight),
         "cash_deployable_weight": round_weight(cash_deployable_weight),
         "post_trade_cash_weight": rebalance_budget["post_trade_cash_weight"],
@@ -165,6 +182,35 @@ def target_for_item(
         "bull_return_12m": item.get("bull_return_12m", 0),
         "base_return_12m": item.get("base_return_12m", 0),
         "bear_return_12m": item.get("bear_return_12m", 0),
+        "price_return_1d": item.get("price_return_1d"),
+        "price_return_5d": item.get("price_return_5d"),
+        "price_return_1m": item.get("price_return_1m"),
+        "price_return_3m": item.get("price_return_3m"),
+        "price_return_ytd": item.get("price_return_ytd"),
+        "price_return_1y": item.get("price_return_1y"),
+        "earnings_days_until": item.get("earnings_days_until"),
+        "earnings_event_date": item.get("earnings_event_date", ""),
+        "earnings_event_source": item.get("earnings_event_source", ""),
+        "earnings_confirmed_or_estimated": item.get("earnings_confirmed_or_estimated", ""),
+        "earnings_risk_window": item.get("earnings_risk_window", ""),
+        "earnings_confirmation_required": bool(item.get("earnings_confirmation_required", False)),
+        "external_signal_score": item.get("external_signal_score"),
+        "coverage_adjusted_external_signal_score": item.get("coverage_adjusted_external_signal_score"),
+        "external_coverage_multiplier": item.get("external_coverage_multiplier"),
+        "external_feed_status": item.get("external_feed_status", ""),
+        "external_provider_count": item.get("external_provider_count"),
+        "external_provider_ok_count": item.get("external_provider_ok_count"),
+        "external_provider_ok_ratio": item.get("external_provider_ok_ratio"),
+        "external_provider_gap_count": item.get("external_provider_gap_count"),
+        "external_provider_configuration_gap_count": item.get("external_provider_configuration_gap_count"),
+        "external_provider_transient_gap_count": item.get("external_provider_transient_gap_count"),
+        "external_provider_stale_gap_count": item.get("external_provider_stale_gap_count"),
+        "external_provider_runtime_gap_count": item.get("external_provider_runtime_gap_count"),
+        "external_provider_other_gap_count": item.get("external_provider_other_gap_count"),
+        "external_provider_primary_gap_severity": item.get("external_provider_primary_gap_severity", ""),
+        "external_provider_gap_severity_score": item.get("external_provider_gap_severity_score"),
+        "external_signal_count": item.get("external_signal_count"),
+        "external_source_count": item.get("external_source_count"),
         "evidence_quality": round(evidence, 2),
         "timing_score": round(timing, 2),
         "drawdown_risk": round(drawdown, 2),
@@ -182,6 +228,7 @@ def target_for_item(
         "tertiary_signal_summary": item.get("tertiary_signal_summary", ""),
         "decision_stack": item.get("decision_stack", {}),
         "signal_family_count": len(item.get("signal_families") or []),
+        "signal_families": item.get("signal_families", []),
         "event_types": item.get("event_types", []),
         "catalyst_clock": item.get("catalyst_clock", ""),
         "verdict": item.get("verdict", "study"),
@@ -233,30 +280,140 @@ def cash_deployment_budget(cash_weight: float, limits: dict[str, Any]) -> float:
 
 
 def normalize_model_targets(targets: list[dict[str, Any]], target_total: float = 1.0) -> None:
-    raw_total = sum(float(row.get("unscaled_model_target_weight", row.get("model_target_weight") or 0) or 0) for row in targets)
+    raw_values = [
+        float(row.get("unscaled_model_target_weight", row.get("model_target_weight") or 0) or 0)
+        for row in targets
+    ]
+    raw_total = sum(raw_values)
     if raw_total <= 0:
         return
     preserved_total = 0.0
-    scalable_raw_total = 0.0
-    for row in targets:
-        raw = float(row.get("unscaled_model_target_weight", row.get("model_target_weight") or 0) or 0)
+    assigned: dict[int, float] = {}
+    scalable_indexes = []
+    for index, row in enumerate(targets):
+        raw = raw_values[index]
         current = float(row.get("current_weight") or 0)
         if row.get("company_trim_signal") or row.get("verdict") == "trim":
-            preserved_total += min(raw, current)
+            target = min(raw, current, target_max_allowed(row))
+            assigned[index] = target
+            preserved_total += target
         else:
-            scalable_raw_total += raw
-    scale = max(0.0, target_total - preserved_total) / scalable_raw_total if scalable_raw_total > 0 else 1.0
-    for row in targets:
-        raw = float(row.get("unscaled_model_target_weight", row.get("model_target_weight") or 0) or 0)
+            scalable_indexes.append(index)
+    remaining = max(0.0, target_total - preserved_total)
+    active = set(scalable_indexes)
+    while active and remaining > 0:
+        active_raw_total = sum(raw_values[index] for index in active)
+        if active_raw_total <= 0:
+            break
+        scale = remaining / active_raw_total
+        capped_indexes = []
+        for index in sorted(active):
+            candidate = max(0.0, raw_values[index] * scale)
+            cap = target_max_allowed(targets[index])
+            if candidate > cap:
+                assigned[index] = cap
+                remaining = max(0.0, remaining - cap)
+                capped_indexes.append(index)
+        if not capped_indexes:
+            for index in sorted(active):
+                assigned[index] = max(0.0, raw_values[index] * scale)
+            remaining = 0.0
+            break
+        active.difference_update(capped_indexes)
+    for index in active:
+        assigned.setdefault(index, 0.0)
+    for index, row in enumerate(targets):
+        raw = raw_values[index]
         current = float(row.get("current_weight") or 0)
-        if row.get("company_trim_signal") or row.get("verdict") == "trim":
-            normalized = min(raw, current)
-        else:
-            normalized = max(0.0, raw * scale)
+        normalized = assigned.get(index, 0.0)
         row["model_target_weight"] = round_weight(normalized)
         row["risk_adjusted_target_weight"] = row["model_target_weight"]
-        row["normalization_scale"] = round(scale, 6)
+        row["normalization_scale"] = round(normalized / raw, 6) if raw > 0 else 0.0
         row["desired_delta_weight"] = round_weight(normalized - current)
+
+
+def target_max_allowed(row: dict[str, Any]) -> float:
+    value = row.get("max_allowed_weight")
+    if value is None:
+        return float("inf")
+    return max(0.0, float(value or 0))
+
+
+def model_target_summary(targets: list[dict[str, Any]], target_total: float) -> dict[str, Any]:
+    model_total = sum(float(row.get("model_target_weight") or 0) for row in targets)
+    unallocated = max(0.0, float(target_total or 0) - model_total)
+    overallocated = max(0.0, model_total - float(target_total or 0))
+    binding_symbols = []
+    for row in targets:
+        cap = target_max_allowed(row)
+        if cap == float("inf"):
+            continue
+        target = float(row.get("model_target_weight") or 0)
+        if target >= cap - 0.000001:
+            binding_symbols.append(str(row.get("symbol") or "UNKNOWN"))
+    return {
+        "model_target_total_weight": round_weight(model_total),
+        "model_target_utilization_pct": round((model_total / target_total) * 100.0, 2) if target_total else 0.0,
+        "model_target_unallocated_weight": round_weight(unallocated),
+        "model_target_overallocated_weight": round_weight(overallocated),
+        "max_allowed_binding_count": len(binding_symbols),
+        "max_allowed_binding_symbols": binding_symbols[:12],
+    }
+
+
+def apply_positive_catalyst_gap_trim_blocks(targets: list[dict[str, Any]]) -> None:
+    for row in targets:
+        if not positive_catalyst_gap_trim_block(row):
+            continue
+        current = float(row.get("current_weight") or 0)
+        blocked_target = float(row.get("model_target_weight") or 0)
+        constraints = list(row.get("active_constraints") or [])
+        constraints.append("positive_catalyst_gap_trim_block")
+        row["positive_catalyst_gap_trim_block"] = True
+        row["positive_catalyst_gap_trim_block_reason"] = positive_catalyst_gap_reason(row)
+        row["blocked_model_target_weight"] = round_weight(blocked_target)
+        row["blocked_desired_delta_weight"] = row.get("desired_delta_weight", 0)
+        row["desired_delta_weight"] = 0.0
+        row["recommended_delta_weight"] = 0.0
+        row["post_action_weight"] = round_weight(current)
+        row["trade_target_weight"] = round_weight(current)
+        row["target_weight"] = round_weight(current)
+        row["trade_action"] = "hold"
+        row["funding_source"] = "no_trade"
+        row["funding_counterpart_symbols"] = []
+        row["active_constraints"] = sorted(set(constraints))
+
+
+def positive_catalyst_gap_trim_block(row: dict[str, Any]) -> bool:
+    current = float(row.get("current_weight") or 0)
+    desired = float(row.get("desired_delta_weight") or 0)
+    if current <= 0 or desired >= -0.000001:
+        return False
+    if row.get("company_trim_signal"):
+        return False
+    events = {str(event) for event in row.get("event_types") or []}
+    if events & HARD_NEGATIVE_EVENTS:
+        return False
+    if not events & CONSTRUCTIVE_CATALYST_EVENTS:
+        return False
+    one_day = optional_float(row.get("price_return_1d"))
+    five_day = first_optional_float(row.get("price_return_5d"), row.get("five_day_pct"))
+    has_gap = (one_day is not None and one_day >= 8.0) or (five_day is not None and five_day >= 12.0)
+    if not has_gap:
+        return False
+    company_score = float(row.get("company_underwriting_score") or 0)
+    evidence = float(row.get("evidence_quality") or 0)
+    has_bottom_up_support = company_score >= 54.0 or evidence >= 70.0 or bool(row.get("company_add_eligible"))
+    has_signal_support = bool({"catalyst", "price_action"} & {str(item) for item in row.get("signal_families") or []})
+    return has_bottom_up_support and has_signal_support
+
+
+def positive_catalyst_gap_reason(row: dict[str, Any]) -> str:
+    one_day = optional_float(row.get("price_return_1d"))
+    five_day = first_optional_float(row.get("price_return_5d"), row.get("five_day_pct"))
+    move = f"1D {one_day:.1f}%" if one_day is not None else f"5D {five_day:.1f}%"
+    events = ", ".join(str(event) for event in (row.get("event_types") or [])[:3])
+    return f"{move} positive move with constructive catalyst tape ({events}); do not fund adds by trimming until the next briefing validates the move."
 
 
 def apply_cash_aware_budget(targets: list[dict[str, Any]], limits: dict[str, Any], cash_deployable_weight: float = 0.0) -> None:
@@ -367,6 +524,14 @@ def set_trade_delta(row: dict[str, Any], delta: float, funding_role: str) -> Non
         row["funding_source"] = "no_trade"
     row["action"] = sizing_summary(trade_action, delta, post_action, model_target)
     row["sizing_summary"] = row["action"]
+    if row.get("positive_catalyst_gap_trim_block") and abs(delta) <= 0.000001:
+        blocked_target = float(row.get("blocked_model_target_weight") or model_target)
+        row["trade_action"] = "hold"
+        row["action"] = (
+            "Hold; positive catalyst gap blocks trim funding today "
+            f"despite unblocked model target {weight_label(blocked_target)}."
+        )
+        row["sizing_summary"] = row["action"]
     row["sizing_basis"] = "trim-and-cash-funded portfolio-weight rebalance; adds can use capped cash reserves"
     row["priority"] = round(priority_with_trade_delta(row, delta), 2)
 
@@ -537,7 +702,7 @@ def confidence_score(evidence: float, timing: float, drawdown: float, item: dict
 
 def should_publish_action(row: dict[str, Any]) -> bool:
     delta = abs(float(row.get("recommended_delta_weight") or 0))
-    return delta >= 0.005
+    return delta >= 0.005 or bool(row.get("positive_catalyst_gap_trim_block"))
 
 
 def trade_action_for_delta(delta: float, current: float, verdict: str) -> str:
@@ -597,6 +762,23 @@ def decrease_size_if(item: dict[str, Any]) -> str:
 
 def round_weight(value: float) -> float:
     return round(float(value or 0), 6)
+
+
+def optional_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def first_optional_float(*values: Any) -> float | None:
+    for value in values:
+        parsed = optional_float(value)
+        if parsed is not None:
+            return parsed
+    return None
 
 
 def weight_label(value: float) -> str:

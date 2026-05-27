@@ -175,6 +175,7 @@ class PipelineTests(unittest.TestCase):
 
             self.assertEqual(result["status"], "ran")
             self.assertEqual(result["portfolio_fallback"]["status"], "used_previous_public_portfolio")
+            self.assertNotIn("IBKR", result["portfolio_fallback"]["reason"])
             site.assert_called_once()
             updated_payload = json.loads(report_json.read_text(encoding="utf-8"))
             self.assertEqual(updated_payload["portfolio"]["symbol_count"], 2)
@@ -183,6 +184,7 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][0]["portfolio_weight"], 0.25)
             self.assertEqual(updated_payload["data_health"]["sources"][0]["source"], "portfolio_fallback")
             self.assertEqual(updated_payload["data_health"]["recommendation_posture"], "reduced_confidence")
+            self.assertNotIn("IBKR", json.dumps(updated_payload["portfolio_fallback"]))
 
     def test_sync_ibkr_uses_bounded_retry_configuration(self):
         config = AppConfig(path=Path("config/invest.toml"), data={"ibkr": {"raw_directory": "raw"}})

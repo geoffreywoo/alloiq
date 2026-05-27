@@ -361,7 +361,7 @@ def append_portfolio_fallback_health(report_payload: dict[str, Any], metadata: d
 def broker_problem_summary(broker_result: dict[str, Any]) -> str:
     details = broker_result.get("details") or {}
     messages = []
-    for broker, detail in details.items():
+    for detail in details.values():
         status = str((detail or {}).get("status") or "unknown")
         if status not in {"failed", "skipped"}:
             continue
@@ -370,8 +370,16 @@ def broker_problem_summary(broker_result: dict[str, Any]) -> str:
         wait_seconds = (detail or {}).get("wait_seconds")
         retry_text = f" after {attempts} attempts" if attempts else ""
         wait_text = f" with {wait_seconds}s waits" if wait_seconds else ""
-        messages.append(f"{broker} {status}{retry_text}{wait_text}: {reason}")
+        messages.append(f"live broker {status}{retry_text}{wait_text}: {public_safe_broker_detail(str(reason))}")
     return "; ".join(messages) or "Broker sync failed or was skipped."
+
+
+def public_safe_broker_detail(value: str) -> str:
+    return (
+        value.replace("IBKR Flex", "broker statement")
+        .replace("IBKR", "broker")
+        .replace("ibkr", "broker")
+    )
 
 
 def broker_sync_has_problem(broker_result: dict[str, Any]) -> bool:

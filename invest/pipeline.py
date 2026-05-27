@@ -25,6 +25,8 @@ class PortfolioSnapshotRegression(RuntimeError):
 
 BROKER_SYNC_KINDS = {"premarket", "midday", "postmarket", "weekly"}
 PIPELINE_RESULT_KEYS = frozenset({"kind", "privacy", "schedule", "status"})
+MIN_SUSPICIOUS_PUBLIC_PORTFOLIO_SYMBOLS = 8
+SUSPICIOUS_PUBLIC_PORTFOLIO_SHRINK_RATIO = 0.5
 
 
 def extract_pipeline_result_json(text: str) -> dict[str, Any]:
@@ -138,7 +140,7 @@ def public_portfolio_regression_reason(
     out_dir: Path,
     privacy: str,
 ) -> str:
-    if privacy != "public" or not broker_sync_has_problem(broker_result):
+    if privacy != "public":
         return ""
     previous = load_existing_public_snapshot(out_dir)
     if not previous:
@@ -149,17 +151,40 @@ def public_portfolio_regression_reason(
     current_symbols = int(current_portfolio.get("symbol_count") or 0)
     previous_rows = int(previous_portfolio.get("position_count") or 0)
     current_rows = int(current_portfolio.get("position_count") or 0)
-    if previous_symbols and current_symbols < previous_symbols:
+    broker_problem = broker_sync_has_problem(broker_result)
+    if broker_problem and previous_symbols and current_symbols < previous_symbols:
         return (
             "Refusing to publish public snapshot because broker sync failed/skipped "
             f"and portfolio symbol count would shrink from {previous_symbols} to {current_symbols}."
         )
-    if previous_rows and current_rows < previous_rows:
+    if broker_problem and previous_rows and current_rows < previous_rows:
         return (
             "Refusing to publish public snapshot because broker sync failed/skipped "
             f"and portfolio position rows would shrink from {previous_rows} to {current_rows}."
         )
+    if suspicious_public_portfolio_shrink(previous_symbols, current_symbols, previous_rows, current_rows):
+        return (
+            "Refusing to publish public snapshot because the current position snapshot looks incomplete: "
+            f"portfolio symbol count would shrink from {previous_symbols} to {current_symbols}."
+        )
     return ""
+
+
+def suspicious_public_portfolio_shrink(
+    previous_symbols: int,
+    current_symbols: int,
+    previous_rows: int,
+    current_rows: int,
+) -> bool:
+    symbol_shrink = (
+        previous_symbols >= MIN_SUSPICIOUS_PUBLIC_PORTFOLIO_SYMBOLS
+        and current_symbols < previous_symbols * SUSPICIOUS_PUBLIC_PORTFOLIO_SHRINK_RATIO
+    )
+    row_shrink = (
+        previous_rows >= MIN_SUSPICIOUS_PUBLIC_PORTFOLIO_SYMBOLS
+        and current_rows < previous_rows * SUSPICIOUS_PUBLIC_PORTFOLIO_SHRINK_RATIO
+    )
+    return symbol_shrink or row_shrink
 
 
 def previous_public_portfolio_fallback(
@@ -167,7 +192,7 @@ def previous_public_portfolio_fallback(
     broker_result: dict[str, Any],
     privacy: str,
 ) -> dict[str, Any] | None:
-    if privacy != "public" or not broker_sync_has_problem(broker_result):
+    if privacy != "public":
         return None
     previous = load_existing_public_snapshot(out_dir)
     previous_portfolio = previous.get("portfolio") or {}
@@ -178,7 +203,7 @@ def previous_public_portfolio_fallback(
         "portfolio": report_portfolio_from_public_snapshot(previous_portfolio),
         "metadata": {
             "status": "used_previous_public_portfolio",
-            "reason": broker_problem_summary(broker_result),
+            "reason": public_portfolio_fallback_reason(broker_result),
             "source": "web/data/latest.json",
             "source_report": site.get("source_report", ""),
             "source_built_at": site.get("built_at", ""),
@@ -186,6 +211,12 @@ def previous_public_portfolio_fallback(
             "previous_position_count": int(previous_portfolio.get("position_count") or 0),
         },
     }
+
+
+def public_portfolio_fallback_reason(broker_result: dict[str, Any]) -> str:
+    if broker_sync_has_problem(broker_result):
+        return broker_problem_summary(broker_result)
+    return "Current public position snapshot appears incomplete relative to the previous public snapshot."
 
 
 def apply_public_portfolio_fallback_if_needed(
@@ -380,6 +411,13 @@ def normalize_fallback_rebalance_budget(report_payload: dict[str, Any]) -> None:
 def append_portfolio_fallback_health(report_payload: dict[str, Any], metadata: dict[str, Any]) -> None:
     data_health = report_payload.setdefault("data_health", {})
     sources = data_health.setdefault("sources", [])
+    for source in sources:
+        if source.get("source") in {"broker_positions", "position_snapshot"}:
+            source["status"] = "stale"
+            source["detail"] = (
+                "Live broker sync failed; portfolio weights use the previous public snapshot "
+                "instead of the current partial broker rows."
+            )
     sources.insert(
         0,
         {

@@ -76,7 +76,8 @@ watch_only_symbols = []
 # approval check only.
 enabled = false
 provider = "openai"
-model = "gpt-4o-mini"
+model = "gpt-5-mini"
+reasoning_effort = "medium"
 api_key_env = "OPENAI_API_KEY"
 max_symbols_per_run = 12
 mode = "shadow"

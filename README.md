@@ -207,7 +207,9 @@ Optional data-source secrets:
 - `OPENAI_API_KEY`: enables the optional LLM evidence-review layer when
   `[llm].enabled = true` in `ALLOIQ_CONFIG_TOML`. Start with `[llm].mode =
   "shadow"` so reviews are published as evidence only and cannot block approval
-  tickets.
+  tickets. The default OpenAI reviewer is `gpt-5-mini` with
+  `reasoning_effort = "medium"`; set `reasoning_effort = "none"` for legacy
+  non-reasoning models.
 
 Optional briefing delivery secrets:
 

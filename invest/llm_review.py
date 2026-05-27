@@ -17,8 +17,10 @@ LLM_REVIEW_VERSION = "2026-05-llm-evidence-review-v1"
 LLM_REVIEW_PROMPT_VERSION = "2026-05-evidence-challenge-v1"
 LLM_REVIEW_SCHEMA_VERSION = "2026-05-llm-review-schema-v1"
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
-DEFAULT_LLM_MODEL = "gpt-4o-mini"
+DEFAULT_LLM_MODEL = "gpt-5-mini"
+DEFAULT_REASONING_EFFORT = "medium"
 ALLOWED_MODES = {"disabled", "shadow", "review_gate"}
+ALLOWED_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high"}
 THESIS_QUALITIES = {"strong", "mixed", "weak"}
 PROHIBITED_FIELD_NAMES = {
     "account",
@@ -197,12 +199,18 @@ def llm_settings(config: AppConfig) -> dict[str, Any]:
         "max_symbols_per_run": max(1, min(50, int(raw.get("max_symbols_per_run") or 12))),
         "mode": mode,
         "timeout_seconds": max(3, min(60, int(raw.get("timeout_seconds") or 20))),
+        "reasoning_effort": normalize_reasoning_effort(raw.get("reasoning_effort")),
     }
 
 
 def normalize_mode(settings: dict[str, Any]) -> str:
     mode = str(settings.get("mode") or "disabled").strip().lower()
     return mode if mode in ALLOWED_MODES else "disabled"
+
+
+def normalize_reasoning_effort(value: Any) -> str:
+    effort = str(value or DEFAULT_REASONING_EFFORT).strip().lower()
+    return effort if effort in ALLOWED_REASONING_EFFORTS else DEFAULT_REASONING_EFFORT
 
 
 def base_snapshot(settings: dict[str, Any], mode: str, as_of: date, session: str) -> dict[str, Any]:
@@ -215,6 +223,7 @@ def base_snapshot(settings: dict[str, Any], mode: str, as_of: date, session: str
         "enabled": bool(settings.get("enabled", False)),
         "provider": settings.get("provider", "openai"),
         "model": settings.get("model", DEFAULT_LLM_MODEL),
+        "reasoning_effort": settings.get("reasoning_effort", DEFAULT_REASONING_EFFORT),
         "mode": mode,
         "reviewed_symbol_count": 0,
         "evidence_packet_count": 0,
@@ -400,6 +409,8 @@ def call_openai_responses(
             }
         },
     }
+    if should_use_reasoning(settings):
+        body["reasoning"] = {"effort": settings["reasoning_effort"]}
     request = urllib.request.Request(
         OPENAI_RESPONSES_URL,
         data=json.dumps(body).encode("utf-8"),
@@ -411,6 +422,14 @@ def call_openai_responses(
     )
     with urlopen(request, timeout=int(settings["timeout_seconds"])) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def should_use_reasoning(settings: dict[str, Any]) -> bool:
+    effort = str(settings.get("reasoning_effort") or DEFAULT_REASONING_EFFORT).strip().lower()
+    model = str(settings.get("model") or "").strip().lower()
+    if effort == "none":
+        return False
+    return model.startswith("gpt-5") or re.match(r"^o[0-9]", model) is not None
 
 
 def llm_review_system_prompt() -> str:

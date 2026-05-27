@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
@@ -70,8 +71,18 @@ def run_pipeline(
         if kind in BROKER_SYNC_KINDS
         else {"imported": 0, "status": "not_run", "reason": f"{kind} refresh reuses latest stored broker positions"}
     )
+    fallback_candidate = previous_public_portfolio_fallback(out_dir, broker_result, privacy)
     md_path, json_path = generate_brief(conn, config, kind)
     report_payload = json.loads(json_path.read_text(encoding="utf-8")) if json_path.exists() else {}
+    fallback_applied = apply_public_portfolio_fallback_if_needed(
+        report_payload,
+        fallback_candidate,
+        broker_result,
+        out_dir,
+        privacy,
+    )
+    if fallback_applied and json_path.exists():
+        json_path.write_text(json.dumps(report_payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
     regression_reason = public_portfolio_regression_reason(report_payload, broker_result, out_dir, privacy)
     if regression_reason:
         deferred_result = {
@@ -104,6 +115,8 @@ def run_pipeline(
         "report_json": str(json_path),
         "site": site_result,
     }
+    if fallback_applied:
+        ran_result["portfolio_fallback"] = fallback_applied
     ran_result["warehouse"] = sync_report_payload(report_payload, ran_result)
     return ran_result
 
@@ -147,6 +160,218 @@ def public_portfolio_regression_reason(
             f"and portfolio position rows would shrink from {previous_rows} to {current_rows}."
         )
     return ""
+
+
+def previous_public_portfolio_fallback(
+    out_dir: Path,
+    broker_result: dict[str, Any],
+    privacy: str,
+) -> dict[str, Any] | None:
+    if privacy != "public" or not broker_sync_has_problem(broker_result):
+        return None
+    previous = load_existing_public_snapshot(out_dir)
+    previous_portfolio = previous.get("portfolio") or {}
+    if not previous_portfolio.get("by_symbol"):
+        return None
+    site = previous.get("site") or {}
+    return {
+        "portfolio": report_portfolio_from_public_snapshot(previous_portfolio),
+        "metadata": {
+            "status": "used_previous_public_portfolio",
+            "reason": broker_problem_summary(broker_result),
+            "source": "web/data/latest.json",
+            "source_report": site.get("source_report", ""),
+            "source_built_at": site.get("built_at", ""),
+            "previous_symbol_count": int(previous_portfolio.get("symbol_count") or 0),
+            "previous_position_count": int(previous_portfolio.get("position_count") or 0),
+        },
+    }
+
+
+def apply_public_portfolio_fallback_if_needed(
+    report_payload: dict[str, Any],
+    fallback: dict[str, Any] | None,
+    broker_result: dict[str, Any],
+    out_dir: Path,
+    privacy: str,
+) -> dict[str, Any] | None:
+    if not fallback:
+        return None
+    regression_reason = public_portfolio_regression_reason(report_payload, broker_result, out_dir, privacy)
+    if not regression_reason:
+        return None
+    metadata = dict(fallback["metadata"])
+    metadata["regression_reason"] = regression_reason
+    fallback_portfolio = deepcopy(fallback["portfolio"])
+    report_payload["portfolio"] = fallback_portfolio
+    report_payload["portfolio_fallback"] = metadata
+    report_payload["positions"] = {
+        row["symbol"]: 0.0
+        for row in fallback_portfolio.get("by_symbol", [])
+        if row.get("symbol")
+    }
+    fallback_weights = {
+        str(row.get("symbol") or "").upper(): float(row.get("comparison_weight") or row.get("ex_cash_weight") or 0)
+        for row in fallback_portfolio.get("by_symbol", [])
+        if row.get("symbol") and not row.get("is_cash")
+    }
+    update_portfolio_weight_fields(report_payload, fallback_weights)
+    append_portfolio_fallback_health(report_payload, metadata)
+    print(f"Using previous public portfolio fallback: {regression_reason}")
+    return metadata
+
+
+def report_portfolio_from_public_snapshot(portfolio: dict[str, Any]) -> dict[str, Any]:
+    cash_weight = max(0.0, float(portfolio.get("cash_weight") or 0))
+    equity_weight = max(0.0, float(portfolio.get("equity_weight", 1.0 - cash_weight) or 0))
+    symbol_rows = [
+        report_position_row_from_public(row, equity_weight)
+        for row in portfolio.get("by_symbol", [])
+        if row.get("symbol") and not row.get("is_cash")
+    ]
+    bucket_rows = [
+        report_bucket_row_from_public(row, equity_weight)
+        for row in portfolio.get("by_bucket", [])
+        if row.get("bucket") != "cash_reserves"
+    ]
+    return {
+        "position_count": int(portfolio.get("position_count") or len(symbol_rows)),
+        "symbol_count": int(portfolio.get("symbol_count") or len(symbol_rows)),
+        "security_symbol_count": int(portfolio.get("security_symbol_count") or len(symbol_rows)),
+        "gross_exposure": 0.0,
+        "net_exposure": 0.0,
+        "equity_exposure": 0.0,
+        "cash_exposure": 0.0,
+        "equity_weight": equity_weight,
+        "cash_weight": cash_weight,
+        "cash_reserves": {
+            "symbol": "CASH",
+            "bucket": "cash_reserves",
+            "asset_class": "cash",
+            "weight": cash_weight,
+            "policy": "previous_public_portfolio_fallback",
+        },
+        "weight_basis": portfolio.get("total_weight_basis", "total_portfolio_including_cash"),
+        "comparison_weight_basis": portfolio.get("weight_basis", "invested_equity_ex_cash"),
+        "by_symbol": symbol_rows,
+        "by_bucket": bucket_rows,
+        "by_broker": [
+            {
+                "broker": "previous_public_snapshot",
+                "market_value": 0.0,
+                "weight": 1.0,
+            }
+        ],
+        "unmapped_symbols": [
+            str(row.get("symbol") or "").upper()
+            for row in symbol_rows
+            if row.get("bucket") == "unmapped"
+        ],
+    }
+
+
+def report_position_row_from_public(row: dict[str, Any], equity_weight: float) -> dict[str, Any]:
+    comparison = public_snapshot_comparison_weight(row)
+    total_weight = public_snapshot_total_weight(row, comparison, equity_weight)
+    return {
+        "symbol": str(row.get("symbol") or "").upper(),
+        "bucket": row.get("bucket", "unmapped"),
+        "asset_class": row.get("asset_class", "equity"),
+        "is_cash": False,
+        "market_value": 0.0,
+        "quantity": 0.0,
+        "cost_basis": 0.0,
+        "weight": total_weight,
+        "total_weight": total_weight,
+        "ex_cash_weight": comparison,
+        "comparison_weight": comparison,
+        "brokers": ["previous_public_snapshot"],
+        "accounts": ["public_weights_fallback"],
+    }
+
+
+def report_bucket_row_from_public(row: dict[str, Any], equity_weight: float) -> dict[str, Any]:
+    comparison = public_snapshot_comparison_weight(row)
+    total_weight = public_snapshot_total_weight(row, comparison, equity_weight)
+    return {
+        "bucket": row.get("bucket", "unmapped"),
+        "market_value": 0.0,
+        "weight": total_weight,
+        "total_weight": total_weight,
+        "ex_cash_weight": comparison,
+        "comparison_weight": comparison,
+    }
+
+
+def public_snapshot_comparison_weight(row: dict[str, Any]) -> float:
+    for key in ("comparison_weight", "ex_cash_weight", "weight"):
+        if row.get(key) is not None:
+            return max(0.0, float(row.get(key) or 0))
+    return 0.0
+
+
+def public_snapshot_total_weight(row: dict[str, Any], comparison: float, equity_weight: float) -> float:
+    if row.get("total_weight") is not None:
+        return max(0.0, float(row.get("total_weight") or 0))
+    return max(0.0, comparison * equity_weight)
+
+
+def update_portfolio_weight_fields(value: Any, fallback_weights: dict[str, float]) -> None:
+    if isinstance(value, list):
+        for item in value:
+            update_portfolio_weight_fields(item, fallback_weights)
+        return
+    if not isinstance(value, dict):
+        return
+    symbol = str(value.get("symbol") or "").upper()
+    if symbol and symbol in fallback_weights:
+        for key in ("portfolio_weight", "current_weight", "current_portfolio_weight"):
+            if key in value:
+                value[key] = round(fallback_weights[symbol], 6)
+    for item in value.values():
+        update_portfolio_weight_fields(item, fallback_weights)
+
+
+def append_portfolio_fallback_health(report_payload: dict[str, Any], metadata: dict[str, Any]) -> None:
+    data_health = report_payload.setdefault("data_health", {})
+    sources = data_health.setdefault("sources", [])
+    sources.insert(
+        0,
+        {
+            "source": "portfolio_fallback",
+            "label": "Portfolio fallback",
+            "status": "stale",
+            "detail": (
+                "Using previous public portfolio weights because the live broker sync failed "
+                "and the newly generated portfolio would have regressed."
+            ),
+            "source_report": metadata.get("source_report", ""),
+            "source_built_at": metadata.get("source_built_at", ""),
+        },
+    )
+    data_health["recommendation_posture"] = "reduced_confidence"
+    data_health["summary"] = (
+        "Portfolio weights use the previous public snapshot because broker sync failed after retries; "
+        "recommendations remain approval-only."
+    )
+    weak_statuses = {"missing", "stale", "limited", "estimated", "unknown", "failed", "error"}
+    data_health["weak_source_count"] = sum(1 for row in sources if row.get("status") in weak_statuses)
+
+
+def broker_problem_summary(broker_result: dict[str, Any]) -> str:
+    details = broker_result.get("details") or {}
+    messages = []
+    for broker, detail in details.items():
+        status = str((detail or {}).get("status") or "unknown")
+        if status not in {"failed", "skipped"}:
+            continue
+        reason = (detail or {}).get("error") or (detail or {}).get("reason") or "No broker detail emitted."
+        attempts = (detail or {}).get("attempts")
+        wait_seconds = (detail or {}).get("wait_seconds")
+        retry_text = f" after {attempts} attempts" if attempts else ""
+        wait_text = f" with {wait_seconds}s waits" if wait_seconds else ""
+        messages.append(f"{broker} {status}{retry_text}{wait_text}: {reason}")
+    return "; ".join(messages) or "Broker sync failed or was skipped."
 
 
 def broker_sync_has_problem(broker_result: dict[str, Any]) -> bool:
@@ -223,11 +448,26 @@ def sync_ibkr(conn, config: AppConfig) -> tuple[int, dict[str, Any]]:
         message = "IBKR skipped: set IBKR_FLEX_TOKEN and IBKR_FLEX_ACTIVITY_QUERY_ID"
         print(message)
         return 0, {"status": "skipped", "reason": message}
+    attempts = int_env("IBKR_FLEX_ATTEMPTS", 6)
+    wait_seconds = float_env("IBKR_FLEX_WAIT_SECONDS", 10.0)
     try:
-        path = fetch_flex_statement(config.ibkr_token, config.ibkr_activity_query_id, config.ibkr_raw_dir)
+        path = fetch_flex_statement(
+            config.ibkr_token,
+            config.ibkr_activity_query_id,
+            config.ibkr_raw_dir,
+            attempts=attempts,
+            wait_seconds=wait_seconds,
+        )
     except FlexError as exc:
         print(f"IBKR failed: {exc}")
-        return 0, {"status": "failed", "error": str(exc)}
+        return 0, {
+            "status": "failed",
+            "error": str(exc),
+            "attempts": attempts,
+            "wait_seconds": wait_seconds,
+            "retryable": exc.retryable,
+            "error_code": exc.code,
+        }
     transactions, positions = parse_flex_xml(path)
     tx_count = insert_transactions(conn, transactions)
     pos_count = insert_positions(conn, positions)
@@ -237,7 +477,23 @@ def sync_ibkr(conn, config: AppConfig) -> tuple[int, dict[str, Any]]:
         "path": str(path),
         "transactions": tx_count,
         "positions": pos_count,
+        "attempts": attempts,
+        "wait_seconds": wait_seconds,
     }
+
+
+def int_env(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def float_env(name: str, default: float) -> float:
+    try:
+        return max(0.0, float(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return default
 
 
 def sync_vanguard(conn, config: AppConfig) -> tuple[int, dict[str, Any]]:

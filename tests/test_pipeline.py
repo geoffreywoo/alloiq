@@ -1,11 +1,13 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
+from invest.brokers.ibkr import FlexError
 from invest.config import AppConfig
-from invest.pipeline import extract_pipeline_result_json, run_pipeline
+from invest.pipeline import extract_pipeline_result_json, run_pipeline, sync_ibkr
 
 
 class PipelineTests(unittest.TestCase):
@@ -98,7 +100,7 @@ class PipelineTests(unittest.TestCase):
         brokers.assert_not_called()
         brief.assert_called_once_with(None, config, "intraday")
 
-    def test_public_pipeline_defers_publish_for_shrunken_portfolio_after_broker_failure(self):
+    def test_public_pipeline_uses_previous_public_portfolio_after_broker_failure_regression(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             reports_dir = root / "reports"
@@ -106,16 +108,39 @@ class PipelineTests(unittest.TestCase):
             reports_dir.mkdir()
             (out_dir / "data").mkdir(parents=True)
             previous_payload = {
+                "site": {"source_report": "previous.json", "built_at": "2026-05-23T12:00:00Z"},
                 "portfolio": {
-                    "position_count": 12,
-                    "symbol_count": 8,
-                    "by_symbol": [{"symbol": "NVDA", "weight": 0.2}],
-                }
+                    "position_count": 2,
+                    "symbol_count": 2,
+                    "security_symbol_count": 2,
+                    "cash_weight": 0.2,
+                    "equity_weight": 0.8,
+                    "weight_basis": "invested_equity_ex_cash",
+                    "total_weight_basis": "total_portfolio_including_cash",
+                    "by_symbol": [
+                        {"symbol": "NVDA", "bucket": "semis_networking_hbm", "weight": 0.75, "total_weight": 0.6},
+                        {"symbol": "MU", "bucket": "semis_networking_hbm", "weight": 0.25, "total_weight": 0.2},
+                    ],
+                    "by_bucket": [
+                        {"bucket": "semis_networking_hbm", "weight": 1.0, "total_weight": 0.8},
+                    ],
+                },
             }
             new_payload = {
                 "as_of": "2026-05-24",
                 "session": "premarket",
-                "portfolio": {"position_count": 3, "symbol_count": 3},
+                "portfolio": {"position_count": 1, "symbol_count": 1},
+                "portfolio_benchmark": {
+                    "action_queue": [
+                        {"symbol": "MU", "portfolio_weight": 0.0, "current_weight": 0.0},
+                    ],
+                },
+                "data_health": {
+                    "recommendation_posture": "normal",
+                    "summary": "ok",
+                    "sources": [],
+                    "weak_source_count": 0,
+                },
             }
             latest = out_dir / "data" / "latest.json"
             report_json = reports_dir / "2026-05-24-premarket.json"
@@ -129,16 +154,60 @@ class PipelineTests(unittest.TestCase):
                 patch("invest.pipeline.refresh_filings", return_value={"stored": 0}),
                 patch(
                     "invest.pipeline.sync_brokers",
-                    return_value={"imported": 0, "details": {"ibkr": {"status": "failed"}}},
+                    return_value={
+                        "imported": 0,
+                        "details": {
+                            "ibkr": {
+                                "status": "failed",
+                                "error": "IBKR Flex request failed: try again shortly.",
+                                "attempts": 6,
+                                "wait_seconds": 10.0,
+                            }
+                        },
+                    },
                 ),
                 patch("invest.pipeline.generate_brief", return_value=(reports_dir / "brief.md", report_json)),
-                patch("invest.pipeline.build_site") as site,
+                patch("invest.pipeline.build_site", return_value={"out_dir": str(out_dir)}) as site,
+                patch("invest.pipeline.assert_public_assets_safe"),
+                patch("invest.pipeline.assert_public_snapshot_quality"),
             ):
                 result = run_pipeline(None, config, "premarket", out_dir=out_dir, force=True)
 
-            self.assertEqual(result["status"], "deferred")
-            self.assertIn("Refusing to publish public snapshot", result["reason"])
-            site.assert_not_called()
+            self.assertEqual(result["status"], "ran")
+            self.assertEqual(result["portfolio_fallback"]["status"], "used_previous_public_portfolio")
+            site.assert_called_once()
+            updated_payload = json.loads(report_json.read_text(encoding="utf-8"))
+            self.assertEqual(updated_payload["portfolio"]["symbol_count"], 2)
+            self.assertEqual(updated_payload["portfolio"]["by_symbol"][1]["symbol"], "MU")
+            self.assertEqual(updated_payload["portfolio"]["by_symbol"][1]["comparison_weight"], 0.25)
+            self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][0]["portfolio_weight"], 0.25)
+            self.assertEqual(updated_payload["data_health"]["sources"][0]["source"], "portfolio_fallback")
+            self.assertEqual(updated_payload["data_health"]["recommendation_posture"], "reduced_confidence")
+
+    def test_sync_ibkr_uses_bounded_retry_configuration(self):
+        config = AppConfig(path=Path("config/invest.toml"), data={"ibkr": {"raw_directory": "raw"}})
+        with (
+            patch.dict(os.environ, {
+                "IBKR_FLEX_TOKEN": "token",
+                "IBKR_FLEX_ACTIVITY_QUERY_ID": "query",
+                "IBKR_FLEX_ATTEMPTS": "3",
+                "IBKR_FLEX_WAIT_SECONDS": "0.5",
+            }),
+            patch("invest.pipeline.fetch_flex_statement", side_effect=FlexError("try again", retryable=True)) as fetch,
+        ):
+            imported, detail = sync_ibkr(None, config)
+
+        self.assertEqual(imported, 0)
+        self.assertEqual(detail["status"], "failed")
+        self.assertEqual(detail["attempts"], 3)
+        self.assertEqual(detail["wait_seconds"], 0.5)
+        fetch.assert_called_once_with(
+            "token",
+            "query",
+            Path("raw"),
+            attempts=3,
+            wait_seconds=0.5,
+        )
 
     def test_extract_pipeline_result_json_ignores_nested_status_objects(self):
         text = """

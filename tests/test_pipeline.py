@@ -170,7 +170,14 @@ class PipelineTests(unittest.TestCase):
                 "data_health": {
                     "recommendation_posture": "normal",
                     "summary": "ok",
-                    "sources": [],
+                    "sources": [
+                        {
+                            "source": "broker_positions",
+                            "label": "Position snapshot",
+                            "status": "ok",
+                            "detail": "1 current broker/account rows available",
+                        }
+                    ],
                     "weak_source_count": 0,
                 },
             }
@@ -227,8 +234,93 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(budget["cash_deployed_weight"], 0.0)
             self.assertEqual(budget["post_trade_cash_weight"], 0.2)
             self.assertEqual(updated_payload["data_health"]["sources"][0]["source"], "portfolio_fallback")
+            self.assertEqual(updated_payload["data_health"]["sources"][1]["source"], "broker_positions")
+            self.assertEqual(updated_payload["data_health"]["sources"][1]["status"], "stale")
+            self.assertIn("previous public snapshot", updated_payload["data_health"]["sources"][1]["detail"])
             self.assertEqual(updated_payload["data_health"]["recommendation_posture"], "reduced_confidence")
             self.assertNotIn("IBKR", json.dumps(updated_payload["portfolio_fallback"]))
+
+    def test_public_pipeline_uses_previous_public_portfolio_after_suspicious_successful_shrink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reports_dir = root / "reports"
+            out_dir = root / "web"
+            reports_dir.mkdir()
+            (out_dir / "data").mkdir(parents=True)
+            previous_symbols = [f"SYM{index}" for index in range(12)]
+            previous_payload = {
+                "site": {"source_report": "previous.json", "built_at": "2026-05-26T15:53:36Z"},
+                "portfolio": {
+                    "position_count": 12,
+                    "symbol_count": 12,
+                    "security_symbol_count": 12,
+                    "cash_weight": 0.0,
+                    "equity_weight": 1.0,
+                    "weight_basis": "invested_equity_ex_cash",
+                    "total_weight_basis": "total_portfolio_including_cash",
+                    "by_symbol": [
+                        {"symbol": symbol, "bucket": "semis_networking_hbm", "weight": round(1 / 12, 6)}
+                        for symbol in previous_symbols
+                    ],
+                    "by_bucket": [{"bucket": "semis_networking_hbm", "weight": 1.0}],
+                },
+            }
+            new_payload = {
+                "as_of": "2026-05-27",
+                "session": "market_close",
+                "portfolio": {
+                    "position_count": 3,
+                    "symbol_count": 3,
+                    "by_symbol": [
+                        {"symbol": "NVDA", "bucket": "semis_networking_hbm", "weight": 0.5},
+                        {"symbol": "TSM", "bucket": "semis_networking_hbm", "weight": 0.3},
+                        {"symbol": "AMZN", "bucket": "frontier_ai_platforms", "weight": 0.2},
+                    ],
+                },
+                "portfolio_benchmark": {"action_queue": [], "sizing_plan": {"rebalance_budget": {}}},
+                "data_health": {
+                    "recommendation_posture": "normal",
+                    "summary": "ok",
+                    "sources": [
+                        {
+                            "source": "position_snapshot",
+                            "label": "Position snapshot",
+                            "status": "ok",
+                            "detail": "3 current broker/account rows available",
+                        }
+                    ],
+                    "weak_source_count": 0,
+                },
+            }
+            latest = out_dir / "data" / "latest.json"
+            report_json = reports_dir / "2026-05-27-market_close.json"
+            latest.write_text(json.dumps(previous_payload), encoding="utf-8")
+            report_json.write_text(json.dumps(new_payload), encoding="utf-8")
+            config = AppConfig(
+                path=Path("config/invest.toml"),
+                data={"reports": {"directory": str(reports_dir)}},
+            )
+            with (
+                patch("invest.pipeline.refresh_filings", return_value={"stored": 0}),
+                patch("invest.pipeline.sync_brokers", return_value={"imported": 3, "details": {"ibkr": {"status": "ok"}}}),
+                patch("invest.pipeline.generate_brief", return_value=(reports_dir / "brief.md", report_json)),
+                patch("invest.pipeline.build_site", return_value={"out_dir": str(out_dir)}) as site,
+                patch("invest.pipeline.assert_public_assets_safe"),
+                patch("invest.pipeline.assert_public_snapshot_quality"),
+            ):
+                result = run_pipeline(None, config, "market_close", out_dir=out_dir, force=True)
+
+            self.assertEqual(result["status"], "ran")
+            self.assertEqual(result["portfolio_fallback"]["status"], "used_previous_public_portfolio")
+            self.assertIn("looks incomplete", result["portfolio_fallback"]["regression_reason"])
+            site.assert_called_once()
+            updated_payload = json.loads(report_json.read_text(encoding="utf-8"))
+            self.assertEqual(updated_payload["portfolio"]["symbol_count"], 12)
+            self.assertEqual(updated_payload["portfolio"]["by_symbol"][0]["symbol"], "SYM0")
+            self.assertEqual(updated_payload["data_health"]["sources"][0]["source"], "portfolio_fallback")
+            self.assertEqual(updated_payload["data_health"]["sources"][1]["source"], "position_snapshot")
+            self.assertEqual(updated_payload["data_health"]["sources"][1]["status"], "stale")
+            self.assertIn("previous public snapshot", updated_payload["data_health"]["sources"][1]["detail"])
 
     def test_sync_ibkr_uses_bounded_retry_configuration(self):
         config = AppConfig(path=Path("config/invest.toml"), data={"ibkr": {"raw_directory": "raw"}})

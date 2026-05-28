@@ -263,8 +263,12 @@ class SiteTests(unittest.TestCase):
         anti_positions = public["anti_fund_growth"]["positions"]
         self.assertAlmostEqual(sum(row["weight"] for row in anti_positions), 1.0, places=5)
         self.assertEqual(anti_positions[0]["company"], "OpenAI")
-        self.assertAlmostEqual(anti_positions[0]["weight"], 0.431002, places=6)
-        self.assertAlmostEqual(anti_positions[0]["cost_weight"], 0.393107, places=6)
+        self.assertAlmostEqual(anti_positions[0]["weight"], 0.402806, places=6)
+        self.assertAlmostEqual(anti_positions[0]["cost_weight"], 0.367390, places=6)
+        anthropic = next(row for row in anti_positions if row["company"] == "Anthropic")
+        self.assertAlmostEqual(anthropic["weight"], 0.065421, places=6)
+        self.assertAlmostEqual(anthropic["cost_weight"], 0.065421, places=6)
+        self.assertEqual(anthropic["mark_basis"], "$900B private valuation model mark")
         anti_keys = set()
 
         def collect_keys(value):

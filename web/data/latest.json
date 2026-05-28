@@ -11,71 +11,78 @@
     "positions": [
       {
         "company": "OpenAI",
-        "cost_weight": 0.393107,
+        "cost_weight": 0.36739,
         "mark_basis": "vntl:OPENAI public mark",
         "source_label": "Hyperliquid Ventuals",
         "source_url": "https://app.hyperliquid.xyz/trade/vntl:OPENAI",
-        "weight": 0.431002
+        "weight": 0.402806
       },
       {
         "company": "SpaceX",
-        "cost_weight": 0.118488,
+        "cost_weight": 0.110736,
         "mark_basis": "vntl:SPACEX public mark",
         "source_label": "Hyperliquid Ventuals",
         "source_url": "https://app.hyperliquid.xyz/trade/vntl:SPACEX",
-        "weight": 0.157402
+        "weight": 0.147105
       },
       {
         "company": "Cognition",
-        "cost_weight": 0.179038,
+        "cost_weight": 0.167325,
         "mark_basis": "Series C and prior-position model mark",
         "source_label": "Local LP model",
-        "weight": 0.138166
+        "weight": 0.129127
       },
       {
         "company": "Saronic",
-        "cost_weight": 0.131646,
+        "cost_weight": 0.123034,
         "mark_basis": "Series D and secondary indication",
         "source_label": "Local LP model",
         "source_url": "https://www.prnewswire.com/news-releases/saronic-closes-1-75b-series-d-at-9-25b-valuation-to-accelerate-a-new-era-of-maritime-autonomy-302729238.html",
-        "weight": 0.099542
+        "weight": 0.09303
       },
       {
         "company": "Anduril",
-        "cost_weight": 0.065823,
+        "cost_weight": 0.061517,
         "mark_basis": "Series H and secondary indication",
         "source_label": "Local LP model",
         "source_url": "https://techcrunch.com/2026/05/13/anduril-raises-5b-doubles-valuation-to-61b/",
-        "weight": 0.071726
+        "weight": 0.067034
+      },
+      {
+        "company": "Anthropic",
+        "cost_weight": 0.065421,
+        "mark_basis": "$900B private valuation model mark",
+        "source_label": "Local LP model",
+        "weight": 0.065421
       },
       {
         "company": "Helion",
-        "cost_weight": 0.065823,
+        "cost_weight": 0.061517,
         "mark_basis": "Flat at current model mark",
         "source_label": "Local LP model",
-        "weight": 0.047103
+        "weight": 0.044021
       },
       {
         "company": "Erebor",
-        "cost_weight": 0.026327,
+        "cost_weight": 0.024605,
         "mark_basis": "Series C indication",
         "source_label": "Local LP model",
-        "weight": 0.034647
+        "weight": 0.03238
       },
       {
         "company": "Modal",
-        "cost_weight": 0.013165,
+        "cost_weight": 0.012304,
         "mark_basis": "Public Series C reference",
         "source_label": "Local LP model",
         "source_url": "https://modal.com/blog/modal-series-c",
-        "weight": 0.015701
+        "weight": 0.014674
       },
       {
         "company": "Etched",
-        "cost_weight": 0.006582,
+        "cost_weight": 0.006151,
         "mark_basis": "Flat at current model mark",
         "source_label": "Local LP model",
-        "weight": 0.00471
+        "weight": 0.004402
       }
     ],
     "relationship": "Geoffrey Woo's affiliated private tech crossover fund.",

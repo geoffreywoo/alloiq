@@ -10,7 +10,15 @@ from .backtest import build_backtest_summary, backtest_signal, outcome_history_f
 from .brokers.ibkr import FlexError, fetch_flex_statement, parse_flex_xml, summarize_flex_xml
 from .brokers.vanguard import parse_vanguard_file, parse_vanguard_positions_file
 from .config import DEFAULT_CONFIG_PATH, init_config, load_config
-from .db import connect, init_db, insert_positions, insert_transactions, record_import, upsert_filing
+from .db import (
+    connect,
+    init_db,
+    insert_positions,
+    insert_transactions,
+    manager_filing_holding_count,
+    record_import,
+    upsert_filing,
+)
 from .features import FEATURE_MATRIX_VERSION, MODEL_POLICY_VERSION
 from .filings.sec import DEFAULT_CUSIP_SYMBOL_MAP, DEFAULT_ISSUER_SYMBOL_MAP, fetch_13f_holdings, fetch_recent_filings
 from .outcomes import FORWARD_HORIZONS, TRAINING_EXAMPLE_VERSION, build_outcome_diagnostics, pending_label_schedule
@@ -4036,6 +4044,15 @@ def store_filings_for_manager(manager_key: str, config, conn, max_filings: int |
                 config.symbol_to_bucket,
                 DEFAULT_ISSUER_SYMBOL_MAP,
             )
+            if not holdings:
+                previous_count = manager_filing_holding_count(conn, filing.manager_key)
+                if previous_count:
+                    print(
+                        f"Skipped {filing.form} {filing.accession_number}: fetched 0 holdings; "
+                        "kept previous known manager holdings"
+                    )
+                    continue
+                raise ValueError(f"{filing.accession_number} parsed 0 holdings and no previous holdings are stored")
         upsert_filing(conn, filing, holdings)
         stored += 1
         print(f"Stored {filing.form} {filing.accession_number} with {len(holdings)} holdings")

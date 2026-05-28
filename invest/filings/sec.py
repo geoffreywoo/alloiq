@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import time
+import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import date
@@ -13,18 +15,52 @@ from ..util import SEC_USER_AGENT, decimal_or_zero, parse_date
 SEC_DATA = "https://data.sec.gov/submissions"
 SEC_ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
 INFO_NS = {"n": "http://www.sec.gov/edgar/document/thirteenf/informationtable"}
+SEC_REQUEST_INTERVAL_SECONDS = 0.25
+SEC_RETRY_ATTEMPTS = 4
+SEC_RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+_SEC_LAST_REQUEST_AT = 0.0
 
 
 def fetch_json(url: str) -> dict[str, Any]:
-    req = urllib.request.Request(url, headers={"User-Agent": SEC_USER_AGENT, "Accept-Encoding": "identity"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    return json.loads(fetch_url(url).decode("utf-8"))
 
 
 def fetch_bytes(url: str) -> bytes:
+    return fetch_url(url)
+
+
+def fetch_url(url: str) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": SEC_USER_AGENT, "Accept-Encoding": "identity"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.read()
+    for attempt in range(SEC_RETRY_ATTEMPTS):
+        throttle_sec_request()
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as exc:
+            if exc.code not in SEC_RETRY_STATUS_CODES or attempt == SEC_RETRY_ATTEMPTS - 1:
+                raise
+            exc.close()
+            time.sleep(sec_retry_delay(exc, attempt))
+    raise RuntimeError(f"SEC request failed after {SEC_RETRY_ATTEMPTS} attempts: {url}")
+
+
+def throttle_sec_request() -> None:
+    global _SEC_LAST_REQUEST_AT
+    now = time.monotonic()
+    elapsed = now - _SEC_LAST_REQUEST_AT
+    if elapsed < SEC_REQUEST_INTERVAL_SECONDS:
+        time.sleep(SEC_REQUEST_INTERVAL_SECONDS - elapsed)
+    _SEC_LAST_REQUEST_AT = time.monotonic()
+
+
+def sec_retry_delay(exc: urllib.error.HTTPError, attempt: int) -> float:
+    retry_after = exc.headers.get("Retry-After") if exc.headers else None
+    if retry_after:
+        try:
+            return max(float(retry_after), SEC_REQUEST_INTERVAL_SECONDS)
+        except ValueError:
+            pass
+    return max(float(attempt + 1), SEC_REQUEST_INTERVAL_SECONDS)
 
 
 def fetch_recent_filings(manager: dict[str, Any], forms: set[str] | None = None) -> list[Filing]:

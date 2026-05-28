@@ -9,7 +9,13 @@ from typing import Any
 from .brokers.ibkr import FlexError, fetch_flex_statement, parse_flex_xml
 from .brokers.vanguard import parse_vanguard_file, parse_vanguard_positions_file
 from .config import AppConfig
-from .db import insert_positions, insert_transactions, record_import, upsert_filing
+from .db import (
+    insert_positions,
+    insert_transactions,
+    manager_filing_holding_count,
+    record_import,
+    upsert_filing,
+)
 from .filings.sec import DEFAULT_CUSIP_SYMBOL_MAP, DEFAULT_ISSUER_SYMBOL_MAP, fetch_13f_holdings, fetch_recent_filings
 from .privacy import assert_public_assets_safe
 from .quality import assert_public_snapshot_quality
@@ -74,6 +80,7 @@ def run_pipeline(
         else {"imported": 0, "status": "not_run", "reason": f"{kind} refresh reuses latest stored broker positions"}
     )
     fallback_candidate = previous_public_portfolio_fallback(out_dir, broker_result, privacy)
+    manager_fallback_candidate = previous_public_manager_radar_fallback(out_dir, privacy)
     md_path, json_path = generate_brief(conn, config, kind)
     report_payload = json.loads(json_path.read_text(encoding="utf-8")) if json_path.exists() else {}
     fallback_applied = apply_public_portfolio_fallback_if_needed(
@@ -83,7 +90,12 @@ def run_pipeline(
         out_dir,
         privacy,
     )
-    if fallback_applied and json_path.exists():
+    manager_fallback_applied = apply_public_manager_radar_fallback_if_needed(
+        report_payload,
+        manager_fallback_candidate,
+        privacy,
+    )
+    if (fallback_applied or manager_fallback_applied) and json_path.exists():
         json_path.write_text(json.dumps(report_payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
     regression_reason = public_portfolio_regression_reason(report_payload, broker_result, out_dir, privacy)
     if regression_reason:
@@ -96,6 +108,8 @@ def run_pipeline(
             "report_markdown": str(md_path),
             "report_json": str(json_path),
         }
+        if manager_fallback_applied:
+            deferred_result["manager_radar_fallback"] = manager_fallback_applied
         deferred_result["warehouse"] = sync_report_payload(None, deferred_result)
         return deferred_result
     site_result = build_site(
@@ -119,6 +133,8 @@ def run_pipeline(
     }
     if fallback_applied:
         ran_result["portfolio_fallback"] = fallback_applied
+    if manager_fallback_applied:
+        ran_result["manager_radar_fallback"] = manager_fallback_applied
     ran_result["warehouse"] = sync_report_payload(report_payload, ran_result)
     return ran_result
 
@@ -303,6 +319,122 @@ def refresh_fallback_portfolio_benchmark(
     universe = benchmark.get("performance_universe")
     if isinstance(universe, dict):
         universe["restored_after_portfolio_fallback"] = True
+
+
+def previous_public_manager_radar_fallback(out_dir: Path, privacy: str) -> dict[str, Any] | None:
+    if privacy != "public":
+        return None
+    previous = load_existing_public_snapshot(out_dir)
+    previous_radar = previous.get("manager_radar") or {}
+    if not previous_manager_radar_has_positions(previous_radar):
+        return None
+    site = previous.get("site") or {}
+    return {
+        "manager_radar": previous_radar,
+        "metadata": {
+            "status": "used_previous_public_manager_radar",
+            "source": "web/data/latest.json",
+            "source_report": site.get("source_report", ""),
+            "source_built_at": site.get("built_at", ""),
+            "previous_stored_latest_count": int(previous_radar.get("stored_latest_count") or 0),
+            "previous_manager_count": int(previous_radar.get("manager_count") or 0),
+        },
+    }
+
+
+def apply_public_manager_radar_fallback_if_needed(
+    report_payload: dict[str, Any],
+    fallback: dict[str, Any] | None,
+    privacy: str,
+) -> dict[str, Any] | None:
+    if privacy != "public" or not fallback:
+        return None
+    regression_reason = public_manager_radar_regression_reason(report_payload, fallback)
+    if not regression_reason:
+        return None
+    metadata = dict(fallback["metadata"])
+    metadata["regression_reason"] = regression_reason
+    report_payload["manager_radar"] = deepcopy(fallback["manager_radar"])
+    report_payload["manager_radar_fallback"] = metadata
+    append_manager_radar_fallback_health(report_payload, metadata)
+    print(f"Using previous public manager radar fallback: {regression_reason}")
+    return metadata
+
+
+def public_manager_radar_regression_reason(report_payload: dict[str, Any], fallback: dict[str, Any]) -> str:
+    previous = fallback.get("manager_radar") or {}
+    current = report_payload.get("manager_radar") or {}
+    previous_stored = int(previous.get("stored_latest_count") or 0)
+    current_stored = int(current.get("stored_latest_count") or 0)
+    if previous_stored and current_stored < previous_stored:
+        return (
+            "Refusing to publish manager radar regression because stored manager filing count "
+            f"would shrink from {previous_stored} to {current_stored}."
+        )
+    missing = managers_losing_known_positions(current, previous)
+    if missing:
+        names = ", ".join(missing[:4])
+        suffix = f", and {len(missing) - 4} more" if len(missing) > 4 else ""
+        return (
+            "Refusing to publish manager radar regression because previously known focus-manager "
+            f"positions are missing for {names}{suffix}."
+        )
+    return ""
+
+
+def previous_manager_radar_has_positions(radar: dict[str, Any]) -> bool:
+    return any(manager_has_positions(row) for row in radar.get("focus_managers", []))
+
+
+def managers_losing_known_positions(current: dict[str, Any], previous: dict[str, Any]) -> list[str]:
+    current_by_key = {
+        str(row.get("manager_key") or ""): row
+        for row in current.get("focus_managers", [])
+        if row.get("manager_key")
+    }
+    missing: list[str] = []
+    for previous_row in previous.get("focus_managers", []):
+        if not manager_has_positions(previous_row):
+            continue
+        manager_key = str(previous_row.get("manager_key") or "")
+        current_row = current_by_key.get(manager_key)
+        if manager_has_positions(current_row or {}):
+            continue
+        missing.append(str(previous_row.get("manager_name") or manager_key))
+    return missing
+
+
+def manager_has_positions(row: dict[str, Any]) -> bool:
+    if row.get("status") != "ok":
+        return False
+    return bool(row.get("positions") or row.get("top_positions"))
+
+
+def append_manager_radar_fallback_health(report_payload: dict[str, Any], metadata: dict[str, Any]) -> None:
+    data_health = report_payload.setdefault("data_health", {})
+    sources = data_health.setdefault("sources", [])
+    sources.insert(
+        0,
+        {
+            "source": "manager_radar_fallback",
+            "label": "Manager 13F fallback",
+            "status": "stale",
+            "detail": (
+                "Using previous public manager 13F radar because the newly generated manager data "
+                "would have regressed."
+            ),
+            "source_report": metadata.get("source_report", ""),
+            "source_built_at": metadata.get("source_built_at", ""),
+        },
+    )
+    data_health["recommendation_posture"] = "reduced_confidence"
+    if not data_health.get("summary") or data_health.get("summary") == "ok":
+        data_health["summary"] = (
+            "Manager radar uses the previous public snapshot because the current refresh missed known 13F data; "
+            "recommendations remain approval-only."
+        )
+    weak_statuses = {"missing", "stale", "limited", "estimated", "unknown", "failed", "error"}
+    data_health["weak_source_count"] = sum(1 for row in sources if row.get("status") in weak_statuses)
 
 
 def report_portfolio_from_public_snapshot(portfolio: dict[str, Any]) -> dict[str, Any]:
@@ -566,6 +698,15 @@ def store_filings_for_manager(conn, config: AppConfig, manager: dict[str, Any], 
             config.symbol_to_bucket,
             DEFAULT_ISSUER_SYMBOL_MAP,
         )
+        if not holdings:
+            previous_count = manager_filing_holding_count(conn, filing.manager_key)
+            if previous_count:
+                print(
+                    f"Skipped {filing.form} {filing.accession_number}: fetched 0 holdings; "
+                    "kept previous known manager holdings"
+                )
+                continue
+            raise ValueError(f"{filing.accession_number} parsed 0 holdings and no previous holdings are stored")
         upsert_filing(conn, filing, holdings)
         stored += 1
         print(f"Stored {filing.form} {filing.accession_number} with {len(holdings)} holdings")

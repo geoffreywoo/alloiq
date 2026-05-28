@@ -181,11 +181,21 @@ def insert_positions(conn: sqlite3.Connection, positions: list[Position]) -> int
 
 
 def upsert_filing(conn: sqlite3.Connection, filing: Filing, holdings: list[Holding]) -> int:
+    previous_holding_count = filing_holding_count(conn, filing.manager_key, filing.accession_number)
     conn.execute(
         """
-        INSERT OR REPLACE INTO filings
+        INSERT INTO filings
         (manager_key, manager_name, cik, accession_number, form, filing_date, report_date, url, raw_json, processed_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(manager_key, accession_number) DO UPDATE SET
+            manager_name = excluded.manager_name,
+            cik = excluded.cik,
+            form = excluded.form,
+            filing_date = excluded.filing_date,
+            report_date = excluded.report_date,
+            url = excluded.url,
+            raw_json = excluded.raw_json,
+            processed_at = excluded.processed_at
         """,
         (
             filing.manager_key,
@@ -204,6 +214,9 @@ def upsert_filing(conn: sqlite3.Connection, filing: Filing, holdings: list[Holdi
         "SELECT id FROM filings WHERE manager_key = ? AND accession_number = ?",
         (filing.manager_key, filing.accession_number),
     ).fetchone()["id"]
+    if not holdings and previous_holding_count:
+        conn.commit()
+        return previous_holding_count
     conn.execute("DELETE FROM filing_holdings WHERE filing_id = ?", (filing_id,))
     merged_holdings = merge_duplicate_holdings(holdings)
     for holding in merged_holdings:
@@ -229,6 +242,32 @@ def upsert_filing(conn: sqlite3.Connection, filing: Filing, holdings: list[Holdi
         )
     conn.commit()
     return len(merged_holdings)
+
+
+def filing_holding_count(conn: sqlite3.Connection, manager_key: str, accession_number: str) -> int:
+    row = conn.execute(
+        """
+        SELECT COUNT(h.id) AS n
+        FROM filings f
+        LEFT JOIN filing_holdings h ON h.filing_id = f.id
+        WHERE f.manager_key = ? AND f.accession_number = ?
+        """,
+        (manager_key, accession_number),
+    ).fetchone()
+    return int(row["n"] if row else 0)
+
+
+def manager_filing_holding_count(conn: sqlite3.Connection, manager_key: str) -> int:
+    row = conn.execute(
+        """
+        SELECT COUNT(h.id) AS n
+        FROM filings f
+        JOIN filing_holdings h ON h.filing_id = f.id
+        WHERE f.manager_key = ?
+        """,
+        (manager_key,),
+    ).fetchone()
+    return int(row["n"] if row else 0)
 
 
 def merge_duplicate_holdings(holdings: list[Holding]) -> list[Holding]:

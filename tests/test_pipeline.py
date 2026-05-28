@@ -348,6 +348,76 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(updated_payload["data_health"]["sources"][1]["status"], "stale")
             self.assertIn("previous public snapshot", updated_payload["data_health"]["sources"][1]["detail"])
 
+    def test_public_pipeline_uses_previous_manager_radar_after_refresh_regression(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reports_dir = root / "reports"
+            out_dir = root / "web"
+            reports_dir.mkdir()
+            (out_dir / "data").mkdir(parents=True)
+            previous_payload = {
+                "site": {"source_report": "previous.json", "built_at": "2026-05-26T15:53:36Z"},
+                "manager_radar": {
+                    "stored_latest_count": 2,
+                    "manager_count": 2,
+                    "focus_managers": [
+                        {
+                            "manager_key": "altimeter",
+                            "manager_name": "Altimeter",
+                            "manager_tier": "tier_1",
+                            "status": "ok",
+                            "positions": [{"rank": 1, "symbol": "NVDA", "fund_weight": 0.4}],
+                            "top_positions": [{"rank": 1, "symbol": "NVDA", "fund_weight": 0.4}],
+                        }
+                    ],
+                },
+            }
+            new_payload = {
+                "as_of": "2026-05-27",
+                "session": "postmarket",
+                "portfolio": {"position_count": 1, "symbol_count": 1},
+                "manager_radar": {
+                    "stored_latest_count": 0,
+                    "manager_count": 2,
+                    "focus_managers": [
+                        {
+                            "manager_key": "altimeter",
+                            "manager_name": "Altimeter",
+                            "manager_tier": "tier_1",
+                            "status": "missing_latest_filing",
+                            "positions": [],
+                            "top_positions": [],
+                        }
+                    ],
+                },
+                "data_health": {"sources": [], "summary": "ok", "recommendation_posture": "normal"},
+            }
+            latest = out_dir / "data" / "latest.json"
+            report_json = reports_dir / "2026-05-27-postmarket.json"
+            latest.write_text(json.dumps(previous_payload), encoding="utf-8")
+            report_json.write_text(json.dumps(new_payload), encoding="utf-8")
+            config = AppConfig(
+                path=Path("config/invest.toml"),
+                data={"reports": {"directory": str(reports_dir)}},
+            )
+            with (
+                patch("invest.pipeline.refresh_filings", return_value={"stored": 0}),
+                patch("invest.pipeline.generate_brief", return_value=(reports_dir / "brief.md", report_json)),
+                patch("invest.pipeline.build_site", return_value={"out_dir": str(out_dir)}),
+                patch("invest.pipeline.assert_public_assets_safe"),
+                patch("invest.pipeline.assert_public_snapshot_quality"),
+            ):
+                result = run_pipeline(None, config, "intraday", out_dir=out_dir, force=True)
+
+            self.assertEqual(result["status"], "ran")
+            self.assertEqual(result["manager_radar_fallback"]["status"], "used_previous_public_manager_radar")
+            updated_payload = json.loads(report_json.read_text(encoding="utf-8"))
+            focus = updated_payload["manager_radar"]["focus_managers"][0]
+            self.assertEqual(focus["status"], "ok")
+            self.assertEqual(focus["positions"][0]["symbol"], "NVDA")
+            self.assertEqual(updated_payload["data_health"]["sources"][0]["source"], "manager_radar_fallback")
+            self.assertEqual(updated_payload["data_health"]["recommendation_posture"], "reduced_confidence")
+
     def test_sync_ibkr_uses_bounded_retry_configuration(self):
         config = AppConfig(path=Path("config/invest.toml"), data={"ibkr": {"raw_directory": "raw"}})
         with (

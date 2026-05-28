@@ -54,10 +54,13 @@ def latest_filings_by_manager(conn: sqlite3.Connection, manager_keys: list[str])
     placeholders = ",".join("?" for _ in manager_keys)
     rows = conn.execute(
         f"""
-        SELECT *
-        FROM filings
-        WHERE manager_key IN ({placeholders}) AND form IN ('13F-HR', '13F-HR/A')
-        ORDER BY manager_key, COALESCE(report_date, filing_date) DESC, filing_date DESC, accession_number DESC
+        SELECT f.*, COUNT(h.id) AS holding_count
+        FROM filings f
+        LEFT JOIN filing_holdings h ON h.filing_id = f.id
+        WHERE f.manager_key IN ({placeholders}) AND f.form IN ('13F-HR', '13F-HR/A')
+        GROUP BY f.id
+        HAVING holding_count > 0
+        ORDER BY f.manager_key, COALESCE(f.report_date, f.filing_date) DESC, f.filing_date DESC, f.accession_number DESC
         """,
         manager_keys,
     ).fetchall()
@@ -403,10 +406,13 @@ def aggregate_manager_flows(conn: sqlite3.Connection, manager_keys: list[str], c
 def latest_two_filings(conn: sqlite3.Connection, manager_key: str) -> list[sqlite3.Row]:
     return conn.execute(
         """
-        SELECT *
-        FROM filings
-        WHERE manager_key = ? AND form IN ('13F-HR', '13F-HR/A')
-        ORDER BY COALESCE(report_date, filing_date) DESC, filing_date DESC, accession_number DESC
+        SELECT f.*, COUNT(h.id) AS holding_count
+        FROM filings f
+        LEFT JOIN filing_holdings h ON h.filing_id = f.id
+        WHERE f.manager_key = ? AND f.form IN ('13F-HR', '13F-HR/A')
+        GROUP BY f.id
+        HAVING holding_count > 0
+        ORDER BY COALESCE(f.report_date, f.filing_date) DESC, f.filing_date DESC, f.accession_number DESC
         LIMIT 2
         """,
         (manager_key,),

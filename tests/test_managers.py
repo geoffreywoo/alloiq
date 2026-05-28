@@ -159,6 +159,105 @@ class ManagerRadarTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_empty_latest_filing_does_not_mask_previous_known_holdings(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        try:
+            init_db(conn)
+            config = AppConfig(
+                path=Path("config/invest.toml"),
+                data={
+                    "managers": [
+                        {
+                            "key": "altimeter",
+                            "name": "Altimeter Capital Management, LP",
+                            "cik": "0001541617",
+                        }
+                    ],
+                    "focus_managers": {"tier1_keys": ["altimeter"]},
+                },
+            )
+            old_filing = Filing(
+                manager_key="altimeter",
+                manager_name="Altimeter Capital Management, LP",
+                cik="0001541617",
+                accession_number="0001541617-26-000002",
+                form="13F-HR",
+                filing_date=date(2026, 2, 17),
+                report_date=date(2025, 12, 31),
+                url="https://www.sec.gov/old",
+            )
+            new_filing = Filing(
+                manager_key="altimeter",
+                manager_name="Altimeter Capital Management, LP",
+                cik="0001541617",
+                accession_number="0001541617-26-000006",
+                form="13F-HR",
+                filing_date=date(2026, 5, 15),
+                report_date=date(2026, 3, 31),
+                url="https://www.sec.gov/new",
+            )
+            holding = Holding(
+                accession_number=old_filing.accession_number,
+                issuer="NVIDIA CORP",
+                title_class="COM",
+                cusip="67066G104",
+                value_usd=Decimal("100"),
+                shares=Decimal("1"),
+                symbol="NVDA",
+            )
+            upsert_filing(conn, old_filing, [holding])
+            upsert_filing(conn, new_filing, [])
+
+            radar = build_manager_radar(conn, config)
+
+            focus = radar["focus_managers"][0]
+            self.assertEqual(focus["status"], "ok")
+            self.assertEqual(focus["accession_number"], old_filing.accession_number)
+            self.assertEqual(focus["position_count"], 1)
+            self.assertEqual(focus["top_positions"][0]["symbol"], "NVDA")
+        finally:
+            conn.close()
+
+    def test_empty_refresh_for_same_filing_preserves_existing_holdings(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        try:
+            init_db(conn)
+            filing = Filing(
+                manager_key="altimeter",
+                manager_name="Altimeter Capital Management, LP",
+                cik="0001541617",
+                accession_number="0001541617-26-000006",
+                form="13F-HR",
+                filing_date=date(2026, 5, 15),
+                report_date=date(2026, 3, 31),
+                url="https://www.sec.gov/example",
+            )
+            upsert_filing(
+                conn,
+                filing,
+                [
+                    Holding(
+                        accession_number=filing.accession_number,
+                        issuer="NVIDIA CORP",
+                        title_class="COM",
+                        cusip="67066G104",
+                        value_usd=Decimal("100"),
+                        shares=Decimal("1"),
+                        symbol="NVDA",
+                    )
+                ],
+            )
+
+            preserved_count = upsert_filing(conn, filing, [])
+
+            self.assertEqual(preserved_count, 1)
+            holdings = conn.execute("SELECT symbol FROM filing_holdings").fetchall()
+            self.assertEqual([row["symbol"] for row in holdings], ["NVDA"])
+        finally:
+            conn.close()
+
 
 if __name__ == "__main__":
     unittest.main()

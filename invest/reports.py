@@ -3137,11 +3137,16 @@ def serialize_return_windows(return_windows: dict[str, dict[str, Decimal]]) -> d
         symbol_key = str(symbol or "").upper()
         if not symbol_key or not isinstance(windows, dict):
             continue
-        serializable[symbol_key] = {
-            str(key): float(value)
-            for key, value in windows.items()
-            if value is not None
-        }
+        numeric_windows: dict[str, float] = {}
+        for key, value in windows.items():
+            if value is None:
+                continue
+            try:
+                numeric_windows[str(key)] = float(value)
+            except (TypeError, ValueError):
+                continue
+        if numeric_windows:
+            serializable[symbol_key] = numeric_windows
     return serializable
 
 

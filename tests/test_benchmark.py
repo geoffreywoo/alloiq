@@ -1,10 +1,21 @@
 from decimal import Decimal
 import unittest
 
-from invest.reports import build_portfolio_benchmark
+from invest.reports import build_portfolio_benchmark, serialize_return_windows
 
 
 class PortfolioBenchmarkTests(unittest.TestCase):
+    def test_return_window_serialization_skips_non_numeric_metadata(self):
+        windows = {
+            "NVDA": {"5d": Decimal("4.5"), "as_of": "2026-05-27", "last": Decimal("200")},
+            "BAD": {"as_of": "2026-05-27"},
+        }
+
+        self.assertEqual(
+            serialize_return_windows(windows),
+            {"NVDA": {"5d": 4.5, "last": 200.0}},
+        )
+
     def test_benchmark_compares_portfolio_to_market_and_peer_proxies(self):
         portfolio = {
             "by_symbol": [

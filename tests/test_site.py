@@ -140,6 +140,7 @@ class SiteTests(unittest.TestCase):
                 "current_value_total": 1000,
                 "positions": [{"symbol": "NVDA", "current_value": 1000}],
             },
+            "market_return_windows": {"NVDA": {"5d": 1.0, "3m": 5.0}},
             "approval_tickets": [
                 {
                     "ticket_id": "abc",
@@ -317,6 +318,7 @@ class SiteTests(unittest.TestCase):
         self.assertNotIn("recommendation_training_examples", public)
         self.assertNotIn("estimated_shares", json.dumps(public["paper_portfolio"]))
         self.assertNotIn("portfolio_valuation_private", public)
+        self.assertNotIn("market_return_windows", public)
         self.assertEqual(
             public["manager_radar"]["focus_managers"][0]["top_positions"][0]["current_value_estimate"],
             1250000.0,

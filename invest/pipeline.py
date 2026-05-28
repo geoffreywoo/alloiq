@@ -13,7 +13,7 @@ from .db import insert_positions, insert_transactions, record_import, upsert_fil
 from .filings.sec import DEFAULT_CUSIP_SYMBOL_MAP, DEFAULT_ISSUER_SYMBOL_MAP, fetch_13f_holdings, fetch_recent_filings
 from .privacy import assert_public_assets_safe
 from .quality import assert_public_snapshot_quality
-from .reports import generate_brief
+from .reports import generate_brief, rebuild_portfolio_performance_analytics
 from .scheduler import parse_scheduled_at, should_run_pipeline
 from .site import build_site
 from .warehouse import sync_report_payload
@@ -201,6 +201,7 @@ def previous_public_portfolio_fallback(
     site = previous.get("site") or {}
     return {
         "portfolio": report_portfolio_from_public_snapshot(previous_portfolio),
+        "benchmark": previous.get("portfolio_benchmark") or {},
         "metadata": {
             "status": "used_previous_public_portfolio",
             "reason": public_portfolio_fallback_reason(broker_result),
@@ -247,10 +248,61 @@ def apply_public_portfolio_fallback_if_needed(
         if row.get("symbol") and not row.get("is_cash")
     }
     update_portfolio_weight_fields(report_payload, fallback_weights)
+    refresh_fallback_portfolio_benchmark(report_payload, fallback.get("benchmark") or {})
     normalize_fallback_rebalance_budget(report_payload)
     append_portfolio_fallback_health(report_payload, metadata)
     print(f"Using previous public portfolio fallback: {regression_reason}")
     return metadata
+
+
+def refresh_fallback_portfolio_benchmark(
+    report_payload: dict[str, Any],
+    previous_benchmark: dict[str, Any],
+) -> None:
+    benchmark = report_payload.get("portfolio_benchmark")
+    portfolio = report_payload.get("portfolio") or {}
+    if not isinstance(benchmark, dict):
+        return
+    return_windows = report_payload.get("market_return_windows") or {}
+    if return_windows:
+        report_payload["portfolio_benchmark"] = rebuild_portfolio_performance_analytics(
+            benchmark,
+            portfolio,
+            report_payload.get("manager_radar") or {},
+            report_payload.get("macro") or {},
+            return_windows,
+        )
+        return
+    if not isinstance(previous_benchmark, dict) or not previous_benchmark:
+        return
+    preserve_keys = {
+        "portfolio_return_5d",
+        "total_portfolio_return_5d",
+        "price_coverage_pct",
+        "total_price_coverage_pct",
+        "primary_horizon",
+        "primary_label",
+        "primary_portfolio_return",
+        "primary_price_coverage_pct",
+        "horizon_returns",
+        "total_horizon_returns",
+        "equity_horizon_returns",
+        "primary_equity_return",
+        "primary_equity_price_coverage_pct",
+        "return_analytics",
+        "performance_universe",
+        "performance_components",
+        "benchmarks",
+        "peer_proxies",
+        "top_contributors",
+        "top_detractors",
+    }
+    for key in preserve_keys:
+        if key in previous_benchmark:
+            benchmark[key] = deepcopy(previous_benchmark[key])
+    universe = benchmark.get("performance_universe")
+    if isinstance(universe, dict):
+        universe["restored_after_portfolio_fallback"] = True
 
 
 def report_portfolio_from_public_snapshot(portfolio: dict[str, Any]) -> dict[str, Any]:

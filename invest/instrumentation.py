@@ -311,10 +311,25 @@ def return_wiring_checks(payload: dict[str, Any]) -> list[dict[str, Any]]:
     primary = next((row for row in rows if row.get("key") == primary_key), None)
     if not primary:
         return [fail("primary_horizon_has_matching_return_row", {"primary_horizon": primary_key})]
-    return [
+    checks = [
         check_close("primary_portfolio_return_matches_horizon_row", benchmark.get("primary_portfolio_return"), primary.get("portfolio_return")),
         check_close("primary_price_coverage_matches_horizon_row", benchmark.get("primary_price_coverage_pct"), primary.get("price_coverage_pct")),
     ]
+    universe = benchmark.get("performance_universe") or {}
+    portfolio_symbols = [
+        str(row.get("symbol") or "").upper()
+        for row in ((payload.get("portfolio") or {}).get("by_symbol") or [])
+        if row.get("symbol") and not row.get("is_cash")
+    ]
+    if universe:
+        checks.append(
+            check_equal(
+                "performance_universe_symbol_count_matches_portfolio",
+                universe.get("portfolio_symbol_count"),
+                len(portfolio_symbols),
+            )
+        )
+    return checks
 
 
 def backtest_wiring_checks(payload: dict[str, Any]) -> list[dict[str, Any]]:

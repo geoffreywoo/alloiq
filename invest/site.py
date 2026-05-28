@@ -255,6 +255,7 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
     public_payload["positions"] = {}
     public_payload["transactions"] = []
     public_payload.pop("portfolio_valuation_private", None)
+    public_payload.pop("market_return_windows", None)
     public_payload["disclaimer"] = "Public weights, public filings, daily AI markets signals. Approval-only; no live order execution."
     if public_payload.get("latest_filing"):
         public_payload["latest_filing"] = strip_private_keys(public_payload["latest_filing"])

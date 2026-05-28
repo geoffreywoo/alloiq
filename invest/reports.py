@@ -342,6 +342,7 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         "methodology": methodology,
         "decision_cards": cards[:20],
         "ideas": ideas,
+        "market_return_windows": serialize_return_windows(return_windows),
         "stale_vanguard": stale_vanguard,
         "disclaimer": "Public weights, public filings, daily AI markets signals. Approval-only; no live order execution.",
         "product": {"name": config.product_name, "domain": config.product_domain},
@@ -3042,6 +3043,7 @@ def build_portfolio_benchmark(
         annotate_action_funding(action_queue, sizing_plan["rebalance_budget"])
         sizing_plan["post_trade_cash_weight"] = sizing_plan["rebalance_budget"].get("post_trade_cash_weight", sizing_plan.get("cash_reserve_weight", 0))
     study_queue = build_study_queue(components, gaps)
+    performance_components = sorted(components, key=lambda row: abs(row["contribution_pct"]), reverse=True)
     return {
         "portfolio_return_5d": round(portfolio_return, 2),
         "total_portfolio_return_5d": round(total_portfolio_return, 2),
@@ -3057,6 +3059,8 @@ def build_portfolio_benchmark(
         "primary_equity_return": primary_equity.get("portfolio_return") if primary_equity else None,
         "primary_equity_price_coverage_pct": primary_equity.get("price_coverage_pct") if primary_equity else None,
         "return_analytics": build_return_analytics(portfolio, total_horizon_returns, equity_horizon_returns, primary["key"]),
+        "performance_universe": build_performance_universe(portfolio, window_data, primary["key"]),
+        "performance_components": performance_components,
         "actual_return_available": False,
         "actual_return_required_data": "daily account equity and cash-flow history",
         "return_basis": "ex-cash current-weight public-price proxy; not realized/TWR/IRR account performance",
@@ -3070,6 +3074,94 @@ def build_portfolio_benchmark(
         "action_queue": action_queue,
         "study_queue": study_queue,
     }
+
+
+def rebuild_portfolio_performance_analytics(
+    benchmark: dict[str, Any],
+    portfolio: dict[str, Any],
+    manager_radar: dict[str, Any],
+    macro: dict[str, Any],
+    return_windows: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    window_data = normalize_return_windows(return_windows)
+    if not window_data:
+        return dict(benchmark)
+    updated = dict(benchmark)
+    portfolio_return, price_coverage, components = portfolio_return_components_for_window(
+        portfolio,
+        window_data,
+        "5d",
+    )
+    total_portfolio_return, total_price_coverage = portfolio_total_window_return(portfolio, window_data, "5d")
+    horizon_returns = build_horizon_returns(portfolio, window_data)
+    total_horizon_returns = build_total_horizon_returns(portfolio, window_data)
+    equity_horizon_returns = build_equity_horizon_returns(portfolio, window_data)
+    primary = choose_primary_horizon(horizon_returns)
+    primary_equity = matching_horizon(equity_horizon_returns, primary["key"]) or (
+        choose_primary_horizon(equity_horizon_returns) if equity_horizon_returns else {}
+    )
+    primary_return = float(primary.get("portfolio_return", portfolio_return))
+    peer_proxies = build_peer_proxies(manager_radar, window_data, primary["key"], primary_return)
+    benchmarks = build_return_benchmarks(macro, peer_proxies, primary_return, window_data, primary["key"])
+    performance_components = sorted(components, key=lambda row: abs(row["contribution_pct"]), reverse=True)
+    updated.update(
+        {
+            "portfolio_return_5d": round(portfolio_return, 2),
+            "total_portfolio_return_5d": round(total_portfolio_return, 2),
+            "price_coverage_pct": round(price_coverage * 100, 2),
+            "total_price_coverage_pct": round(total_price_coverage * 100, 2),
+            "primary_horizon": primary["key"],
+            "primary_label": primary["label"],
+            "primary_portfolio_return": round(primary_return, 2),
+            "primary_price_coverage_pct": primary.get("price_coverage_pct", round(price_coverage * 100, 2)),
+            "horizon_returns": horizon_returns,
+            "total_horizon_returns": total_horizon_returns,
+            "equity_horizon_returns": equity_horizon_returns,
+            "primary_equity_return": primary_equity.get("portfolio_return") if primary_equity else None,
+            "primary_equity_price_coverage_pct": primary_equity.get("price_coverage_pct") if primary_equity else None,
+            "return_analytics": build_return_analytics(portfolio, total_horizon_returns, equity_horizon_returns, primary["key"]),
+            "performance_universe": build_performance_universe(portfolio, window_data, primary["key"], recomputed=True),
+            "performance_components": performance_components,
+            "benchmarks": benchmarks,
+            "peer_proxies": peer_proxies,
+            "top_contributors": sorted(components, key=lambda row: row["contribution_pct"], reverse=True)[:8],
+            "top_detractors": sorted(components, key=lambda row: row["contribution_pct"])[:8],
+        }
+    )
+    return updated
+
+
+def serialize_return_windows(return_windows: dict[str, dict[str, Decimal]]) -> dict[str, dict[str, float]]:
+    serializable: dict[str, dict[str, float]] = {}
+    for symbol, windows in (return_windows or {}).items():
+        symbol_key = str(symbol or "").upper()
+        if not symbol_key or not isinstance(windows, dict):
+            continue
+        serializable[symbol_key] = {
+            str(key): float(value)
+            for key, value in windows.items()
+            if value is not None
+        }
+    return serializable
+
+
+def normalize_return_windows(return_windows: dict[str, dict[str, Any]]) -> dict[str, dict[str, Decimal]]:
+    normalized: dict[str, dict[str, Decimal]] = {}
+    for symbol, windows in (return_windows or {}).items():
+        symbol_key = str(symbol or "").upper()
+        if not symbol_key or not isinstance(windows, dict):
+            continue
+        normalized_windows: dict[str, Decimal] = {}
+        for key, value in windows.items():
+            if value is None:
+                continue
+            try:
+                normalized_windows[str(key)] = Decimal(str(value))
+            except Exception:
+                continue
+        if normalized_windows:
+            normalized[symbol_key] = normalized_windows
+    return normalized
 
 
 def legacy_return_windows(
@@ -3344,6 +3436,37 @@ def window_return(
     if not data or data.get(horizon) is None:
         return None
     return float(data[horizon])
+
+
+def build_performance_universe(
+    portfolio: dict[str, Any],
+    return_windows: dict[str, dict[str, Decimal]],
+    horizon: str,
+    recomputed: bool = False,
+) -> dict[str, Any]:
+    symbols = [
+        str(row.get("symbol") or "").upper()
+        for row in portfolio.get("by_symbol", [])
+        if row.get("symbol") and not is_cash_position(row)
+    ]
+    priced_symbols = [
+        symbol
+        for symbol in symbols
+        if window_return(return_windows, symbol, horizon) is not None
+    ]
+    priced_symbol_set = set(priced_symbols)
+    missing_symbols = [symbol for symbol in symbols if symbol not in priced_symbol_set]
+    return {
+        "basis": "portfolio.by_symbol non-cash weights matched to public return windows",
+        "horizon": horizon,
+        "portfolio_symbol_count": len(symbols),
+        "priced_symbol_count": len(priced_symbols),
+        "price_coverage_pct": round((len(priced_symbols) / len(symbols)) * 100, 2) if symbols else 0.0,
+        "symbols": symbols,
+        "priced_symbols": priced_symbols,
+        "missing_symbols": missing_symbols,
+        "recomputed_after_portfolio_fallback": bool(recomputed),
+    }
 
 
 def portfolio_return_components(

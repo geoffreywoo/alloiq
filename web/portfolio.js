@@ -244,13 +244,16 @@ function renderRebalanceList() {
 }
 
 function renderAttribution() {
-  const rows = [
-    ...(payload.portfolio_benchmark?.top_contributors || []),
-    ...(payload.portfolio_benchmark?.top_detractors || []),
-  ]
+  const benchmark = payload.portfolio_benchmark || {};
+  const rows = (benchmark.performance_components?.length
+    ? benchmark.performance_components
+    : [
+        ...(benchmark.top_contributors || []),
+        ...(benchmark.top_detractors || []),
+      ])
     .filter((row) => row.contribution_pct != null)
     .sort((a, b) => Math.abs(Number(b.contribution_pct || 0)) - Math.abs(Number(a.contribution_pct || 0)))
-    .slice(0, 10);
+    .slice(0, 20);
   document.getElementById("portfolioAttribution").innerHTML = rows.length
     ? rows.map((row) => {
         const contribution = Number(row.contribution_pct || 0);

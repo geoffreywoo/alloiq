@@ -131,6 +131,12 @@ class PipelineTests(unittest.TestCase):
                 "session": "premarket",
                 "portfolio": {"position_count": 1, "symbol_count": 1},
                 "portfolio_benchmark": {
+                    "primary_horizon": "3m",
+                    "primary_portfolio_return": 999.0,
+                    "horizon_returns": [{"key": "3m", "label": "3M", "portfolio_return": 999.0, "price_coverage_pct": 100.0}],
+                    "performance_components": [
+                        {"symbol": "TSM", "weight": 1.0, "five_day_pct": 99.0, "contribution_pct": 99.0}
+                    ],
                     "sizing_plan": {
                         "rebalance_budget": {
                             "starting_cash_weight": 0.1,
@@ -166,6 +172,12 @@ class PipelineTests(unittest.TestCase):
                             "trade_action": "add",
                         },
                     ],
+                },
+                "market_return_windows": {
+                    "NVDA": {"5d": 4.0, "1m": 8.0, "3m": 12.0},
+                    "MU": {"5d": 2.0, "1m": 6.0, "3m": 10.0},
+                    "TSM": {"5d": 99.0, "1m": 99.0, "3m": 99.0},
+                    "SPY": {"5d": 1.0, "1m": 2.0, "3m": 3.0},
                 },
                 "data_health": {
                     "recommendation_posture": "normal",
@@ -228,6 +240,20 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][1]["recommended_delta_weight"], 0.0)
             self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][1]["post_action_weight"], 0.0)
             self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][1]["trade_action"], "hold")
+            self.assertEqual(updated_payload["portfolio_benchmark"]["portfolio_return_5d"], 3.5)
+            self.assertEqual(updated_payload["portfolio_benchmark"]["primary_horizon"], "3m")
+            self.assertEqual(updated_payload["portfolio_benchmark"]["primary_portfolio_return"], 11.5)
+            self.assertEqual(updated_payload["portfolio_benchmark"]["performance_universe"]["portfolio_symbol_count"], 2)
+            self.assertTrue(
+                updated_payload["portfolio_benchmark"]["performance_universe"]["recomputed_after_portfolio_fallback"]
+            )
+            self.assertEqual(
+                {row["symbol"] for row in updated_payload["portfolio_benchmark"]["performance_components"]},
+                {"NVDA", "MU"},
+            )
+            self.assertFalse(
+                any(row["symbol"] == "TSM" for row in updated_payload["portfolio_benchmark"]["performance_components"])
+            )
             budget = updated_payload["portfolio_benchmark"]["sizing_plan"]["rebalance_budget"]
             self.assertEqual(budget["starting_cash_weight"], 0.2)
             self.assertEqual(budget["total_add_weight"], 0.0)

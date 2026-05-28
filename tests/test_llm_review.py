@@ -11,6 +11,7 @@ from invest.llm_review import (
     build_evidence_packets,
     build_llm_review_snapshot,
     privacy_violations,
+    should_use_reasoning,
     validate_review_response,
 )
 
@@ -171,10 +172,49 @@ class LLMReviewTests(unittest.TestCase):
 
         body = requests[0][2]
         self.assertEqual(snapshot["status"], "ok")
-        self.assertEqual(body["model"], "gpt-4o-mini")
+        self.assertEqual(body["model"], "gpt-5-mini")
+        self.assertEqual(body["reasoning"], {"effort": "medium"})
         self.assertEqual(body["text"]["format"]["type"], "json_schema")
         self.assertTrue(body["text"]["format"]["strict"])
         self.assertNotIn("test-key", json.dumps(body))
+
+    def test_openai_reasoning_can_be_disabled_for_legacy_models(self):
+        requests = []
+        config = AppConfig(
+            path=Path("config/invest.toml"),
+            data={
+                "llm": {
+                    "enabled": True,
+                    "mode": "shadow",
+                    "model": "gpt-4o-mini",
+                    "reasoning_effort": "medium",
+                    "max_symbols_per_run": 1,
+                }
+            },
+        )
+
+        def fake_urlopen(req, timeout=20):
+            requests.append(json.loads(req.data.decode("utf-8")))
+            return FakeResponse({"output_text": json.dumps({"reviews": [sample_review(review_required=False)]})})
+
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
+            snapshot = build_llm_review_snapshot(
+                config,
+                date(2026, 5, 27),
+                "postmarket",
+                sample_feature_matrix(),
+                sample_research_book(),
+                sample_data_health(),
+                sample_cards(),
+                sample_tickets(),
+                urlopen=fake_urlopen,
+            )
+
+        self.assertEqual(snapshot["status"], "ok")
+        self.assertEqual(requests[0]["model"], "gpt-4o-mini")
+        self.assertNotIn("reasoning", requests[0])
+        self.assertFalse(should_use_reasoning({"model": "gpt-4o-mini", "reasoning_effort": "medium"}))
+        self.assertFalse(should_use_reasoning({"model": "gpt-5-mini", "reasoning_effort": "none"}))
 
     def test_shadow_mode_does_not_mutate_tickets(self):
         tickets = sample_tickets()

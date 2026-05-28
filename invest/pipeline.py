@@ -264,6 +264,7 @@ def apply_public_portfolio_fallback_if_needed(
         if row.get("symbol") and not row.get("is_cash")
     }
     update_portfolio_weight_fields(report_payload, fallback_weights)
+    sync_engine_optimizer_from_tickets(report_payload)
     refresh_fallback_portfolio_benchmark(report_payload, fallback.get("benchmark") or {})
     normalize_fallback_rebalance_budget(report_payload)
     append_portfolio_fallback_health(report_payload, metadata)
@@ -574,6 +575,27 @@ def action_weight_row(value: dict[str, Any]) -> bool:
             "trade_action",
         )
     )
+
+
+def sync_engine_optimizer_from_tickets(report_payload: dict[str, Any]) -> None:
+    tickets = {
+        str(row.get("symbol") or "").upper(): row
+        for row in report_payload.get("approval_tickets") or []
+        if isinstance(row, dict) and row.get("symbol")
+    }
+    if not tickets:
+        return
+    engine = report_payload.get("engine") or {}
+    optimizer = engine.get("optimizer") or {}
+    for row in optimizer.get("allocations") or []:
+        if not isinstance(row, dict):
+            continue
+        ticket = tickets.get(str(row.get("symbol") or "").upper())
+        if not ticket:
+            continue
+        for key in ("recommended_delta_weight", "target_weight", "model_target_weight"):
+            if key in row and key in ticket:
+                row[key] = ticket[key]
 
 
 def normalize_fallback_rebalance_budget(report_payload: dict[str, Any]) -> None:

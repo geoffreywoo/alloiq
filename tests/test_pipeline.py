@@ -173,6 +173,30 @@ class PipelineTests(unittest.TestCase):
                         },
                     ],
                 },
+                "approval_tickets": [
+                    {
+                        "symbol": "MU",
+                        "current_weight": 0.0,
+                        "recommended_delta_weight": 0.03,
+                        "post_action_weight": 0.03,
+                        "target_weight": 0.03,
+                        "trade_target_weight": 0.03,
+                        "model_target_weight": 0.03,
+                        "max_allowed_weight": 0.15,
+                    }
+                ],
+                "engine": {
+                    "optimizer": {
+                        "allocations": [
+                            {
+                                "symbol": "MU",
+                                "recommended_delta_weight": 0.03,
+                                "target_weight": 0.03,
+                                "model_target_weight": 0.03,
+                            }
+                        ]
+                    }
+                },
                 "market_return_windows": {
                     "NVDA": {"5d": 4.0, "1m": 8.0, "3m": 12.0},
                     "MU": {"5d": 2.0, "1m": 6.0, "3m": 10.0},
@@ -236,6 +260,8 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][0]["recommended_delta_weight"], 0.0)
             self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][0]["post_action_weight"], 0.25)
             self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][0]["trade_action"], "hold")
+            self.assertEqual(updated_payload["approval_tickets"][0]["model_target_weight"], 0.15)
+            self.assertEqual(updated_payload["engine"]["optimizer"]["allocations"][0]["model_target_weight"], 0.15)
             self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][1]["portfolio_weight"], 0.0)
             self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][1]["recommended_delta_weight"], 0.0)
             self.assertEqual(updated_payload["portfolio_benchmark"]["action_queue"][1]["post_action_weight"], 0.0)

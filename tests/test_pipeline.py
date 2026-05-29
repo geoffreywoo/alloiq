@@ -11,7 +11,7 @@ from invest.pipeline import extract_pipeline_result_json, run_pipeline, sync_ibk
 
 
 class PipelineTests(unittest.TestCase):
-    def test_weekly_pipeline_runs_refresh_report_build_and_scan(self):
+    def test_weekly_pipeline_runs_refresh_report_build_and_scan_without_broker_sync(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = AppConfig(
                 path=Path("config/invest.toml"),
@@ -23,7 +23,7 @@ class PipelineTests(unittest.TestCase):
             )
             with (
                 patch("invest.pipeline.refresh_filings", return_value={"stored": 2}) as filings,
-                patch("invest.pipeline.sync_brokers", return_value={"imported": 3}) as brokers,
+                patch("invest.pipeline.sync_brokers") as brokers,
                 patch("invest.pipeline.generate_brief", return_value=(Path(tmp) / "weekly.md", Path(tmp) / "weekly.json")) as brief,
                 patch("invest.pipeline.build_site", return_value={"out_dir": str(Path(tmp) / "web")}) as site,
                 patch("invest.pipeline.assert_public_assets_safe") as scan,
@@ -32,12 +32,34 @@ class PipelineTests(unittest.TestCase):
                 result = run_pipeline(None, config, "weekly", out_dir=Path(tmp) / "web", force=True)
 
             self.assertEqual(result["status"], "ran")
+            self.assertEqual(result["brokers"]["status"], "not_run")
             filings.assert_called_once()
-            brokers.assert_called_once()
+            brokers.assert_not_called()
             brief.assert_called_once_with(None, config, "weekly")
             site.assert_called_once()
             scan.assert_called_once_with(Path(tmp) / "web")
             quality.assert_called_once_with(Path(tmp) / "web")
+
+    def test_premarket_pipeline_runs_live_broker_sync(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = AppConfig(
+                path=Path("config/invest.toml"),
+                data={"reports": {"directory": str(Path(tmp) / "reports")}},
+            )
+            with (
+                patch("invest.pipeline.refresh_filings", return_value={"stored": 1}),
+                patch("invest.pipeline.sync_brokers", return_value={"imported": 3}) as brokers,
+                patch("invest.pipeline.generate_brief", return_value=(Path(tmp) / "premarket.md", Path(tmp) / "premarket.json")) as brief,
+                patch("invest.pipeline.build_site", return_value={"out_dir": str(Path(tmp) / "web")}),
+                patch("invest.pipeline.assert_public_assets_safe"),
+                patch("invest.pipeline.assert_public_snapshot_quality"),
+            ):
+                result = run_pipeline(None, config, "premarket", out_dir=Path(tmp) / "web", force=True)
+
+        self.assertEqual(result["status"], "ran")
+        self.assertEqual(result["brokers"], {"imported": 3})
+        brokers.assert_called_once()
+        brief.assert_called_once_with(None, config, "premarket")
 
     def test_scheduled_duplicate_window_skips_without_side_effects(self):
         config = AppConfig(path=Path("config/invest.toml"), data={})
@@ -68,7 +90,7 @@ class PipelineTests(unittest.TestCase):
             )
             with (
                 patch("invest.pipeline.refresh_filings", return_value={"stored": 1}),
-                patch("invest.pipeline.sync_brokers", return_value={"imported": 1}),
+                patch("invest.pipeline.sync_brokers") as brokers,
                 patch("invest.pipeline.generate_brief", return_value=(Path(tmp) / "midday.md", Path(tmp) / "midday.json")) as brief,
                 patch("invest.pipeline.build_site", return_value={"out_dir": str(Path(tmp) / "web")}),
                 patch("invest.pipeline.assert_public_assets_safe"),
@@ -77,6 +99,8 @@ class PipelineTests(unittest.TestCase):
                 result = run_pipeline(None, config, "midday", out_dir=Path(tmp) / "web", force=True)
 
         self.assertEqual(result["status"], "ran")
+        self.assertEqual(result["brokers"]["status"], "not_run")
+        brokers.assert_not_called()
         brief.assert_called_once_with(None, config, "midday")
 
     def test_intraday_pipeline_reuses_stored_broker_positions(self):

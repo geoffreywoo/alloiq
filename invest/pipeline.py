@@ -29,7 +29,7 @@ class PortfolioSnapshotRegression(RuntimeError):
     pass
 
 
-BROKER_SYNC_KINDS = {"premarket", "midday", "postmarket", "weekly"}
+BROKER_SYNC_KINDS = {"premarket"}
 PIPELINE_RESULT_KEYS = frozenset({"kind", "privacy", "schedule", "status"})
 MIN_SUSPICIOUS_PUBLIC_PORTFOLIO_SYMBOLS = 8
 SUSPICIOUS_PUBLIC_PORTFOLIO_SHRINK_RATIO = 0.5
@@ -77,7 +77,11 @@ def run_pipeline(
     broker_result = (
         sync_brokers(conn, config)
         if kind in BROKER_SYNC_KINDS
-        else {"imported": 0, "status": "not_run", "reason": f"{kind} refresh reuses latest stored broker positions"}
+        else {
+            "imported": 0,
+            "status": "not_run",
+            "reason": f"{kind} refresh reuses latest stored broker positions; live broker sync runs premarket only",
+        }
     )
     fallback_candidate = previous_public_portfolio_fallback(out_dir, broker_result, privacy)
     manager_fallback_candidate = previous_public_manager_radar_fallback(out_dir, privacy)

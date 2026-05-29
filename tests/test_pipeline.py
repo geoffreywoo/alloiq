@@ -61,6 +61,27 @@ class PipelineTests(unittest.TestCase):
         brokers.assert_called_once()
         brief.assert_called_once_with(None, config, "premarket")
 
+    def test_postmarket_pipeline_runs_live_broker_sync(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = AppConfig(
+                path=Path("config/invest.toml"),
+                data={"reports": {"directory": str(Path(tmp) / "reports")}},
+            )
+            with (
+                patch("invest.pipeline.refresh_filings", return_value={"stored": 1}),
+                patch("invest.pipeline.sync_brokers", return_value={"imported": 2}) as brokers,
+                patch("invest.pipeline.generate_brief", return_value=(Path(tmp) / "postmarket.md", Path(tmp) / "postmarket.json")) as brief,
+                patch("invest.pipeline.build_site", return_value={"out_dir": str(Path(tmp) / "web")}),
+                patch("invest.pipeline.assert_public_assets_safe"),
+                patch("invest.pipeline.assert_public_snapshot_quality"),
+            ):
+                result = run_pipeline(None, config, "postmarket", out_dir=Path(tmp) / "web", force=True)
+
+        self.assertEqual(result["status"], "ran")
+        self.assertEqual(result["brokers"], {"imported": 2})
+        brokers.assert_called_once()
+        brief.assert_called_once_with(None, config, "postmarket")
+
     def test_scheduled_duplicate_window_skips_without_side_effects(self):
         config = AppConfig(path=Path("config/invest.toml"), data={})
         with (

@@ -148,7 +148,7 @@ The AlloIQ daily pipeline is intentionally read-only:
 
 ```bash
 python3 -m invest filings --manager all --max-filings 2
-python3 -m invest sync --broker ibkr  # premarket only in the scheduled pipeline
+python3 -m invest sync --broker ibkr  # premarket and postmarket only in the scheduled pipeline
 python3 -m invest brief --session premarket
 python3 -m invest brief --session intraday
 python3 -m invest brief --session midday
@@ -158,9 +158,10 @@ python3 -m invest site build --privacy public
 
 Use `market_open`, `intraday`, and `market_close` for site refreshes around the
 live trading session. Use `midday` and `postmarket` for full briefing messages.
-The scheduled pipeline only pulls the live IBKR Flex feed during the weekday
-premarket run; every later weekday report and the Sunday weekly report reuse the
-latest stored broker positions to avoid unnecessary API calls.
+The scheduled pipeline only pulls the live IBKR Flex feed twice per weekday:
+premarket and postmarket. Market-open, intraday, midday, market-close, and
+Sunday weekly reports reuse the latest stored broker positions to avoid
+unnecessary API calls.
 
 ## Scheduled Live Updates
 
@@ -187,9 +188,9 @@ Schedules are defined in `.github/workflows/scheduled-reports.yml`:
 - Post-close: 4:30 PM ET on NYSE trading days.
 - Weekly idea research: Sunday morning ET.
 
-Live IBKR Flex checks are limited to the premarket weekday slot. All other
-scheduled slots still refresh filings, public market data, catalysts, reports,
-and the public site from the latest stored broker snapshot.
+Live IBKR Flex checks are limited to the weekday premarket and postmarket slots.
+All other scheduled slots still refresh filings, public market data, catalysts,
+reports, and the public site from the latest stored broker snapshot.
 
 The workflow uses UTC cron slots that cover both daylight saving and standard
 time. It derives the intended cron slot before calling the Python scheduler, so

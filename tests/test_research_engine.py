@@ -459,6 +459,58 @@ class ResearchEngineTests(unittest.TestCase):
         self.assertEqual(target["model_target_weight"], 0.0)
         self.assertIn("bottom_up_evidence_floor", target["active_constraints"])
 
+    def test_normalization_cannot_scale_non_bottom_up_name_into_add(self):
+        research = {
+            "items": [
+                {
+                    "symbol": "NVDA",
+                    "bucket": "semis_networking_hbm",
+                    "current_weight": 0.08,
+                    "risk_adjusted_expected_return": 30.0,
+                    "evidence_quality": 60.0,
+                    "drawdown_risk": 25.0,
+                    "timing_score": 70.0,
+                    "peer_avg_weight": 0.12,
+                    "tier1_peer_avg_weight": 0.14,
+                    "verdict": "buy_more",
+                    "signal_families": ["manager", "catalyst", "portfolio_fit"],
+                    "company_add_eligible": False,
+                    "company_review_required": True,
+                    "company_trim_signal": False,
+                },
+                {
+                    "symbol": "MU",
+                    "bucket": "semis_networking_hbm",
+                    "current_weight": 0.04,
+                    "risk_adjusted_expected_return": 24.0,
+                    "evidence_quality": 72.0,
+                    "drawdown_risk": 30.0,
+                    "timing_score": 68.0,
+                    "peer_avg_weight": 0.05,
+                    "tier1_peer_avg_weight": 0.06,
+                    "verdict": "buy_more",
+                    "signal_families": ["manager", "catalyst"],
+                    "company_add_eligible": True,
+                    "company_review_required": False,
+                    "company_trim_signal": False,
+                },
+            ]
+        }
+
+        sizing = build_sizing_plan(
+            research,
+            {"equity_weight": 0.30, "cash_weight": 0.04, "by_symbol": [], "by_bucket": []},
+            [],
+            [],
+            {"max_single_name_weight": 0.15, "max_one_ticket_delta": 0.03, "max_cash_deploy_weight": 0.04},
+        )
+        nvda = next(row for row in sizing["targets"] if row["symbol"] == "NVDA")
+
+        self.assertEqual(nvda["model_target_weight"], 0.08)
+        self.assertEqual(nvda["recommended_delta_weight"], 0.0)
+        self.assertEqual(nvda["trade_action"], "hold")
+        self.assertIn("bottom_up_evidence_floor", nvda["active_constraints"])
+
     def test_strong_bottom_up_without_13f_can_be_starter(self):
         card = {
             "symbol": "OKLO",

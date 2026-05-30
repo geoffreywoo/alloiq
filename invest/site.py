@@ -184,6 +184,22 @@ def build_site(
         raise FileNotFoundError(f"No report JSON files found in {reports_dir}")
     latest_path = report_paths[-1]
     payload = json.loads(latest_path.read_text(encoding="utf-8"))
+    existing_snapshot = out_dir / "data" / "latest.json"
+    if privacy == "public" and existing_snapshot.exists():
+        existing_payload = json.loads(existing_snapshot.read_text(encoding="utf-8"))
+        existing_date = parse_date(existing_payload.get("as_of") or (existing_payload.get("site") or {}).get("report_as_of"))
+        latest_report_date = parse_date(payload.get("as_of")) or parse_date(latest_path.stem[:10])
+        if existing_date and latest_report_date and existing_date > latest_report_date:
+            ensure_static_assets(out_dir)
+            return {
+                "out_dir": str(out_dir),
+                "latest_report": str(existing_snapshot),
+                "latest_report_artifact": str(latest_path),
+                "privacy": privacy,
+                "report_count": len(report_paths),
+                "used_existing_snapshot": True,
+                "reason": "existing_snapshot_newer_than_reports",
+            }
     web_payload = sanitize_payload(payload, privacy=privacy)
     built_at = utc_timestamp()
     last_run_kind = run_kind or str(payload.get("session") or "manual")
@@ -1473,7 +1489,7 @@ def public_trading_copy(value: Any) -> Any:
         ("research queue", "study queue"),
         ("Research", "Study"),
         ("research", "study"),
-        ("IBKR Flex", "private broker statement"),
+        ("IBKR Flex", "private position feed"),
         ("IBKR", "private broker"),
         ("ibkr", "private broker"),
         ("Vanguard", "manual private import"),

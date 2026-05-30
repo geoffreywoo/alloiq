@@ -332,7 +332,7 @@ def normalize_model_targets(targets: list[dict[str, Any]], target_total: float =
         capped_indexes = []
         for index in sorted(active):
             candidate = max(0.0, raw_values[index] * scale)
-            cap = target_max_allowed(targets[index])
+            cap = normalization_target_cap(targets[index])
             if candidate > cap:
                 assigned[index] = cap
                 remaining = max(0.0, remaining - cap)
@@ -360,6 +360,13 @@ def target_max_allowed(row: dict[str, Any]) -> float:
     if value is None:
         return float("inf")
     return max(0.0, float(value or 0))
+
+
+def normalization_target_cap(row: dict[str, Any]) -> float:
+    cap = target_max_allowed(row)
+    if row.get("company_add_eligible") is False:
+        cap = min(cap, max(0.0, float(row.get("current_weight") or 0)))
+    return cap
 
 
 def model_target_summary(targets: list[dict[str, Any]], target_total: float) -> dict[str, Any]:

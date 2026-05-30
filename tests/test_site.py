@@ -63,6 +63,30 @@ class SiteTests(unittest.TestCase):
             self.assertEqual(latest["site"]["source_report"], "2026-05-24-midday.json")
             self.assertEqual(latest["site"]["report_session"], "midday")
 
+    def test_build_site_preserves_existing_newer_public_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reports_dir = root / "reports"
+            reports_dir.mkdir()
+            out_dir = root / "web"
+            (out_dir / "data").mkdir(parents=True)
+            report_path = reports_dir / "2026-05-29-postmarket.json"
+            report_path.write_text(
+                json.dumps(minimal_report_payload("2026-05-29", "postmarket")),
+                encoding="utf-8",
+            )
+            existing = minimal_report_payload("2026-05-30", "postmarket")
+            existing["site"] = {"source_report": "scheduled-public-snapshot", "report_as_of": "2026-05-30"}
+            (out_dir / "data" / "latest.json").write_text(json.dumps(existing), encoding="utf-8")
+
+            result = build_site(reports_dir, out_dir=out_dir, privacy="public")
+
+            latest = json.loads((out_dir / "data" / "latest.json").read_text(encoding="utf-8"))
+            self.assertTrue(result["used_existing_snapshot"])
+            self.assertEqual(result["reason"], "existing_snapshot_newer_than_reports")
+            self.assertEqual(latest["as_of"], "2026-05-30")
+            self.assertEqual(latest["site"]["source_report"], "scheduled-public-snapshot")
+
     def test_public_payload_redacts_broker_data_and_adds_moves(self):
         payload = {
             "product": {"name": "Old", "domain": "old.example"},
@@ -1515,6 +1539,26 @@ class SiteTests(unittest.TestCase):
         self.assertNotIn("request_payload", text)
         self.assertNotIn("api_key", text)
         self.assertNotIn("prompt_text", text)
+
+    def test_public_payload_removes_named_private_broker_feed(self):
+        payload = minimal_report_payload("2026-05-24", "postmarket")
+        payload["methodology"] = {
+            "pipeline": {
+                "cadence": [
+                    {"purpose": "Pull the live IBKR Flex feed before the open."},
+                ],
+                "inputs": [
+                    {"source": "IBKR Flex premarket and postmarket only."},
+                ],
+            }
+        }
+
+        public = sanitize_payload(payload)
+        text = json.dumps(public["methodology"])
+
+        self.assertNotIn("IBKR", text)
+        self.assertNotIn("ibkr", text)
+        self.assertIn("private position feed", text)
 
 
 def minimal_report_payload(as_of: str, session: str) -> dict:

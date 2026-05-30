@@ -1,7 +1,14 @@
 from datetime import date
 import unittest
 
-from invest.engine import ENGINE_POLICY_VERSION, build_engine_features, build_engine_snapshot, build_learning_state, rank_candidates
+from invest.engine import (
+    ENGINE_POLICY_VERSION,
+    build_engine_features,
+    build_engine_snapshot,
+    build_learning_state,
+    decision_readiness,
+    rank_candidates,
+)
 
 
 class EngineTests(unittest.TestCase):
@@ -185,6 +192,56 @@ class EngineTests(unittest.TestCase):
         self.assertEqual([row["symbol"] for row in ranked], ["GOOGL"])
         self.assertEqual(ranked[0]["deduplicated_equivalent_symbols"], ["GOOG"])
 
+    def test_rank_candidates_surfaces_decision_readiness_evidence(self):
+        ranked = rank_candidates(
+            [
+                {
+                    "symbol": "NVDA",
+                    "expected_return_score": 25.0,
+                    "signal_families": [],
+                    "evidence_quality": 42.0,
+                    "company_review_required": True,
+                    "external_feed_status": "limited",
+                    "external_provider_gap_count": 3,
+                    "external_provider_gap_severity_score": 50.0,
+                }
+            ],
+            {"weight_adjustments": {}},
+        )
+
+        nvda = ranked[0]
+        self.assertEqual(nvda["decision_readiness_bucket"], "evidence_blocked")
+        self.assertLess(nvda["decision_readiness_score"], 65.0)
+        self.assertIn("company_underwriting_review_required", nvda["decision_evidence_blockers"])
+        self.assertIn("evidence_quality_watch", nvda["decision_evidence_blockers"])
+        self.assertIn("external_feed_reliability_review_required", nvda["decision_evidence_blockers"])
+
+    def test_rank_candidates_prefers_readier_equivalent_when_scores_match(self):
+        ranked = rank_candidates(
+            [
+                {
+                    "symbol": "GOOG",
+                    "expected_return_score": 25.0,
+                    "current_weight": 0.05,
+                    "signal_families": [],
+                    "company_review_required": True,
+                    "evidence_quality": 25.0,
+                },
+                {
+                    "symbol": "GOOGL",
+                    "expected_return_score": 25.0,
+                    "current_weight": 0.04,
+                    "signal_families": [],
+                    "evidence_quality": 85.0,
+                },
+            ],
+            {"weight_adjustments": {}},
+        )
+
+        self.assertEqual([row["symbol"] for row in ranked], ["GOOGL"])
+        self.assertEqual(ranked[0]["decision_readiness_bucket"], "approval_ready")
+        self.assertEqual(ranked[0]["deduplicated_equivalent_symbols"], ["GOOG"])
+
     def test_engine_provenance_does_not_apply_proxy_ticket_after_deduping(self):
         engine = build_engine_snapshot(
             date(2026, 5, 24),
@@ -205,6 +262,7 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(provenance["symbol"], "GOOG")
         self.assertEqual(provenance["recommended_delta_weight"], 0)
         self.assertEqual(provenance["target_weight"], 0.12)
+        self.assertEqual(provenance["decision_readiness_bucket"], "approval_ready")
         self.assertEqual(provenance["status"], "ranked")
 
     def test_learning_ignores_sparse_signal_family_outliers(self):
@@ -287,6 +345,20 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(nvda["external_provider_ok_ratio"], 0.1667)
         self.assertEqual(nvda["component_scores"]["external_signals"], 5.0)
         self.assertEqual(nvda["component_scores"]["external_signals_raw"], 20.0)
+
+    def test_decision_readiness_keeps_clean_evidence_approval_ready(self):
+        readiness = decision_readiness(
+            {
+                "evidence_quality": 82.0,
+                "external_feed_status": "ok",
+                "external_provider_gap_count": 0,
+                "company_review_required": False,
+            }
+        )
+
+        self.assertEqual(readiness["score"], 100.0)
+        self.assertEqual(readiness["bucket"], "approval_ready")
+        self.assertEqual(readiness["blockers"], [])
 
 
 if __name__ == "__main__":

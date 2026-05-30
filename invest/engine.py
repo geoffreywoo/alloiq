@@ -9,7 +9,7 @@ from .symbols import equivalent_symbols, proxied_lookup, proxy_index, symbol_pro
 from .util import stable_id
 
 
-ENGINE_POLICY_VERSION = "2026-05-bottom-up-first-v3"
+ENGINE_POLICY_VERSION = "2026-05-bottom-up-first-v4"
 ENGINE_MODE = "approval_plus_paper"
 OBJECTIVE = "maximize_expected_3_12m_forward_return"
 MIN_LEARNING_OUTCOMES = 20
@@ -336,11 +336,15 @@ def rank_candidates(
     for input_index, row in enumerate(features):
         learning_delta = rank_learning_adjustment(row.get("signal_families", []), adjustments)
         expected = float(row.get("risk_adjusted_expected_return", row.get("expected_return_score") or 0) or 0) + learning_delta
+        readiness = decision_readiness(row)
         item = dict(row)
         item["symbol_proxy_key"] = symbol_proxy_key(item.get("symbol"))
         item["learning_adjustment"] = round(learning_delta, 2)
         item["learning_adjustment_cap"] = MAX_RANK_LEARNING_ADJUSTMENT
         item["expected_return_rank_score"] = round(expected, 2)
+        item["decision_readiness_score"] = readiness["score"]
+        item["decision_readiness_bucket"] = readiness["bucket"]
+        item["decision_evidence_blockers"] = readiness["blockers"]
         item["_rank_input_index"] = input_index
         scored.append(item)
     ranked = dedupe_equivalent_candidates(scored, exact_ticket_by_symbol)
@@ -387,11 +391,12 @@ def preferred_equivalent_candidate(
     return left, right
 
 
-def equivalent_candidate_key(item: dict[str, Any], exact_ticket_by_symbol: dict[str, dict[str, Any]]) -> tuple[float, int, float, int]:
+def equivalent_candidate_key(item: dict[str, Any], exact_ticket_by_symbol: dict[str, dict[str, Any]]) -> tuple[float, int, float, float, int]:
     symbol = str(item.get("symbol") or "").upper()
     return (
         float(item.get("expected_return_rank_score") or 0),
         actionable_ticket_priority(exact_ticket_by_symbol.get(symbol)),
+        float(item.get("decision_readiness_score") or 0),
         float(item.get("current_weight") or 0),
         -int(item.get("_rank_input_index") or 0),
     )
@@ -410,6 +415,66 @@ def actionable_ticket_priority(ticket: dict[str, Any] | None) -> int:
 def rank_learning_adjustment(signal_families: list[Any], adjustments: dict[str, Any]) -> float:
     raw = sum(float(adjustments.get(family, 0)) for family in signal_families) * LEARNING_RANK_MULTIPLIER
     return max(-MAX_RANK_LEARNING_ADJUSTMENT, min(MAX_RANK_LEARNING_ADJUSTMENT, raw))
+
+
+def decision_readiness(feature: dict[str, Any]) -> dict[str, Any]:
+    score = 100.0
+    blockers: list[str] = []
+
+    if feature.get("company_review_required") or feature.get("review_required"):
+        score -= 22.0
+        blockers.append("company_underwriting_review_required")
+
+    evidence_quality = optional_float(feature.get("evidence_quality"))
+    if evidence_quality is not None:
+        if evidence_quality < 35.0:
+            score -= 20.0
+            blockers.append("evidence_quality_low")
+        elif evidence_quality < 50.0:
+            score -= 12.0
+            blockers.append("evidence_quality_watch")
+
+    status = str(feature.get("external_feed_status") or "").strip().lower()
+    gap_count = int(feature.get("external_provider_gap_count") or 0)
+    gap_severity = optional_float(feature.get("external_provider_gap_severity_score")) or 0.0
+    if status and status != "ok":
+        score -= min(30.0, 12.0 + gap_severity * 0.18)
+        blockers.append("external_feed_reliability_review_required")
+    elif gap_count:
+        score -= min(18.0, gap_count * 3.0)
+        blockers.append("external_provider_coverage_incomplete")
+
+    if feature.get("earnings_confirmation_required"):
+        score -= 16.0
+        blockers.append("earnings_confirmation_required")
+
+    if feature.get("company_trim_signal"):
+        score -= 18.0
+        blockers.append("company_trim_signal")
+
+    readiness_score = round(max(0.0, min(100.0, score)), 2)
+    return {
+        "score": readiness_score,
+        "bucket": decision_readiness_bucket(readiness_score, blockers),
+        "blockers": blockers,
+    }
+
+
+def decision_readiness_bucket(score: float, blockers: list[str]) -> str:
+    if not blockers and score >= 85.0:
+        return "approval_ready"
+    if score >= 65.0:
+        return "review_before_sizing"
+    return "evidence_blocked"
+
+
+def optional_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def build_allocator_output(
@@ -448,6 +513,9 @@ def build_allocator_output(
                 "model_target_weight": round(float(ticket.get("model_target_weight", target)) if ticket else target, 6),
                 "expected_return_rank_score": row["expected_return_rank_score"],
                 "risk_adjusted_expected_return": row.get("risk_adjusted_expected_return", row.get("expected_return_score", 0)),
+                "decision_readiness_score": row.get("decision_readiness_score"),
+                "decision_readiness_bucket": row.get("decision_readiness_bucket"),
+                "decision_evidence_blockers": row.get("decision_evidence_blockers", []),
                 "risk_flags": risk_flags,
             }
         )
@@ -491,6 +559,9 @@ def recommendation_provenance(
         "recommended_delta_weight": ticket.get("recommended_delta_weight", 0) if ticket else 0,
         "target_weight": ticket.get("target_weight", feature.get("current_weight", 0)) if ticket else feature.get("current_weight", 0),
         "model_target_weight": ticket.get("model_target_weight", ticket.get("target_weight", feature.get("current_weight", 0))) if ticket else feature.get("current_weight", 0),
+        "decision_readiness_score": feature.get("decision_readiness_score"),
+        "decision_readiness_bucket": feature.get("decision_readiness_bucket"),
+        "decision_evidence_blockers": feature.get("decision_evidence_blockers", []),
         "paper_tested": True,
         "status": ticket.get("status", "research_only") if ticket else "ranked",
     }

@@ -222,11 +222,7 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
             ]
         ),
     )
-    weekly_research = (
-        build_weekly_research(as_of, ideas, cards, portfolio_benchmark, macro)
-        if session == "weekly"
-        else None
-    )
+    weekly_research = None
     stale_vanguard = vanguard_staleness(conn, config.stale_vanguard_days) if config.vanguard_enabled else None
     data_health = build_data_health(
         portfolio,
@@ -250,10 +246,60 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         data_health,
         cards,
         approval_tickets,
+        portfolio,
+        config.risk_limits,
     )
+    if llm_review.get("status") == "ok" and llm_review.get("mode") == "bounded_signal":
+        research_book = build_research_book(as_of, feature_matrix, cards, macro, llm_signal=llm_review)
+        portfolio_benchmark = build_portfolio_benchmark(
+            portfolio,
+            cards,
+            manager_radar,
+            macro,
+            prices,
+            return_windows,
+            risk_limits=config.risk_limits,
+            earnings_events=earnings_events,
+            research_book=research_book,
+        )
+        approval_tickets = build_approval_tickets(as_of, session, portfolio, portfolio_benchmark, cards)
+        price_audit = build_price_audit(
+            unique_symbols(expand_symbol_proxies(research_symbols) + macro_symbols),
+            quote_prices,
+            return_windows,
+            focus_symbols=unique_symbols(
+                [
+                    str(row.get("symbol") or "")
+                    for row in (portfolio.get("by_symbol") or [])
+                    if not row.get("is_cash")
+                ]
+                + [
+                    str(row.get("symbol") or "")
+                    for row in (portfolio_benchmark.get("action_queue") or [])
+                ]
+            ),
+        )
+        data_health = build_data_health(
+            portfolio,
+            manager_radar,
+            recent_news,
+            prices,
+            earnings_events,
+            stale_vanguard,
+            filing_result_count=bool(latest_filing),
+            broker_result_count=portfolio.get("position_count", 0),
+            macro=macro,
+            external_signals=external_signals,
+            price_audit=price_audit,
+        )
     apply_llm_review_to_approval_tickets(approval_tickets, llm_review)
     attach_llm_review_to_data_health(data_health, llm_review)
     attach_data_health_approval_blocker_summary(data_health, approval_tickets)
+    weekly_research = (
+        build_weekly_research(as_of, ideas, cards, portfolio_benchmark, macro)
+        if session == "weekly"
+        else None
+    )
     calendars = build_calendar_snapshot(config, as_of, manager_radar, earnings_events)
     recommendation_training_examples = build_training_examples(
         as_of,
@@ -329,6 +375,7 @@ def generate_brief(conn: sqlite3.Connection, config: AppConfig, session: str, as
         "portfolio_benchmark": portfolio_benchmark,
         "approval_tickets": approval_tickets,
         "llm_review": llm_review,
+        "llm_signal": llm_review,
         "recommendation_explanations": build_recommendation_explanations(as_of, portfolio_benchmark, research_book, company_underwriting, sector_underwriting),
         "review_queue": build_review_queue(research_book, portfolio_benchmark),
         "recommendation_training_examples": recommendation_training_examples,
@@ -1902,6 +1949,12 @@ def render_portfolio_benchmark(lines: list[str], payload: dict[str, Any]) -> Non
         lines.append("- Action queue: " + "; ".join(
             f"{row['symbol']} - {row.get('sizing_summary') or row['action']}" for row in benchmark["action_queue"][:5]
         ) + ".")
+    research_queue = benchmark.get("research_queue") or (benchmark.get("sizing_plan") or {}).get("research_queue") or []
+    if research_queue:
+        lines.append("- Fresh research queue: " + "; ".join(
+            f"{row['symbol']} - {row.get('research_reason', row.get('promotion_trigger', 'research-only candidate'))}"
+            for row in research_queue[:5]
+        ) + ".")
     lines.append("")
 
 
@@ -2019,6 +2072,8 @@ def render_idea_book(lines: list[str], payload: dict[str, Any]) -> None:
         lines.append(f"  Evidence: {idea['evidence']}")
         if idea.get("signal_families"):
             lines.append(f"  Signal families: {', '.join(idea['signal_families'])}")
+        if idea.get("exploration_reason"):
+            lines.append(f"  Exploration: {idea['exploration_reason']}")
         lines.append(f"  Trigger: {idea['trigger']}")
         lines.append(f"  Risk/falsifier: {idea['risk']} Falsifier: {idea['falsifier']}")
     lines.append("")
@@ -2264,6 +2319,20 @@ def build_approval_tickets(
             "review_required": bool(action.get("review_required", False)),
             "review_status": action.get("review_status", ""),
             "review_reason": action.get("review_reason", ""),
+            "llm_signal": action.get("llm_signal", {}),
+            "llm_signal_applied": bool(action.get("llm_signal_applied", False)),
+            "llm_expected_return_delta": action.get("llm_expected_return_delta"),
+            "llm_expected_return_adjustment": action.get("llm_expected_return_adjustment"),
+            "llm_evidence_quality_delta": action.get("llm_evidence_quality_delta"),
+            "llm_evidence_quality_adjustment": action.get("llm_evidence_quality_adjustment"),
+            "llm_drawdown_risk_delta": action.get("llm_drawdown_risk_delta"),
+            "llm_drawdown_risk_adjustment": action.get("llm_drawdown_risk_adjustment"),
+            "llm_conviction_score": action.get("llm_conviction_score"),
+            "llm_variant_quality_score": action.get("llm_variant_quality_score"),
+            "llm_source_quality_score": action.get("llm_source_quality_score"),
+            "llm_contradiction_risk_score": action.get("llm_contradiction_risk_score"),
+            "llm_staleness_risk_score": action.get("llm_staleness_risk_score"),
+            "llm_review_required": action.get("llm_review_required"),
             "decision_stack": action.get("decision_stack", {}),
             "rationale": action.get("why") or action.get("action") or "",
             "trigger": action.get("trigger") or card.get("trigger") or "",
@@ -2749,7 +2818,42 @@ def build_research_universe(config: AppConfig, portfolio: dict[str, Any], manage
         symbol = str(row.get("symbol") or "").upper()
         if symbol and config.symbol_to_bucket.get(symbol, "unmapped") != "unmapped":
             symbols.append(symbol)
-    return unique_symbols(symbols)[:max_symbols]
+    discovery_symbols = manager_discovery_symbols(manager_radar, limit=45)
+    symbols.extend(discovery_symbols)
+    return unique_symbols_with_reserved(symbols, discovery_symbols, max_symbols, reserve_count=12)
+
+
+def manager_discovery_symbols(manager_radar: dict[str, Any], limit: int = 45) -> list[str]:
+    symbols: list[str] = []
+    for source, rows in (
+        ("new_positions", manager_radar.get("new_positions") or []),
+        ("top_adds", manager_radar.get("top_adds") or []),
+        ("top_consensus", manager_radar.get("top_consensus") or []),
+        ("option_watch", manager_radar.get("option_watch") or []),
+    ):
+        for row in rows[:20]:
+            symbol = str(row.get("symbol") or "").upper()
+            if not symbol:
+                continue
+            if manager_discovery_symbol_score(row, source) >= 18:
+                symbols.append(symbol)
+    return unique_symbols(symbols)[:limit]
+
+
+def manager_discovery_symbol_score(row: dict[str, Any], source: str) -> float:
+    common_count = float(row.get("common_manager_count", row.get("manager_count", 0)) or 0)
+    common_value = float(row.get("common_value", row.get("latest_value", row.get("value", 0))) or 0)
+    delta_value = max(0.0, float(row.get("delta_value") or 0))
+    call_value = float(row.get("call_value") or 0)
+    put_value = float(row.get("put_value") or 0)
+    score = common_count * 5.0 + min(18.0, common_value / 350_000_000) + min(16.0, delta_value / 125_000_000)
+    if source == "new_positions":
+        score += 12.0
+    if call_value > put_value and call_value:
+        score += min(8.0, call_value / 150_000_000)
+    if put_value > call_value and put_value:
+        score += min(5.0, put_value / 200_000_000)
+    return score
 
 
 def unique_symbols(symbols: list[str]) -> list[str]:
@@ -2761,6 +2865,34 @@ def unique_symbols(symbols: list[str]) -> list[str]:
             seen.add(normalized)
             ordered.append(normalized)
     return ordered
+
+
+def unique_symbols_with_reserved(
+    symbols: list[str],
+    reserved_symbols: list[str],
+    max_symbols: int,
+    reserve_count: int,
+) -> list[str]:
+    unique = unique_symbols(symbols)
+    if len(unique) <= max_symbols:
+        return unique
+    reserved = unique_symbols(reserved_symbols)[:reserve_count]
+    keep_count = max(1, max_symbols - len(reserved)) if max_symbols > 0 else 0
+    selected = unique[:keep_count]
+    seen = set(selected)
+    for symbol in reserved:
+        if len(selected) >= max_symbols:
+            break
+        if symbol not in seen:
+            selected.append(symbol)
+            seen.add(symbol)
+    for symbol in unique:
+        if len(selected) >= max_symbols:
+            break
+        if symbol not in seen:
+            selected.append(symbol)
+            seen.add(symbol)
+    return selected
 
 
 def latest_manager_filing(conn: sqlite3.Connection, manager_key: str) -> sqlite3.Row | None:
@@ -3043,6 +3175,7 @@ def build_portfolio_benchmark(
         annotate_action_funding(action_queue, sizing_plan["rebalance_budget"])
         sizing_plan["post_trade_cash_weight"] = sizing_plan["rebalance_budget"].get("post_trade_cash_weight", sizing_plan.get("cash_reserve_weight", 0))
     study_queue = build_study_queue(components, gaps)
+    research_queue = (sizing_plan.get("research_queue") if sizing_plan else []) or []
     performance_components = sorted(components, key=lambda row: abs(row["contribution_pct"]), reverse=True)
     return {
         "portfolio_return_5d": round(portfolio_return, 2),
@@ -3072,6 +3205,7 @@ def build_portfolio_benchmark(
         "exposure_gaps": gaps,
         "sizing_plan": sizing_plan,
         "action_queue": action_queue,
+        "research_queue": research_queue,
         "study_queue": study_queue,
     }
 

@@ -44,6 +44,8 @@ class WarehouseTests(unittest.TestCase):
         self.assertIn("ALTER TABLE engine_features ADD COLUMN IF NOT EXISTS coverage_adjusted_external_signal_score", warehouse.WAREHOUSE_SCHEMA_SQL)
         self.assertIn("ALTER TABLE backtest_outcomes ADD COLUMN IF NOT EXISTS external_coverage_multiplier", warehouse.WAREHOUSE_SCHEMA_SQL)
         self.assertIn("ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS external_provider_ok_ratio", warehouse.WAREHOUSE_SCHEMA_SQL)
+        self.assertIn("CREATE TABLE IF NOT EXISTS llm_signal_snapshots", warehouse.WAREHOUSE_SCHEMA_SQL)
+        self.assertIn("ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS llm_expected_return_delta", warehouse.WAREHOUSE_SCHEMA_SQL)
 
     def test_sync_upserts_private_snapshot_shapes(self):
         conn = FakeConnection()
@@ -101,6 +103,29 @@ class WarehouseTests(unittest.TestCase):
                     "confidence": 80,
                 }
             ],
+            "llm_signal": {
+                "status": "ok",
+                "mode": "bounded_signal",
+                "model": "gpt-5.5",
+                "prompt_version": "2026-05-bounded-signal-v1",
+                "schema_version": "2026-05-llm-signal-schema-v2",
+                "reviews": [
+                    {
+                        "symbol": "NVDA",
+                        "thesis_quality": "strong",
+                        "llm_expected_return_delta": 2,
+                        "llm_evidence_quality_delta": 4,
+                        "llm_drawdown_risk_delta": -3,
+                        "llm_conviction_score": 90,
+                        "llm_variant_quality_score": 85,
+                        "llm_source_quality_score": 80,
+                        "llm_contradiction_risk_score": 10,
+                        "llm_staleness_risk_score": 12,
+                        "llm_review_required": False,
+                        "confidence": 0.8,
+                    }
+                ],
+            },
             "earnings_events": [{"symbol": "NVDA", "event_date": "2026-05-27", "days_until": 3}],
             "calendars": {
                 "earnings": {"events": [{"event_id": "event-1", "symbol": "NVDA", "event_date": "2026-05-27", "source": "manual", "confidence": 1.0}]},
@@ -196,6 +221,22 @@ class WarehouseTests(unittest.TestCase):
                     "recommended_delta_weight": 0.01,
                     "target_weight": 0.11,
                     "risk_adjusted_expected_return": 22,
+                    "base_risk_adjusted_expected_return": 20,
+                    "base_evidence_quality": 76,
+                    "base_drawdown_risk": 34,
+                    "llm_signal_applied": True,
+                    "llm_expected_return_delta": 2,
+                    "llm_expected_return_adjustment": 1.6,
+                    "llm_evidence_quality_delta": 4,
+                    "llm_evidence_quality_adjustment": 3.2,
+                    "llm_drawdown_risk_delta": -3,
+                    "llm_drawdown_risk_adjustment": -2.4,
+                    "llm_conviction_score": 90,
+                    "llm_variant_quality_score": 85,
+                    "llm_source_quality_score": 80,
+                    "llm_contradiction_risk_score": 10,
+                    "llm_staleness_risk_score": 12,
+                    "llm_review_required": False,
                     "external_signal_score": 20,
                     "coverage_adjusted_external_signal_score": 5,
                     "external_coverage_multiplier": 0.25,
@@ -220,6 +261,7 @@ class WarehouseTests(unittest.TestCase):
         self.assertEqual(counts["portfolio_snapshots"], 1)
         self.assertEqual(counts["position_snapshots"], 1)
         self.assertEqual(counts["research_snapshots"], 1)
+        self.assertEqual(counts["llm_signal_snapshots"], 1)
         self.assertEqual(counts["trade_recommendations"], 1)
         self.assertEqual(counts["calendar_events"], 1)
         self.assertEqual(counts["manager_filing_calendar"], 1)
@@ -246,7 +288,12 @@ class WarehouseTests(unittest.TestCase):
         self.assertIn("limited", backtest_outcome[1])
         training_example = next((sql, params) for sql, params in conn.executed if "INSERT INTO recommendation_training_examples" in sql)
         self.assertIn("external_provider_ok_ratio", training_example[0])
+        self.assertIn("llm_expected_return_delta", training_example[0])
         self.assertIn(Decimal("0.1667"), training_example[1])
+        self.assertIn(Decimal("2"), training_example[1])
+        llm_signal = next((sql, params) for sql, params in conn.executed if "INSERT INTO llm_signal_snapshots" in sql)
+        self.assertIn("llm_expected_return_delta", llm_signal[0])
+        self.assertIn(Decimal("2"), llm_signal[1])
 
 
 if __name__ == "__main__":

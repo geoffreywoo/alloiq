@@ -284,6 +284,11 @@ def sanitize_payload(payload: dict[str, Any], privacy: str = "public") -> dict[s
     )
     public_payload["instrumentation_audit"] = sanitize_public_section(public_payload.get("instrumentation_audit") or {})
     public_payload["llm_review"] = sanitize_public_section(public_payload.get("llm_review") or {})
+    if public_payload["llm_review"]:
+        public_payload["llm_review"].setdefault("llm_direct_sizing_allowed", False)
+    public_payload["llm_signal"] = sanitize_public_section(public_payload.get("llm_signal") or public_payload.get("llm_review") or {})
+    if public_payload["llm_signal"]:
+        public_payload["llm_signal"].setdefault("llm_direct_sizing_allowed", False)
     public_payload.pop("recommendation_training_examples", None)
     public_payload["decision_cards"] = [
         sanitize_card(card, portfolio_weights) for card in public_payload.get("decision_cards", [])

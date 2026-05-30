@@ -261,6 +261,49 @@ class ResearchEngineTests(unittest.TestCase):
         self.assertGreater(raw["base_return_12m"], adjusted["base_return_12m"])
         self.assertEqual(adjusted["base_return_12m"], same_as_adjusted_input["base_return_12m"])
 
+    def test_bounded_llm_signal_adjusts_research_scores_without_setting_sizing(self):
+        features = build_feature_matrix(
+            date(2026, 5, 24),
+            self.sample_cards(),
+            {"by_symbol": [{"symbol": "NVDA", "bucket": "semis_networking_hbm", "weight": 0.08}]},
+            {"focus_managers": []},
+            {"regime": "risk-on AI acceleration", "scores": {"ai_momentum": 3}},
+            {"NVDA": {"5d": Decimal("2"), "1m": Decimal("8"), "3m": Decimal("18")}},
+            [],
+        )
+        baseline = build_research_book(date(2026, 5, 24), features, self.sample_cards(), {"regime": "risk-on AI acceleration"})
+        llm_signal = {
+            "status": "ok",
+            "mode": "bounded_signal",
+            "reviews": [
+                {
+                    "symbol": "NVDA",
+                    "thesis_quality": "strong",
+                    "llm_expected_return_delta": 6.0,
+                    "llm_evidence_quality_delta": 10.0,
+                    "llm_drawdown_risk_delta": -10.0,
+                    "llm_conviction_score": 90,
+                    "llm_variant_quality_score": 86,
+                    "llm_source_quality_score": 84,
+                    "llm_contradiction_risk_score": 10,
+                    "llm_staleness_risk_score": 12,
+                    "llm_review_required": False,
+                    "decision_usefulness_score": 92,
+                    "confidence": 0.5,
+                    "rationale": "Variant evidence improves expected return.",
+                }
+            ],
+        }
+
+        adjusted = build_research_book(date(2026, 5, 24), features, self.sample_cards(), {"regime": "risk-on AI acceleration"}, llm_signal=llm_signal)
+        base_nvda = next(row for row in baseline["items"] if row["symbol"] == "NVDA")
+        adjusted_nvda = next(row for row in adjusted["items"] if row["symbol"] == "NVDA")
+
+        self.assertTrue(adjusted_nvda["llm_signal_applied"])
+        self.assertEqual(adjusted_nvda["base_risk_adjusted_expected_return"], base_nvda["risk_adjusted_expected_return"])
+        self.assertAlmostEqual(adjusted_nvda["risk_adjusted_expected_return"], base_nvda["risk_adjusted_expected_return"] + 3.0, places=2)
+        self.assertNotIn("recommended_delta_weight", adjusted_nvda["llm_signal"])
+
     def test_research_book_and_sizing_create_target_weights(self):
         features = build_feature_matrix(
             date(2026, 5, 24),
@@ -328,6 +371,43 @@ class ResearchEngineTests(unittest.TestCase):
         self.assertEqual(nvda["external_signal_score"], 20.0)
         self.assertEqual(nvda["external_coverage_multiplier"], 0.3333)
         self.assertEqual(nvda["external_provider_ok_ratio"], 0.3333)
+
+    def test_sizing_plan_surfaces_research_only_fresh_candidates(self):
+        research = {
+            "items": [
+                {
+                    "symbol": "CEG",
+                    "bucket": "power_grid_gas_nuclear",
+                    "current_weight": 0.0,
+                    "risk_adjusted_expected_return": 22.0,
+                    "evidence_quality": 68.0,
+                    "drawdown_risk": 32.0,
+                    "timing_score": 63.0,
+                    "peer_avg_weight": 0.04,
+                    "tier1_peer_avg_weight": 0.05,
+                    "verdict": "starter",
+                    "signal_families": ["manager", "catalyst"],
+                    "event_types": ["capex_signal"],
+                    "manager_count": 4,
+                    "company_add_eligible": False,
+                    "company_trim_signal": False,
+                }
+            ]
+        }
+
+        sizing = build_sizing_plan(
+            research,
+            {"by_symbol": [], "by_bucket": []},
+            [],
+            [],
+            {"max_single_name_weight": 0.15, "max_one_ticket_delta": 0.03},
+        )
+
+        self.assertEqual(sizing["action_queue"], [])
+        self.assertEqual(sizing["research_queue"][0]["symbol"], "CEG")
+        self.assertEqual(sizing["research_queue"][0]["trade_action"], "study")
+        self.assertEqual(sizing["research_queue"][0]["recommended_delta_weight"], 0.0)
+        self.assertEqual(sizing["research_queue"][0]["recommendation_type"], "research_only")
 
     def test_strong_13f_without_bottom_up_evidence_cannot_add(self):
         card = {

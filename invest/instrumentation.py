@@ -73,8 +73,19 @@ LLM_REVIEW_ROW_FIELDS = [
     "stale_assumptions",
     "risk_questions",
     "decision_usefulness_score",
+    "llm_expected_return_delta",
+    "llm_evidence_quality_delta",
+    "llm_drawdown_risk_delta",
+    "llm_conviction_score",
+    "llm_variant_quality_score",
+    "llm_source_quality_score",
+    "llm_contradiction_risk_score",
+    "llm_staleness_risk_score",
+    "llm_review_required",
     "review_required",
     "confidence",
+    "rationale",
+    "risk_flags",
 ]
 
 
@@ -116,12 +127,14 @@ def build_instrumentation_audit(payload: dict[str, Any]) -> dict[str, Any]:
             "policy": "deterministic_scenario_sizing",
             "model_policy_version": ((payload.get("engine") or {}).get("version") or ""),
             "ml_model_active": False,
-            "llm_review_status": (payload.get("llm_review") or {}).get("status", "absent"),
-            "llm_review_mode": (payload.get("llm_review") or {}).get("mode", "disabled"),
-            "llm_review_affects_sizing": False,
-            "llm_review_affected_approval_gate": bool((payload.get("llm_review") or {}).get("affected_approval_gate", False)),
+            "llm_review_status": (payload.get("llm_review") or payload.get("llm_signal") or {}).get("status", "absent"),
+            "llm_review_mode": (payload.get("llm_review") or payload.get("llm_signal") or {}).get("mode", "disabled"),
+            "llm_signal_active": bool((payload.get("llm_signal") or payload.get("llm_review") or {}).get("llm_signal_active", False)),
+            "llm_direct_sizing_allowed": False,
+            "llm_review_affects_sizing": bool((payload.get("llm_signal") or payload.get("llm_review") or {}).get("llm_signal_active", False)),
+            "llm_review_affected_approval_gate": bool((payload.get("llm_review") or payload.get("llm_signal") or {}).get("affected_approval_gate", False)),
             "completed_backtest_label_count": int(backtest.get("completed_outcome_count") or 0),
-            "note": "Expected returns and target weights are deterministic model outputs until enough forward labels mature for ML calibration.",
+            "note": "LLM bounded-signal mode may adjust expected-return and risk features; target weights and deltas remain deterministic sizing outputs.",
         },
     }
 
@@ -280,7 +293,7 @@ def engine_wiring_checks(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def llm_review_audit_checks(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    review = payload.get("llm_review") or {}
+    review = payload.get("llm_signal") or payload.get("llm_review") or {}
     if not review:
         return []
     checks = [
@@ -293,14 +306,34 @@ def llm_review_audit_checks(payload: dict[str, Any]) -> list[dict[str, Any]]:
         check_present("llm_review_reviewed_symbol_count_present", review.get("reviewed_symbol_count")),
         check_present("llm_review_schema_failure_count_present", review.get("schema_validation_failure_count")),
         check_present("llm_review_approval_gate_effect_present", review.get("affected_approval_gate")),
+        check_present("llm_review_direct_sizing_flag_present", review.get("llm_direct_sizing_allowed")),
+        check_equal("llm_review_direct_sizing_disallowed", bool(review.get("llm_direct_sizing_allowed")), False),
     ]
     mode = str(review.get("mode") or "disabled")
     if mode == "shadow":
         checks.append(check_equal("llm_review_shadow_does_not_affect_approval_gate", bool(review.get("affected_approval_gate")), False))
+    if mode == "bounded_signal":
+        checks.append(check_present("llm_signal_caps_present", review.get("caps")))
     if review.get("status") == "ok":
         reviews = review.get("reviews") or []
         checks.append(check_equal("llm_review_count_matches_reviews", review.get("reviewed_symbol_count"), len(reviews)))
         checks.append(check_rows_have_fields("llm_review_rows_have_schema", reviews, LLM_REVIEW_ROW_FIELDS))
+        if mode == "bounded_signal":
+            checks.extend(llm_signal_cap_checks(review, reviews))
+    return checks
+
+
+def llm_signal_cap_checks(review: dict[str, Any], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    caps = review.get("caps") or {}
+    expected_cap = float(caps.get("max_expected_return_delta") or 0)
+    evidence_cap = float(caps.get("max_evidence_quality_delta") or 0)
+    drawdown_cap = float(caps.get("max_drawdown_risk_delta") or 0)
+    checks: list[dict[str, Any]] = []
+    for row in rows:
+        symbol = str(row.get("symbol") or "unknown").upper()
+        checks.append(check_abs_lte(f"{symbol}_llm_expected_return_delta_within_cap", row.get("llm_expected_return_delta"), expected_cap))
+        checks.append(check_abs_lte(f"{symbol}_llm_evidence_quality_delta_within_cap", row.get("llm_evidence_quality_delta"), evidence_cap))
+        checks.append(check_abs_lte(f"{symbol}_llm_drawdown_risk_delta_within_cap", row.get("llm_drawdown_risk_delta"), drawdown_cap))
     return checks
 
 
@@ -1281,6 +1314,12 @@ def check_contains(name: str, observed: Any, expected_item: Any) -> dict[str, An
     else:
         ok = False
     return {"name": name, "status": "ok" if ok else "fail", "observed": observed, "expected": expected_item}
+
+
+def check_abs_lte(name: str, observed: Any, expected_cap: float) -> dict[str, Any]:
+    observed_float = as_float(observed)
+    ok = observed_float is not None and abs(observed_float) <= expected_cap + TOLERANCE
+    return {"name": name, "status": "ok" if ok else "fail", "observed": observed, "expected_abs_lte": expected_cap}
 
 
 def check_subset(name: str, observed: set[str], expected: set[str]) -> dict[str, Any]:

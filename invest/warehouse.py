@@ -123,6 +123,31 @@ CREATE TABLE IF NOT EXISTS sector_underwriting_snapshots (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS llm_signal_snapshots (
+    llm_signal_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    as_of DATE NOT NULL,
+    session TEXT NOT NULL DEFAULT '',
+    symbol TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    prompt_version TEXT NOT NULL DEFAULT '',
+    schema_version TEXT NOT NULL DEFAULT '',
+    thesis_quality TEXT NOT NULL DEFAULT '',
+    llm_expected_return_delta NUMERIC,
+    llm_evidence_quality_delta NUMERIC,
+    llm_drawdown_risk_delta NUMERIC,
+    llm_conviction_score NUMERIC,
+    llm_variant_quality_score NUMERIC,
+    llm_source_quality_score NUMERIC,
+    llm_contradiction_risk_score NUMERIC,
+    llm_staleness_risk_score NUMERIC,
+    llm_review_required BOOLEAN NOT NULL DEFAULT false,
+    confidence NUMERIC,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS trade_recommendations (
     ticket_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
@@ -366,6 +391,22 @@ CREATE TABLE IF NOT EXISTS recommendation_training_examples (
     recommended_delta_weight NUMERIC,
     target_weight NUMERIC,
     risk_adjusted_expected_return NUMERIC,
+    base_risk_adjusted_expected_return NUMERIC,
+    base_evidence_quality NUMERIC,
+    base_drawdown_risk NUMERIC,
+    llm_signal_applied BOOLEAN NOT NULL DEFAULT false,
+    llm_expected_return_delta NUMERIC,
+    llm_expected_return_adjustment NUMERIC,
+    llm_evidence_quality_delta NUMERIC,
+    llm_evidence_quality_adjustment NUMERIC,
+    llm_drawdown_risk_delta NUMERIC,
+    llm_drawdown_risk_adjustment NUMERIC,
+    llm_conviction_score NUMERIC,
+    llm_variant_quality_score NUMERIC,
+    llm_source_quality_score NUMERIC,
+    llm_contradiction_risk_score NUMERIC,
+    llm_staleness_risk_score NUMERIC,
+    llm_review_required BOOLEAN NOT NULL DEFAULT false,
     external_signal_score NUMERIC,
     coverage_adjusted_external_signal_score NUMERIC,
     external_coverage_multiplier NUMERIC,
@@ -420,6 +461,22 @@ ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS external_p
 ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS external_provider_ok_ratio NUMERIC;
 ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS external_signal_count INTEGER;
 ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS external_source_count INTEGER;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS base_risk_adjusted_expected_return NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS base_evidence_quality NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS base_drawdown_risk NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS llm_signal_applied BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS llm_expected_return_delta NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS llm_expected_return_adjustment NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS llm_evidence_quality_delta NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS llm_evidence_quality_adjustment NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS llm_drawdown_risk_delta NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS llm_drawdown_risk_adjustment NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS llm_conviction_score NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS llm_variant_quality_score NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS llm_source_quality_score NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS llm_contradiction_risk_score NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS llm_staleness_risk_score NUMERIC;
+ALTER TABLE recommendation_training_examples ADD COLUMN IF NOT EXISTS llm_review_required BOOLEAN NOT NULL DEFAULT false;
 """
 
 
@@ -537,6 +594,7 @@ def upsert_report_payload(conn, payload: dict[str, Any], pipeline_result: dict[s
             "research_snapshots": 0,
             "company_underwriting_snapshots": 0,
             "sector_underwriting_snapshots": 0,
+            "llm_signal_snapshots": 0,
             "trade_recommendations": 0,
             "performance_attribution": 0,
             "earnings_events": 0,
@@ -560,6 +618,7 @@ def upsert_report_payload(conn, payload: dict[str, Any], pipeline_result: dict[s
         "research_snapshots": replace_research_snapshots(conn, run_id, payload),
         "company_underwriting_snapshots": replace_company_underwriting_snapshots(conn, run_id, payload),
         "sector_underwriting_snapshots": replace_sector_underwriting_snapshots(conn, run_id, payload),
+        "llm_signal_snapshots": replace_llm_signal_snapshots(conn, run_id, payload),
         "trade_recommendations": replace_trade_recommendations(conn, run_id, payload),
         "performance_attribution": replace_performance_attribution(conn, run_id, payload),
         "earnings_events": replace_earnings_events(conn, run_id, payload),
@@ -775,6 +834,54 @@ def replace_sector_underwriting_snapshots(conn, run_id: str, payload: dict[str, 
                     numeric(row.get("target_weight_modifier")),
                     bool(row.get("sector_headwind", False)),
                     bool(row.get("sector_tailwind", False)),
+                    json_param(row),
+                ),
+            )
+    return len(rows)
+
+
+def replace_llm_signal_snapshots(conn, run_id: str, payload: dict[str, Any]) -> int:
+    snapshot = payload.get("llm_signal") or payload.get("llm_review") or {}
+    rows = snapshot.get("reviews") or []
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM llm_signal_snapshots WHERE run_id = %s", (run_id,))
+        for row in rows:
+            symbol = str(row.get("symbol") or "").upper()
+            if not symbol:
+                continue
+            cur.execute(
+                """
+                INSERT INTO llm_signal_snapshots
+                (llm_signal_id, run_id, as_of, session, symbol, mode, model, prompt_version,
+                 schema_version, thesis_quality, llm_expected_return_delta,
+                 llm_evidence_quality_delta, llm_drawdown_risk_delta, llm_conviction_score,
+                 llm_variant_quality_score, llm_source_quality_score,
+                 llm_contradiction_risk_score, llm_staleness_risk_score,
+                 llm_review_required, confidence, raw)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s::jsonb)
+                """,
+                (
+                    stable_id([run_id, "llm_signal", symbol, snapshot.get("prompt_version"), snapshot.get("schema_version")]),
+                    run_id,
+                    row.get("as_of") or snapshot.get("as_of") or payload.get("as_of"),
+                    row.get("session") or snapshot.get("session") or payload.get("session") or "",
+                    symbol,
+                    snapshot.get("mode") or "",
+                    snapshot.get("model") or "",
+                    snapshot.get("prompt_version") or "",
+                    snapshot.get("schema_version") or "",
+                    row.get("thesis_quality") or "",
+                    numeric(row.get("llm_expected_return_delta")),
+                    numeric(row.get("llm_evidence_quality_delta")),
+                    numeric(row.get("llm_drawdown_risk_delta")),
+                    numeric(row.get("llm_conviction_score")),
+                    numeric(row.get("llm_variant_quality_score")),
+                    numeric(row.get("llm_source_quality_score")),
+                    numeric(row.get("llm_contradiction_risk_score")),
+                    numeric(row.get("llm_staleness_risk_score")),
+                    bool(row.get("llm_review_required", row.get("review_required", False))),
+                    numeric(row.get("confidence")),
                     json_param(row),
                 ),
             )
@@ -1234,12 +1341,20 @@ def replace_recommendation_training_examples(conn, run_id: str, payload: dict[st
                 INSERT INTO recommendation_training_examples
                 (example_id, run_id, ticket_id, as_of, session, symbol, bucket, model_policy_version,
                  trade_action, current_weight, recommended_delta_weight, target_weight,
-                 risk_adjusted_expected_return, external_signal_score,
+                 risk_adjusted_expected_return, base_risk_adjusted_expected_return,
+                 base_evidence_quality, base_drawdown_risk, llm_signal_applied,
+                 llm_expected_return_delta, llm_expected_return_adjustment,
+                 llm_evidence_quality_delta, llm_evidence_quality_adjustment,
+                 llm_drawdown_risk_delta, llm_drawdown_risk_adjustment,
+                 llm_conviction_score, llm_variant_quality_score, llm_source_quality_score,
+                 llm_contradiction_risk_score, llm_staleness_risk_score, llm_review_required,
+                 external_signal_score,
                  coverage_adjusted_external_signal_score, external_coverage_multiplier,
                  external_feed_status, external_provider_count, external_provider_ok_count,
                  external_provider_ok_ratio, external_signal_count, external_source_count,
                  forward_return_labels, raw)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
                 """,
                 (
@@ -1256,6 +1371,22 @@ def replace_recommendation_training_examples(conn, run_id: str, payload: dict[st
                     numeric(row.get("recommended_delta_weight")),
                     numeric(row.get("target_weight")),
                     numeric(row.get("risk_adjusted_expected_return")),
+                    numeric(row.get("base_risk_adjusted_expected_return")),
+                    numeric(row.get("base_evidence_quality")),
+                    numeric(row.get("base_drawdown_risk")),
+                    bool(row.get("llm_signal_applied", False)),
+                    numeric(row.get("llm_expected_return_delta")),
+                    numeric(row.get("llm_expected_return_adjustment")),
+                    numeric(row.get("llm_evidence_quality_delta")),
+                    numeric(row.get("llm_evidence_quality_adjustment")),
+                    numeric(row.get("llm_drawdown_risk_delta")),
+                    numeric(row.get("llm_drawdown_risk_adjustment")),
+                    numeric(row.get("llm_conviction_score")),
+                    numeric(row.get("llm_variant_quality_score")),
+                    numeric(row.get("llm_source_quality_score")),
+                    numeric(row.get("llm_contradiction_risk_score")),
+                    numeric(row.get("llm_staleness_risk_score")),
+                    bool(row.get("llm_review_required", False)),
                     numeric(row.get("external_signal_score")),
                     numeric(row.get("coverage_adjusted_external_signal_score")),
                     numeric(row.get("external_coverage_multiplier")),
@@ -1431,6 +1562,7 @@ def warehouse_tables() -> list[str]:
         "research_snapshots",
         "company_underwriting_snapshots",
         "sector_underwriting_snapshots",
+        "llm_signal_snapshots",
         "trade_recommendations",
         "decision_ledger",
         "performance_attribution",

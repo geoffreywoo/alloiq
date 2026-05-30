@@ -1493,6 +1493,8 @@ class SiteTests(unittest.TestCase):
 
         self.assertEqual(public["llm_review"]["status"], "ok")
         self.assertIn("reviews", public["llm_review"])
+        self.assertFalse(public["llm_review"]["llm_direct_sizing_allowed"])
+        self.assertFalse(public["llm_signal"]["llm_direct_sizing_allowed"])
         self.assertNotIn("raw_prompt", text)
         self.assertNotIn("request_payload", text)
         self.assertNotIn("api_key", text)

@@ -212,12 +212,15 @@ Optional data-source secrets:
   provider for 3/6/12 month expected earnings dates. Without it, AlloIQ still
   uses manual dates, company IR RSS/Atom feeds, Nasdaq's public earnings
   calendar fallback, SEC result markers, and news-derived catalyst detection.
-- `OPENAI_API_KEY`: enables the optional LLM evidence-review layer when
-  `[llm].enabled = true` in `ALLOIQ_CONFIG_TOML`. Start with `[llm].mode =
-  "shadow"` so reviews are published as evidence only and cannot block approval
-  tickets. The default OpenAI reviewer is `gpt-5-mini` with
-  `reasoning_effort = "medium"`; set `reasoning_effort = "none"` for legacy
-  non-reasoning models.
+- `OPENAI_API_KEY`: enables the optional LLM signal layer when `[llm].enabled =
+  true` in `ALLOIQ_CONFIG_TOML`. Use `[llm].mode = "shadow"` to record reviews
+  without changing scores, `review_gate` to add human-review blockers, or
+  `bounded_signal` to let GPT-5.5 adjust expected-return/evidence/risk features
+  within configured caps before deterministic sizing runs. Responses requests
+  use structured JSON output and `store=false`; validated rows can be cached by
+  evidence ID without storing raw prompts or packets. Private-context production
+  use should prefer Zero Data Retention or Modified Abuse Monitoring where
+  available.
 
 Optional briefing delivery secrets:
 

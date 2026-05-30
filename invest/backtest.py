@@ -91,12 +91,28 @@ class RecommendationTrial:
     recommended_delta_weight: float
     target_weight: float
     risk_adjusted_expected_return: float | None
+    base_risk_adjusted_expected_return: float | None
     evidence_quality: float | None
+    base_evidence_quality: float | None
     drawdown_risk: float | None
+    base_drawdown_risk: float | None
     timing_score: float | None
     signal_families: tuple[str, ...]
     event_types: tuple[str, ...]
     model_policy_version: str
+    llm_signal_applied: bool = False
+    llm_expected_return_delta: float | None = None
+    llm_expected_return_adjustment: float | None = None
+    llm_evidence_quality_delta: float | None = None
+    llm_evidence_quality_adjustment: float | None = None
+    llm_drawdown_risk_delta: float | None = None
+    llm_drawdown_risk_adjustment: float | None = None
+    llm_conviction_score: float | None = None
+    llm_variant_quality_score: float | None = None
+    llm_source_quality_score: float | None = None
+    llm_contradiction_risk_score: float | None = None
+    llm_staleness_risk_score: float | None = None
+    llm_review_required: bool = False
     external_signal_score: float | None = None
     coverage_adjusted_external_signal_score: float | None = None
     external_coverage_multiplier: float | None = None
@@ -277,6 +293,12 @@ def build_backtest_summary(
         "by_earnings_confirmation_bucket": group_summaries(completed, "earnings_confirmation_bucket"),
         "by_approval_gate_status": group_summaries(completed, "approval_gate_status"),
         "by_approval_blocker_bucket": group_summaries(completed, "approval_blocker_bucket"),
+        "by_llm_signal_applied": group_summaries(completed, "llm_signal_applied"),
+        "by_llm_review_required": group_summaries(completed, "llm_review_required"),
+        "by_llm_conviction_bucket": group_summaries(completed, "llm_conviction_bucket"),
+        "by_llm_contradiction_risk_bucket": group_summaries(completed, "llm_contradiction_risk_bucket"),
+        "by_llm_staleness_risk_bucket": group_summaries(completed, "llm_staleness_risk_bucket"),
+        "by_llm_expected_return_delta_bucket": group_summaries(completed, "llm_expected_return_delta_bucket"),
         "pending_by_external_feed_status": pending_group_summaries(pending, "external_feed_status"),
         "pending_by_external_coverage": pending_external_coverage_summaries(pending),
         "pending_by_external_alignment": pending_external_alignment_summaries(pending),
@@ -356,6 +378,8 @@ def build_backtest_summary(
         "pending_by_earnings_confirmation_bucket": pending_group_summaries(pending, "earnings_confirmation_bucket"),
         "pending_by_approval_gate_status": pending_group_summaries(pending, "approval_gate_status"),
         "pending_by_approval_blocker_bucket": pending_group_summaries(pending, "approval_blocker_bucket"),
+        "pending_by_llm_signal_applied": pending_group_summaries(pending, "llm_signal_applied"),
+        "pending_by_llm_review_required": pending_group_summaries(pending, "llm_review_required"),
         "pending_label_schedule": label_schedule,
         "next_label_maturity": label_schedule.get("next_label") or {},
         "next_learning_label_maturity": label_schedule.get("next_learning_label") or {},
@@ -526,12 +550,28 @@ def trials_from_training_examples(examples: list[dict[str, Any]]) -> list[Recomm
                 recommended_delta_weight=delta,
                 target_weight=float(example.get("target_weight") or 0),
                 risk_adjusted_expected_return=optional_float(example.get("risk_adjusted_expected_return")),
+                base_risk_adjusted_expected_return=optional_float(example.get("base_risk_adjusted_expected_return")),
                 evidence_quality=optional_float(example.get("evidence_quality")),
+                base_evidence_quality=optional_float(example.get("base_evidence_quality")),
                 drawdown_risk=optional_float(example.get("drawdown_risk")),
+                base_drawdown_risk=optional_float(example.get("base_drawdown_risk")),
                 timing_score=optional_float(example.get("timing_score")),
                 signal_families=tuple(str(item) for item in example.get("signal_families") or []),
                 event_types=tuple(str(item) for item in example.get("event_types") or []),
                 model_policy_version=str(example.get("model_policy_version") or MODEL_POLICY_VERSION),
+                llm_signal_applied=optional_bool(example.get("llm_signal_applied")),
+                llm_expected_return_delta=optional_float(example.get("llm_expected_return_delta")),
+                llm_expected_return_adjustment=optional_float(example.get("llm_expected_return_adjustment")),
+                llm_evidence_quality_delta=optional_float(example.get("llm_evidence_quality_delta")),
+                llm_evidence_quality_adjustment=optional_float(example.get("llm_evidence_quality_adjustment")),
+                llm_drawdown_risk_delta=optional_float(example.get("llm_drawdown_risk_delta")),
+                llm_drawdown_risk_adjustment=optional_float(example.get("llm_drawdown_risk_adjustment")),
+                llm_conviction_score=optional_float(example.get("llm_conviction_score")),
+                llm_variant_quality_score=optional_float(example.get("llm_variant_quality_score")),
+                llm_source_quality_score=optional_float(example.get("llm_source_quality_score")),
+                llm_contradiction_risk_score=optional_float(example.get("llm_contradiction_risk_score")),
+                llm_staleness_risk_score=optional_float(example.get("llm_staleness_risk_score")),
+                llm_review_required=optional_bool(example.get("llm_review_required")),
                 external_signal_score=optional_float(example.get("external_signal_score")),
                 coverage_adjusted_external_signal_score=optional_float(example.get("coverage_adjusted_external_signal_score")),
                 external_coverage_multiplier=optional_float(example.get("external_coverage_multiplier")),
@@ -611,12 +651,28 @@ def trials_from_payload_actions(payload: dict[str, Any]) -> list[RecommendationT
                 recommended_delta_weight=delta,
                 target_weight=target_weight,
                 risk_adjusted_expected_return=optional_float(action.get("risk_adjusted_expected_return", research.get("risk_adjusted_expected_return"))),
+                base_risk_adjusted_expected_return=optional_float(action.get("base_risk_adjusted_expected_return", research.get("base_risk_adjusted_expected_return"))),
                 evidence_quality=optional_float(action.get("evidence_quality", research.get("evidence_quality", feature.get("evidence_quality")))),
+                base_evidence_quality=optional_float(action.get("base_evidence_quality", research.get("base_evidence_quality"))),
                 drawdown_risk=optional_float(action.get("drawdown_risk", research.get("drawdown_risk", feature.get("drawdown_risk")))),
+                base_drawdown_risk=optional_float(action.get("base_drawdown_risk", research.get("base_drawdown_risk"))),
                 timing_score=optional_float(action.get("timing_score", research.get("timing_score", feature.get("timing_score")))),
                 signal_families=tuple(str(item) for item in feature.get("signal_families") or research.get("signal_families") or card.get("signal_families") or []),
                 event_types=tuple(str(item) for item in feature.get("event_types") or research.get("event_types") or action.get("event_types") or card.get("top_event_types") or []),
                 model_policy_version=str(action.get("model_policy_version") or research.get("model_policy_version") or MODEL_POLICY_VERSION),
+                llm_signal_applied=optional_bool(action.get("llm_signal_applied", research.get("llm_signal_applied"))),
+                llm_expected_return_delta=optional_float(action.get("llm_expected_return_delta", research.get("llm_expected_return_delta"))),
+                llm_expected_return_adjustment=optional_float(action.get("llm_expected_return_adjustment", research.get("llm_expected_return_adjustment"))),
+                llm_evidence_quality_delta=optional_float(action.get("llm_evidence_quality_delta", research.get("llm_evidence_quality_delta"))),
+                llm_evidence_quality_adjustment=optional_float(action.get("llm_evidence_quality_adjustment", research.get("llm_evidence_quality_adjustment"))),
+                llm_drawdown_risk_delta=optional_float(action.get("llm_drawdown_risk_delta", research.get("llm_drawdown_risk_delta"))),
+                llm_drawdown_risk_adjustment=optional_float(action.get("llm_drawdown_risk_adjustment", research.get("llm_drawdown_risk_adjustment"))),
+                llm_conviction_score=optional_float(action.get("llm_conviction_score", research.get("llm_conviction_score"))),
+                llm_variant_quality_score=optional_float(action.get("llm_variant_quality_score", research.get("llm_variant_quality_score"))),
+                llm_source_quality_score=optional_float(action.get("llm_source_quality_score", research.get("llm_source_quality_score"))),
+                llm_contradiction_risk_score=optional_float(action.get("llm_contradiction_risk_score", research.get("llm_contradiction_risk_score"))),
+                llm_staleness_risk_score=optional_float(action.get("llm_staleness_risk_score", research.get("llm_staleness_risk_score"))),
+                llm_review_required=optional_bool(action.get("llm_review_required", research.get("llm_review_required"))),
                 external_signal_score=optional_float(action.get("external_signal_score", feature.get("external_signal_score"))),
                 coverage_adjusted_external_signal_score=optional_float(action.get("coverage_adjusted_external_signal_score", feature.get("coverage_adjusted_external_signal_score"))),
                 external_coverage_multiplier=optional_float(action.get("external_coverage_multiplier", feature.get("external_coverage_multiplier"))),
@@ -729,9 +785,29 @@ def outcome_row(
         "recommended_delta_weight": round(trial.recommended_delta_weight, 6),
         "target_weight": round(trial.target_weight, 6),
         "risk_adjusted_expected_return": trial.risk_adjusted_expected_return,
+        "base_risk_adjusted_expected_return": trial.base_risk_adjusted_expected_return,
         "evidence_quality": trial.evidence_quality,
+        "base_evidence_quality": trial.base_evidence_quality,
         "drawdown_risk": trial.drawdown_risk,
+        "base_drawdown_risk": trial.base_drawdown_risk,
         "timing_score": trial.timing_score,
+        "llm_signal_applied": trial.llm_signal_applied,
+        "llm_expected_return_delta": trial.llm_expected_return_delta,
+        "llm_expected_return_adjustment": trial.llm_expected_return_adjustment,
+        "llm_expected_return_delta_bucket": llm_delta_bucket(trial.llm_expected_return_delta),
+        "llm_evidence_quality_delta": trial.llm_evidence_quality_delta,
+        "llm_evidence_quality_adjustment": trial.llm_evidence_quality_adjustment,
+        "llm_drawdown_risk_delta": trial.llm_drawdown_risk_delta,
+        "llm_drawdown_risk_adjustment": trial.llm_drawdown_risk_adjustment,
+        "llm_conviction_score": trial.llm_conviction_score,
+        "llm_conviction_bucket": llm_score_bucket(trial.llm_conviction_score),
+        "llm_variant_quality_score": trial.llm_variant_quality_score,
+        "llm_source_quality_score": trial.llm_source_quality_score,
+        "llm_contradiction_risk_score": trial.llm_contradiction_risk_score,
+        "llm_contradiction_risk_bucket": llm_score_bucket(trial.llm_contradiction_risk_score),
+        "llm_staleness_risk_score": trial.llm_staleness_risk_score,
+        "llm_staleness_risk_bucket": llm_score_bucket(trial.llm_staleness_risk_score),
+        "llm_review_required": trial.llm_review_required,
         "signal_families": list(trial.signal_families),
         "event_types": list(trial.event_types),
         "external_signal_score": trial.external_signal_score,
@@ -1037,6 +1113,26 @@ def group_summaries(rows: list[dict[str, Any]], key: str) -> list[dict[str, Any]
         key=lambda row: (row["completed_count"], row.get("average_decision_return") or -999),
         reverse=True,
     )
+
+
+def llm_score_bucket(value: float | None) -> str:
+    if value is None:
+        return "no_llm_score"
+    if value >= 75:
+        return "high"
+    if value >= 45:
+        return "medium"
+    return "low"
+
+
+def llm_delta_bucket(value: float | None) -> str:
+    if value is None:
+        return "no_llm_delta"
+    if value >= 1.0:
+        return "positive"
+    if value <= -1.0:
+        return "negative"
+    return "neutral"
 
 
 def external_coverage_summaries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

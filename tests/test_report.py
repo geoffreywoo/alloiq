@@ -13,6 +13,7 @@ from invest.reports import (
     build_approval_tickets,
     build_data_health,
     build_methodology,
+    build_research_universe,
     build_weekly_research,
     generate_brief,
     render_backtest_summary,
@@ -228,6 +229,43 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(weekly["ideas"][0]["symbol"], "NVDA")
         self.assertEqual(weekly["ideas"][0]["trade_action"], "add")
         self.assertTrue(weekly["ideas"][0]["research_questions"])
+
+    def test_research_universe_includes_manager_discovery_symbols(self):
+        config = AppConfig(
+            path=Path("config/invest.toml"),
+            data={"watchlist": {"symbols": ["NVDA"]}},
+        )
+
+        universe = build_research_universe(
+            config,
+            {"by_symbol": []},
+            {
+                "focus_managers": [],
+                "top_adds": [
+                    {"symbol": "CEG", "bucket": "power_grid_gas_nuclear", "manager_count": 4, "delta_value": 800_000_000}
+                ],
+                "top_consensus": [
+                    {"symbol": "VST", "bucket": "unmapped", "common_manager_count": 5, "common_value": 2_000_000_000}
+                ],
+            },
+        )
+
+        self.assertIn("NVDA", universe)
+        self.assertIn("CEG", universe)
+        self.assertIn("VST", universe)
+        constrained = build_research_universe(
+            config,
+            {"by_symbol": []},
+            {
+                "focus_managers": [],
+                "top_adds": [
+                    {"symbol": "CEG", "bucket": "power_grid_gas_nuclear", "manager_count": 4, "delta_value": 800_000_000}
+                ],
+            },
+            max_symbols=2,
+        )
+        self.assertEqual(constrained[0], "NVDA")
+        self.assertIn("CEG", constrained)
 
     def test_methodology_reflects_backend_inputs_and_approval_boundary(self):
         config = AppConfig(

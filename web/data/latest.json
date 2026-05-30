@@ -1070,7 +1070,7 @@
     },
     "engine_version": "2026-05-bottom-up-first-v3",
     "instrumentation_health": {
-      "check_count": 259,
+      "check_count": 261,
       "failure_count": 0,
       "status": "ok"
     },
@@ -38035,7 +38035,7 @@
   ],
   "instrumentation_audit": {
     "as_of": "2026-05-28",
-    "check_count": 259,
+    "check_count": 261,
     "checks": [
       {
         "expected": 65,
@@ -39112,6 +39112,18 @@
       {
         "expected": "present",
         "name": "llm_review_approval_gate_effect_present",
+        "observed": false,
+        "status": "ok"
+      },
+      {
+        "expected": "present",
+        "name": "llm_review_direct_sizing_flag_present",
+        "observed": false,
+        "status": "ok"
+      },
+      {
+        "expected": false,
+        "name": "llm_review_direct_sizing_disallowed",
         "observed": false,
         "status": "ok"
       },
@@ -40548,13 +40560,15 @@
     "failures": [],
     "prediction_provenance": {
       "completed_backtest_label_count": 0,
+      "llm_direct_sizing_allowed": false,
       "llm_review_affected_approval_gate": false,
       "llm_review_affects_sizing": false,
       "llm_review_mode": "disabled",
       "llm_review_status": "disabled",
+      "llm_signal_active": false,
       "ml_model_active": false,
       "model_policy_version": "2026-05-bottom-up-first-v3",
-      "note": "Expected returns and target weights are deterministic model outputs until enough forward labels mature for ML calibration.",
+      "note": "LLM bounded-signal mode may adjust expected-return and risk features; target weights and deltas remain deterministic sizing outputs.",
       "policy": "deterministic_scenario_sizing"
     },
     "session": "postmarket",
@@ -40579,6 +40593,28 @@
     "detail": "LLM evidence review is disabled.",
     "enabled": false,
     "evidence_packet_count": 0,
+    "llm_direct_sizing_allowed": false,
+    "mode": "disabled",
+    "model": "gpt-5-mini",
+    "prompt_version": "2026-05-evidence-challenge-v1",
+    "provider": "openai",
+    "reasoning_effort": "medium",
+    "redaction_status": "not_applicable",
+    "reviewed_symbol_count": 0,
+    "reviews": [],
+    "schema_validation_failure_count": 0,
+    "schema_version": "2026-05-llm-review-schema-v1",
+    "session": "postmarket",
+    "status": "disabled",
+    "version": "2026-05-llm-evidence-review-v1"
+  },
+  "llm_signal": {
+    "affected_approval_gate": false,
+    "as_of": "2026-05-28",
+    "detail": "LLM evidence review is disabled.",
+    "enabled": false,
+    "evidence_packet_count": 0,
+    "llm_direct_sizing_allowed": false,
     "mode": "disabled",
     "model": "gpt-5-mini",
     "prompt_version": "2026-05-evidence-challenge-v1",
@@ -75358,7 +75394,7 @@
     ]
   },
   "site": {
-    "built_at": "2026-05-29T05:56:40Z",
+    "built_at": "2026-05-30T05:10:38Z",
     "domain": "alloiq.com",
     "last_run_kind": "postmarket",
     "name": "AlloIQ",
@@ -75367,15 +75403,15 @@
     "report_session": "postmarket",
     "source_report": "2026-05-28-postmarket.json",
     "stale_status": {
-      "built_at": "2026-05-29T05:56:40Z",
+      "built_at": "2026-05-30T05:10:38Z",
       "expected_report_as_of": "2026-05-29",
       "is_stale_at_build": true,
-      "market_date_at_build": "2026-05-29",
+      "market_date_at_build": "2026-05-30",
       "max_age_hours": 20,
       "max_report_age_days": 0,
       "policy": "client marks stale when built_at exceeds max_age_hours; build marks stale when report_as_of lags the market-date window",
       "reason": "report_as_of 2026-05-28 is before expected report date 2026-05-29; allowed lag is 0 days",
-      "report_age_days": 1,
+      "report_age_days": 2,
       "report_as_of": "2026-05-28",
       "report_lag_days": 1,
       "status": "stale"

@@ -37,10 +37,12 @@ def build_research_book(
     feature_matrix: dict[str, Any],
     cards: list[dict[str, Any]],
     macro: dict[str, Any],
+    llm_signal: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cards_by_symbol = proxy_index(cards)
+    llm_by_symbol = llm_signal_by_symbol(llm_signal)
     items = [
-        research_item(as_of, feature, proxied_lookup(cards_by_symbol, feature.get("symbol"), {}), macro)
+        research_item(as_of, feature, proxied_lookup(cards_by_symbol, feature.get("symbol"), {}), macro, llm_by_symbol.get(str(feature.get("symbol") or "").upper()))
         for feature in feature_matrix.get("rows", [])
     ]
     items.sort(key=lambda row: row["risk_adjusted_expected_return"], reverse=True)
@@ -53,13 +55,20 @@ def build_research_book(
         "as_of": as_of.isoformat(),
         "objective": "maximize_expected_3_12m_forward_return_with_company_first_underwriting",
         "horizon": "3-12m",
+        "llm_signal_active": bool(llm_by_symbol),
         "item_count": len(items),
         "items": items,
         "top_verdicts": verdict_counts(items),
     }
 
 
-def research_item(as_of: date, feature: dict[str, Any], card: dict[str, Any], macro: dict[str, Any]) -> dict[str, Any]:
+def research_item(
+    as_of: date,
+    feature: dict[str, Any],
+    card: dict[str, Any],
+    macro: dict[str, Any],
+    llm_signal: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     bucket = str(feature.get("bucket") or "unmapped")
     scenario = scenario_returns(feature, bucket)
     probabilities = scenario_probabilities(feature)
@@ -90,8 +99,16 @@ def research_item(as_of: date, feature: dict[str, Any], card: dict[str, Any], ma
         - drawdown_risk * 0.12
         - approval_friction_penalty
     )
+    base_risk_adjusted = risk_adjusted
+    base_evidence = evidence
+    base_drawdown_risk = drawdown_risk
+    llm_adjustments = applied_llm_adjustments(llm_signal)
+    if llm_adjustments:
+        risk_adjusted = risk_adjusted + llm_adjustments["expected_return_adjustment"]
+        evidence = clamp_score(evidence + llm_adjustments["evidence_quality_adjustment"])
+        drawdown_risk = clamp_score(drawdown_risk + llm_adjustments["drawdown_risk_adjustment"])
     verdict = research_verdict(risk_adjusted, evidence, drawdown_risk, float(feature.get("current_weight") or 0), feature)
-    return {
+    item = {
         "research_id": f"{as_of.isoformat()}-{feature.get('symbol')}-{MODEL_POLICY_VERSION}",
         "model_policy_version": MODEL_POLICY_VERSION,
         "symbol": feature.get("symbol", ""),
@@ -129,9 +146,12 @@ def research_item(as_of: date, feature: dict[str, Any], card: dict[str, Any], ma
         "bear_return_12m": round(scenario["bear_return_12m"], 2),
         "probability_weighted_return": round(probability_weighted, 2),
         "risk_adjusted_expected_return": round(risk_adjusted, 2),
+        "base_risk_adjusted_expected_return": round(base_risk_adjusted, 2),
         "timing_score": round(timing, 2),
         "drawdown_risk": round(drawdown_risk, 2),
+        "base_drawdown_risk": round(base_drawdown_risk, 2),
         "evidence_quality": round(evidence, 2),
+        "base_evidence_quality": round(base_evidence, 2),
         "valuation_support": round(valuation, 2),
         "price_return_1d": feature.get("price_return_1d"),
         "price_return_5d": feature.get("price_return_5d"),
@@ -172,7 +192,7 @@ def research_item(as_of: date, feature: dict[str, Any], card: dict[str, Any], ma
         "macro_sensitivity": macro_sensitivity(feature, macro),
         "risk": card.get("counterargument") or risk_summary(feature),
         "falsifier": feature.get("company_risk_falsifier") or card.get("falsifier") or "Forward public evidence contradicts the expected AI demand, pricing, or margin path.",
-        "review_required": bool(feature.get("company_review_required", False)),
+        "review_required": bool(feature.get("company_review_required", False)) or bool((llm_signal or {}).get("llm_review_required", False)),
         "review_reason": review_reason(feature, verdict),
         "verdict": verdict,
         "signal_families": feature.get("signal_families", []),
@@ -180,6 +200,59 @@ def research_item(as_of: date, feature: dict[str, Any], card: dict[str, Any], ma
         "source_tiers": feature.get("source_tiers", []),
         "feature_id": feature.get("feature_id", ""),
     }
+    if llm_adjustments:
+        item["llm_signal"] = llm_signal_summary(llm_signal or {}, llm_adjustments)
+        item.update(item["llm_signal"])
+    return item
+
+
+def llm_signal_by_symbol(llm_signal: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if not llm_signal or llm_signal.get("status") != "ok" or llm_signal.get("mode") != "bounded_signal":
+        return {}
+    return {
+        str(row.get("symbol") or "").upper(): row
+        for row in llm_signal.get("reviews") or []
+        if str(row.get("symbol") or "").strip()
+    }
+
+
+def applied_llm_adjustments(signal: dict[str, Any] | None) -> dict[str, float]:
+    if not signal:
+        return {}
+    confidence = max(0.0, min(1.0, float(signal.get("confidence") or 0.0)))
+    return {
+        "expected_return_adjustment": round(float(signal.get("llm_expected_return_delta") or 0.0) * confidence, 4),
+        "evidence_quality_adjustment": round(float(signal.get("llm_evidence_quality_delta") or 0.0) * confidence, 4),
+        "drawdown_risk_adjustment": round(float(signal.get("llm_drawdown_risk_delta") or 0.0) * confidence, 4),
+    }
+
+
+def llm_signal_summary(signal: dict[str, Any], adjustments: dict[str, float]) -> dict[str, Any]:
+    keys = (
+        "thesis_quality",
+        "decision_usefulness_score",
+        "llm_expected_return_delta",
+        "llm_evidence_quality_delta",
+        "llm_drawdown_risk_delta",
+        "llm_conviction_score",
+        "llm_variant_quality_score",
+        "llm_source_quality_score",
+        "llm_contradiction_risk_score",
+        "llm_staleness_risk_score",
+        "llm_review_required",
+        "confidence",
+        "rationale",
+    )
+    summary = {key: signal.get(key) for key in keys if key in signal}
+    summary["llm_expected_return_adjustment"] = adjustments["expected_return_adjustment"]
+    summary["llm_evidence_quality_adjustment"] = adjustments["evidence_quality_adjustment"]
+    summary["llm_drawdown_risk_adjustment"] = adjustments["drawdown_risk_adjustment"]
+    summary["llm_signal_applied"] = True
+    return summary
+
+
+def clamp_score(value: float) -> float:
+    return max(0.0, min(100.0, value))
 
 
 def scenario_returns(feature: dict[str, Any], bucket: str) -> dict[str, float]:

@@ -138,6 +138,19 @@ def build_engine_features_from_matrix(
                 "score": round(float(feature.get("score") or 0), 2),
                 "expected_return_score": round(expected, 2),
                 "risk_adjusted_expected_return": round(expected, 2),
+                "base_risk_adjusted_expected_return": research.get("base_risk_adjusted_expected_return"),
+                "base_evidence_quality": research.get("base_evidence_quality"),
+                "base_drawdown_risk": research.get("base_drawdown_risk"),
+                "llm_signal_applied": bool(research.get("llm_signal_applied", False)),
+                "llm_expected_return_delta": research.get("llm_expected_return_delta"),
+                "llm_expected_return_adjustment": research.get("llm_expected_return_adjustment"),
+                "llm_evidence_quality_delta": research.get("llm_evidence_quality_delta"),
+                "llm_evidence_quality_adjustment": research.get("llm_evidence_quality_adjustment"),
+                "llm_drawdown_risk_delta": research.get("llm_drawdown_risk_delta"),
+                "llm_drawdown_risk_adjustment": research.get("llm_drawdown_risk_adjustment"),
+                "llm_conviction_score": research.get("llm_conviction_score"),
+                "llm_contradiction_risk_score": research.get("llm_contradiction_risk_score"),
+                "llm_staleness_risk_score": research.get("llm_staleness_risk_score"),
                 "probability_weighted_return": research.get("probability_weighted_return"),
                 "bull_return_12m": research.get("bull_return_12m"),
                 "base_return_12m": research.get("base_return_12m"),
@@ -549,6 +562,7 @@ def recommendation_provenance(
         "model_policy_version": ENGINE_POLICY_VERSION,
         "expected_return_rank_score": feature["expected_return_rank_score"],
         "risk_adjusted_expected_return": feature.get("risk_adjusted_expected_return", feature.get("expected_return_score", 0)),
+        "base_risk_adjusted_expected_return": feature.get("base_risk_adjusted_expected_return"),
         "probability_weighted_return": feature.get("probability_weighted_return"),
         "bull_return_12m": feature.get("bull_return_12m"),
         "base_return_12m": feature.get("base_return_12m"),
@@ -565,6 +579,19 @@ def recommendation_provenance(
         "paper_tested": True,
         "status": ticket.get("status", "research_only") if ticket else "ranked",
     }
+    if feature.get("llm_signal_applied"):
+        provenance["llm_signal"] = {
+            "llm_signal_applied": True,
+            "llm_expected_return_delta": feature.get("llm_expected_return_delta"),
+            "llm_expected_return_adjustment": feature.get("llm_expected_return_adjustment"),
+            "llm_evidence_quality_delta": feature.get("llm_evidence_quality_delta"),
+            "llm_evidence_quality_adjustment": feature.get("llm_evidence_quality_adjustment"),
+            "llm_drawdown_risk_delta": feature.get("llm_drawdown_risk_delta"),
+            "llm_drawdown_risk_adjustment": feature.get("llm_drawdown_risk_adjustment"),
+            "llm_conviction_score": feature.get("llm_conviction_score"),
+            "llm_contradiction_risk_score": feature.get("llm_contradiction_risk_score"),
+            "llm_staleness_risk_score": feature.get("llm_staleness_risk_score"),
+        }
     if llm_review:
         provenance["llm_review"] = {
             "thesis_quality": llm_review.get("thesis_quality"),

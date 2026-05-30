@@ -51,6 +51,7 @@ def build_sizing_plan(
     actions = [row for row in targets if should_publish_action(row)]
     actions.sort(key=lambda row: (abs(float(row.get("recommended_delta_weight") or 0)), row["priority"]), reverse=True)
     published_actions = actions[:12]
+    research_queue = build_research_queue(targets, {str(row.get("symbol") or "").upper() for row in published_actions})
     rebalance_budget = rebalance_budget_summary(published_actions, normalized_limits, starting_cash_weight=cash_weight, max_cash_deploy_weight=cash_deployable_weight)
     annotate_action_funding(published_actions, rebalance_budget)
     target_summary = model_target_summary(targets, target_total)
@@ -74,6 +75,9 @@ def build_sizing_plan(
         "cash_policy": "cash_available_for_high_conviction_adds_with_daily_draw_cap",
         "targets": targets,
         "action_queue": published_actions,
+        "research_queue": research_queue,
+        "research_queue_count": len(research_queue),
+        "exploration_policy": "surface fresh research-only candidates without assigning trade deltas or target weights",
         "rebalance_budget": rebalance_budget,
         "limits": {
             "max_single_name_weight": float(normalized_limits["max_single_name_weight"]),
@@ -178,6 +182,23 @@ def target_for_item(
         "peer_avg_weight": round_weight(peer),
         "tier1_peer_avg_weight": round_weight(tier1_peer),
         "risk_adjusted_expected_return": round(expected, 2),
+        "base_risk_adjusted_expected_return": item.get("base_risk_adjusted_expected_return"),
+        "base_evidence_quality": item.get("base_evidence_quality"),
+        "base_drawdown_risk": item.get("base_drawdown_risk"),
+        "llm_signal": item.get("llm_signal", {}),
+        "llm_signal_applied": bool(item.get("llm_signal_applied", False)),
+        "llm_expected_return_delta": item.get("llm_expected_return_delta"),
+        "llm_expected_return_adjustment": item.get("llm_expected_return_adjustment"),
+        "llm_evidence_quality_delta": item.get("llm_evidence_quality_delta"),
+        "llm_evidence_quality_adjustment": item.get("llm_evidence_quality_adjustment"),
+        "llm_drawdown_risk_delta": item.get("llm_drawdown_risk_delta"),
+        "llm_drawdown_risk_adjustment": item.get("llm_drawdown_risk_adjustment"),
+        "llm_conviction_score": item.get("llm_conviction_score"),
+        "llm_variant_quality_score": item.get("llm_variant_quality_score"),
+        "llm_source_quality_score": item.get("llm_source_quality_score"),
+        "llm_contradiction_risk_score": item.get("llm_contradiction_risk_score"),
+        "llm_staleness_risk_score": item.get("llm_staleness_risk_score"),
+        "llm_review_required": item.get("llm_review_required"),
         "probability_weighted_return": item.get("probability_weighted_return", 0),
         "bull_return_12m": item.get("bull_return_12m", 0),
         "base_return_12m": item.get("base_return_12m", 0),
@@ -217,6 +238,8 @@ def target_for_item(
         "confidence": confidence_score(evidence, timing, drawdown, item),
         "company_underwriting_score": round(float(item.get("company_underwriting_score") or 0), 2),
         "sector_setup_score": round(float(item.get("sector_setup_score") or 0), 2),
+        "manager_count": int(item.get("manager_count") or 0),
+        "tier1_manager_count": int(item.get("tier1_manager_count") or 0),
         "company_add_eligible": bool(item.get("company_add_eligible", False)),
         "company_trim_signal": bool(item.get("company_trim_signal", False)),
         "company_review_required": bool(item.get("company_review_required", False)),
@@ -703,6 +726,85 @@ def confidence_score(evidence: float, timing: float, drawdown: float, item: dict
 def should_publish_action(row: dict[str, Any]) -> bool:
     delta = abs(float(row.get("recommended_delta_weight") or 0))
     return delta >= 0.005 or bool(row.get("positive_catalyst_gap_trim_block"))
+
+
+def build_research_queue(targets: list[dict[str, Any]], published_symbols: set[str], limit: int = 8) -> list[dict[str, Any]]:
+    candidates = [
+        research_queue_item(row)
+        for row in targets
+        if research_queue_eligible(row, published_symbols)
+    ]
+    candidates.sort(key=lambda row: row["research_priority"], reverse=True)
+    return candidates[:limit]
+
+
+def research_queue_eligible(row: dict[str, Any], published_symbols: set[str]) -> bool:
+    symbol = str(row.get("symbol") or "").upper()
+    if not symbol or symbol in published_symbols:
+        return False
+    if float(row.get("current_weight") or 0) > 0.000001:
+        return False
+    if str(row.get("trade_action") or "") == "avoid":
+        return False
+    if row.get("company_trim_signal"):
+        return False
+    if {"financing_risk", "regulatory_risk", "crowding_warning"} & {str(item) for item in row.get("event_types") or []}:
+        return False
+    expected = float(row.get("risk_adjusted_expected_return") or 0)
+    evidence = float(row.get("evidence_quality") or 0)
+    signal_count = int(row.get("signal_family_count") or 0)
+    manager_count = int(row.get("manager_count") or 0)
+    drawdown = float(row.get("drawdown_risk") or 0)
+    return drawdown < 82 and (signal_count >= 2 or manager_count >= 2 or expected >= 12 or evidence >= 58)
+
+
+def research_queue_item(row: dict[str, Any]) -> dict[str, Any]:
+    priority = research_queue_priority(row)
+    constraints = list(row.get("active_constraints") or [])
+    return {
+        "symbol": row.get("symbol", ""),
+        "bucket": row.get("bucket", "unmapped"),
+        "recommendation_type": "research_only",
+        "trade_action": "study",
+        "recommended_delta_weight": 0.0,
+        "target_weight": 0.0,
+        "model_target_weight": row.get("model_target_weight", 0.0),
+        "research_priority": round(priority, 2),
+        "risk_adjusted_expected_return": row.get("risk_adjusted_expected_return"),
+        "evidence_quality": row.get("evidence_quality"),
+        "drawdown_risk": row.get("drawdown_risk"),
+        "timing_score": row.get("timing_score"),
+        "signal_family_count": row.get("signal_family_count", 0),
+        "signal_families": row.get("signal_families", []),
+        "event_types": row.get("event_types", []),
+        "manager_count": row.get("manager_count", 0),
+        "research_reason": research_queue_reason(row, constraints),
+        "promotion_trigger": increase_size_if(row),
+        "blocking_constraints": constraints,
+    }
+
+
+def research_queue_priority(row: dict[str, Any]) -> float:
+    return (
+        float(row.get("risk_adjusted_expected_return") or 0) * 1.8
+        + float(row.get("evidence_quality") or 0) * 0.35
+        + float(row.get("timing_score") or 0) * 0.2
+        + int(row.get("signal_family_count") or 0) * 5.0
+        + int(row.get("manager_count") or 0) * 4.0
+        - float(row.get("drawdown_risk") or 0) * 0.16
+    )
+
+
+def research_queue_reason(row: dict[str, Any], constraints: list[str]) -> str:
+    reason = (
+        f"Fresh non-owned candidate with {row.get('risk_adjusted_expected_return', 0)}% risk-adjusted expected return, "
+        f"{row.get('evidence_quality', 0)} evidence quality, "
+        f"{row.get('signal_family_count', 0)} signal families, and "
+        f"{row.get('manager_count', 0)} tracked-manager signals."
+    )
+    if constraints:
+        reason += " Research blockers: " + ", ".join(constraints) + "."
+    return reason
 
 
 def trade_action_for_delta(delta: float, current: float, verdict: str) -> str:

@@ -70,17 +70,24 @@ no_add_symbols = []
 watch_only_symbols = []
 
 [llm]
-# Optional evidence-review layer. Disabled by default; it never ranks, sizes,
-# or executes trades. In shadow mode, reviews are recorded but do not affect
-# approval tickets. In review_gate mode, review_required=true adds a human
-# approval check only.
+# Optional LLM signal layer. Disabled by default; it never writes target
+# weights, deltas, trade actions, or live orders. In shadow mode, reviews are
+# recorded but do not affect scores or approval tickets. In review_gate mode,
+# review_required=true adds a human approval check only. In bounded_signal mode,
+# GPT-5.5 can adjust expected-return/evidence/risk features within caps before
+# deterministic sizing runs.
 enabled = false
 provider = "openai"
-model = "gpt-5-mini"
-reasoning_effort = "medium"
+model = "gpt-5.5"
+reasoning_effort = "high"
 api_key_env = "OPENAI_API_KEY"
 max_symbols_per_run = 12
 mode = "shadow"
+cache_enabled = true
+cache_path = "data/cache/llm_signal_cache.json"
+max_expected_return_delta = 6.0
+max_evidence_quality_delta = 10.0
+max_drawdown_risk_delta = 10.0
 
 [earnings]
 # Free-first provider layer. Manual dates and company IR feeds are treated as

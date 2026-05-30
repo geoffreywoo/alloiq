@@ -1473,6 +1473,11 @@ def public_trading_copy(value: Any) -> Any:
         ("research queue", "study queue"),
         ("Research", "Study"),
         ("research", "study"),
+        ("IBKR Flex", "private broker statement"),
+        ("IBKR", "private broker"),
+        ("ibkr", "private broker"),
+        ("Vanguard", "manual private import"),
+        ("vanguard", "manual private import"),
     )
     if isinstance(value, dict):
         return {key: public_trading_copy(item) for key, item in value.items()}

@@ -106,6 +106,20 @@ class SiteTests(unittest.TestCase):
                     "approval_required": True,
                     "order_execution": "none",
                 },
+                "pipeline": {
+                    "cadence": [
+                        {
+                            "kind": "postmarket",
+                            "purpose": "Pull the live IBKR Flex feed and optional Vanguard sleeve before publishing.",
+                        }
+                    ],
+                    "steps": [
+                        {
+                            "key": "broker_sync",
+                            "source": "IBKR Flex premarket and postmarket only plus optional Vanguard sleeves",
+                        }
+                    ],
+                },
                 "public_privacy": {"stripped_fields": ["quantity", "market_value"]},
             },
             "audit": {"source_freshness": [{"source": "broker_positions", "raw": {"account": "U123"}}]},
@@ -311,6 +325,8 @@ class SiteTests(unittest.TestCase):
         self.assertNotIn('"quantity"', json.dumps(public["methodology"]))
         self.assertNotIn("quantity", json.dumps(public["methodology"]))
         self.assertNotIn('"market_value"', json.dumps(public["methodology"]))
+        self.assertNotIn("IBKR", json.dumps(public["methodology"]))
+        self.assertNotIn("Vanguard", json.dumps(public["methodology"]))
         self.assertEqual(public["data_health"]["sources"][0]["source"], "position_snapshot")
         self.assertNotIn("raw", json.dumps(public["audit"]))
         self.assertNotIn("account", json.dumps(public["calendars"]))

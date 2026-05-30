@@ -165,6 +165,40 @@ class ResearchEngineTests(unittest.TestCase):
         self.assertEqual(examples[0]["external_provider_gap_severity_score"], 35.0)
         self.assertIn("estimated_earnings_confirmation_required", examples[0]["approval_data_friction_reasons"])
 
+    def test_external_provider_health_reaches_symbols_without_signal_rows(self):
+        features = build_feature_matrix(
+            date(2026, 5, 24),
+            self.sample_cards(),
+            {"by_symbol": [], "by_bucket": []},
+            {"focus_managers": []},
+            {"regime": "mixed macro tape", "scores": {}},
+            {},
+            [],
+            {
+                "status": "limited",
+                "symbols": ["NVDA", "CRWV"],
+                "provider_count": 6,
+                "provider_ok_count": 1,
+                "provider_ok_ratio": 0.1667,
+                "provider_gaps": [
+                    {"source": "alpha_vantage_news", "severity": "configuration_required"},
+                    {"source": "gdelt_global_news", "severity": "transient_network"},
+                ],
+                "by_symbol": {},
+            },
+        )
+
+        crwv = next(row for row in features["rows"] if row["symbol"] == "CRWV")
+        self.assertEqual(crwv["external_signal_score"], 0.0)
+        self.assertEqual(crwv["external_feed_status"], "limited")
+        self.assertEqual(crwv["external_provider_count"], 6)
+        self.assertEqual(crwv["external_provider_ok_count"], 1)
+        self.assertEqual(crwv["external_provider_gap_count"], 2)
+        self.assertEqual(crwv["external_provider_primary_gap_severity"], "configuration_required")
+        self.assertEqual(crwv["external_coverage_multiplier"], 0.25)
+        self.assertEqual(crwv["approval_data_friction_bucket"], "external_review")
+        self.assertIn("external_feed_reliability_review_required", crwv["approval_data_friction_reasons"])
+
     def test_fred_macro_stress_reaches_features_and_expected_returns(self):
         stressed = build_feature_matrix(
             date(2026, 5, 24),

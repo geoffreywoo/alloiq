@@ -377,6 +377,9 @@ def external_features_by_symbol(external_signals: dict[str, Any]) -> dict[str, d
         **external_provider_gap_features(external_signals),
     }
     normalized: dict[str, dict[str, Any]] = {}
+    for symbol in external_signals.get("symbols") or []:
+        for candidate in equivalent_symbols(str(symbol).upper()):
+            normalized[candidate] = dict(metadata)
     if isinstance(rows, dict):
         for symbol, row in rows.items():
             for candidate in equivalent_symbols(str(symbol).upper()):

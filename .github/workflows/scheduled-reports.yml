@@ -1,22 +1,6 @@
-name: Scheduled Reports
+name: Manual Reports
 
 on:
-  schedule:
-    - cron: "0 12 * * 1-5"
-    - cron: "0 13 * * 1-5"
-    - cron: "30 13 * * 1-5"
-    - cron: "0 14 * * 1-5"
-    - cron: "30 14 * * 1-5"
-    - cron: "0 15 * * 1-5"
-    - cron: "0 16 * * 1-5"
-    - cron: "0 17 * * 1-5"
-    - cron: "0 18 * * 1-5"
-    - cron: "0 19 * * 1-5"
-    - cron: "0 20 * * 1-5"
-    - cron: "30 20 * * 1-5"
-    - cron: "0 21 * * 1-5"
-    - cron: "30 21 * * 1-5"
-    - cron: "0 14 * * 0"
   workflow_dispatch:
     inputs:
       kind:
@@ -72,37 +56,15 @@ jobs:
       - name: Determine pipeline kind
         id: pipeline
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_SCHEDULE: ${{ github.event.schedule }}
           INPUT_KIND: ${{ inputs.kind }}
           INPUT_FORCE: ${{ inputs.force }}
         shell: bash
         run: |
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            echo "kind=$INPUT_KIND" >> "$GITHUB_OUTPUT"
-            echo "force=$INPUT_FORCE" >> "$GITHUB_OUTPUT"
-            echo "scheduled_at=" >> "$GITHUB_OUTPUT"
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "reason=manual dispatch" >> "$GITHUB_OUTPUT"
-          else
-            python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import os
-          from invest.scheduler import infer_scheduled_at_from_cron, kind_for_scheduled_at
-
-          scheduled_at = infer_scheduled_at_from_cron(os.environ["EVENT_SCHEDULE"])
-          kind = kind_for_scheduled_at(scheduled_at)
-          print(f"scheduled_at={scheduled_at.isoformat().replace('+00:00', 'Z')}")
-          print("force=false")
-          if kind:
-              print(f"kind={kind}")
-              print("should_run=true")
-              print(f"reason=scheduled {kind} slot")
-          else:
-              print("kind=noop")
-              print("should_run=false")
-              print("reason=no active ET report window for this seasonal duplicate slot")
-          PY
-          fi
+          echo "kind=$INPUT_KIND" >> "$GITHUB_OUTPUT"
+          echo "force=$INPUT_FORCE" >> "$GITHUB_OUTPUT"
+          echo "scheduled_at=" >> "$GITHUB_OUTPUT"
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "reason=manual dispatch" >> "$GITHUB_OUTPUT"
 
       - name: Materialize private config
         if: steps.pipeline.outputs.should_run == 'true'
@@ -139,12 +101,7 @@ jobs:
           cp web/data/latest.json web/data/reports.json /tmp/alloiq-web-check/data/
           python3 -m invest site build --privacy public --out-dir /tmp/alloiq-web-check
 
-      - name: Preserve previous public snapshot
-        if: steps.pipeline.outputs.should_run == 'true'
-        shell: bash
-        run: cp web/data/latest.json /tmp/alloiq-previous-latest.json || true
-
-      - name: Run scheduled pipeline
+      - name: Run manual pipeline
         id: scheduled_pipeline
         if: steps.pipeline.outputs.should_run == 'true'
         env:
@@ -155,7 +112,6 @@ jobs:
           EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
           FINRA_API_TOKEN: ${{ secrets.FINRA_API_TOKEN }}
           CFTC_APP_TOKEN: ${{ secrets.CFTC_APP_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         shell: bash
         run: |
           args=(--kind "${{ steps.pipeline.outputs.kind }}" --privacy public)
@@ -193,67 +149,5 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Update scheduled AlloIQ ${{ steps.pipeline.outputs.kind }} snapshot"
+          git commit -m "Update manual AlloIQ ${{ steps.pipeline.outputs.kind }} snapshot"
           git push
-
-      - name: Send Telegram briefing
-        if: steps.scheduled_pipeline.outputs.status == 'ran'
-        env:
-          ALLOIQ_TELEGRAM_BOT_TOKEN: ${{ secrets.ALLOIQ_TELEGRAM_BOT_TOKEN }}
-          ALLOIQ_TELEGRAM_CHAT_ID: ${{ secrets.ALLOIQ_TELEGRAM_CHAT_ID }}
-          PIPELINE_KIND: ${{ steps.pipeline.outputs.kind }}
-          PIPELINE_STATUS: ${{ steps.scheduled_pipeline.outputs.status }}
-          PIPELINE_REASON: ${{ steps.scheduled_pipeline.outputs.reason }}
-        shell: bash
-        run: |
-          if [[ -z "${ALLOIQ_TELEGRAM_BOT_TOKEN:-}" || -z "${ALLOIQ_TELEGRAM_CHAT_ID:-}" ]]; then
-            echo "Telegram briefing skipped: missing ALLOIQ_TELEGRAM_BOT_TOKEN or ALLOIQ_TELEGRAM_CHAT_ID."
-            exit 0
-          fi
-          if [[ "${{ steps.pipeline.outputs.kind }}" =~ ^(premarket|midday|postmarket|weekly)$ ]]; then
-            python3 -m invest notify \
-              --session "${{ steps.pipeline.outputs.kind }}" \
-              --channel telegram
-          else
-            python3 -m invest notify \
-              --session "${{ steps.pipeline.outputs.kind }}" \
-              --channel telegram \
-              --urgent-only \
-              --compare-to /tmp/alloiq-previous-latest.json
-          fi
-
-      - name: Send Telegram pipeline warning
-        if: steps.scheduled_pipeline.outputs.status != '' && steps.scheduled_pipeline.outputs.status != 'ran'
-        env:
-          ALLOIQ_TELEGRAM_BOT_TOKEN: ${{ secrets.ALLOIQ_TELEGRAM_BOT_TOKEN }}
-          ALLOIQ_TELEGRAM_CHAT_ID: ${{ secrets.ALLOIQ_TELEGRAM_CHAT_ID }}
-          PIPELINE_KIND: ${{ steps.pipeline.outputs.kind }}
-          PIPELINE_STATUS: ${{ steps.scheduled_pipeline.outputs.status }}
-          PIPELINE_REASON: ${{ steps.scheduled_pipeline.outputs.reason }}
-        shell: bash
-        run: |
-          if [[ -z "${ALLOIQ_TELEGRAM_BOT_TOKEN:-}" || -z "${ALLOIQ_TELEGRAM_CHAT_ID:-}" ]]; then
-            echo "Telegram pipeline warning skipped: missing ALLOIQ_TELEGRAM_BOT_TOKEN or ALLOIQ_TELEGRAM_CHAT_ID."
-            exit 0
-          fi
-          python3 - <<'PY'
-          import json
-          import os
-
-          from invest.notifications import send_telegram_message
-
-          kind = os.environ.get("PIPELINE_KIND", "scheduled")
-          status = os.environ.get("PIPELINE_STATUS", "unknown")
-          reason = os.environ.get("PIPELINE_REASON", "")
-          message = (
-              f"AlloIQ {kind} pipeline {status}\n"
-              f"Reason: {reason or 'No reason emitted.'}\n"
-              "No public snapshot was published; the existing site remains unchanged."
-          )
-          result = send_telegram_message(
-              os.environ["ALLOIQ_TELEGRAM_BOT_TOKEN"],
-              os.environ["ALLOIQ_TELEGRAM_CHAT_ID"],
-              message,
-          )
-          print(json.dumps(result, indent=2, sort_keys=True))
-          PY

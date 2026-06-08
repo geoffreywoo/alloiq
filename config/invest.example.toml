@@ -16,13 +16,12 @@ market_close_time = "16:00"
 postmarket_time = "17:00"
 
 [notifications]
-# Sends compact report briefings after scheduled runs when the required channel
-# secrets are present in the environment. Secrets must never be committed.
-enabled = true
+# Chat delivery is disabled by default. Secrets must never be committed.
+enabled = false
 site_url = "https://alloiq.com"
 
 [notifications.telegram]
-enabled = true
+enabled = false
 bot_token_env = "ALLOIQ_TELEGRAM_BOT_TOKEN"
 chat_id_env = "ALLOIQ_TELEGRAM_CHAT_ID"
 timeout_seconds = 10

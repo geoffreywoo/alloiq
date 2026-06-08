@@ -163,9 +163,10 @@ premarket and postmarket. Market-open, intraday, midday, market-close, and
 Sunday weekly reports reuse the latest stored broker positions to avoid
 unnecessary API calls.
 
-## Scheduled Live Updates
+## Manual Live Updates
 
-The GitHub Actions scheduler runs the private pipeline and commits only the
+Automated GitHub Actions schedules are disabled. The private pipeline can still
+be run manually with `workflow_dispatch`; successful manual runs commit only the
 sanitized public data snapshot in `web/data/`:
 
 ```bash
@@ -178,7 +179,8 @@ python3 -m invest pipeline --kind postmarket --privacy public
 python3 -m invest pipeline --kind weekly --privacy public
 ```
 
-Schedules are defined in `.github/workflows/scheduled-reports.yml`:
+The former schedule windows are retained in the scheduler for manual or local
+runs:
 
 - Premarket: 8:00 AM ET on NYSE trading days.
 - Market open: 9:30 AM ET on NYSE trading days.
@@ -189,15 +191,10 @@ Schedules are defined in `.github/workflows/scheduled-reports.yml`:
 - Weekly idea research: Sunday morning ET.
 
 Live IBKR Flex checks are limited to the weekday premarket and postmarket slots.
-All other scheduled slots still refresh filings, public market data, catalysts,
-reports, and the public site from the latest stored broker snapshot.
-
-The workflow uses UTC cron slots that cover both daylight saving and standard
-time. It derives the intended cron slot before calling the Python scheduler, so
-late GitHub Actions starts still evaluate the intended ET report window instead
-of the delayed runner start time. Seasonal duplicate slots no-op before secrets,
-pipeline, or Telegram delivery. Manual runs can use `workflow_dispatch` with
-`force=true`.
+All other report kinds reuse the latest stored broker positions to avoid
+unnecessary API calls. The manual workflow does not pass `OPENAI_API_KEY` into
+the pipeline, so repository Actions cannot run the optional LLM signal layer.
+Local runs can still use the normal environment when deliberately enabled.
 
 Required GitHub repository secrets:
 
@@ -212,42 +209,20 @@ Optional data-source secrets:
   provider for 3/6/12 month expected earnings dates. Without it, AlloIQ still
   uses manual dates, company IR RSS/Atom feeds, Nasdaq's public earnings
   calendar fallback, SEC result markers, and news-derived catalyst detection.
-- `OPENAI_API_KEY`: enables the optional LLM signal layer when `[llm].enabled =
-  true` in `ALLOIQ_CONFIG_TOML`. Use `[llm].mode = "shadow"` to record reviews
-  without changing scores, `review_gate` to add human-review blockers, or
-  `bounded_signal` to let GPT-5.5 adjust expected-return/evidence/risk features
-  within configured caps before deterministic sizing runs. Responses requests
-  use structured JSON output and `store=false`; validated rows can be cached by
-  evidence ID without storing raw prompts or packets. Private-context production
-  use should prefer Zero Data Retention or Modified Abuse Monitoring where
-  available.
+- `OPENAI_API_KEY`: local-only escape hatch for the optional LLM signal layer
+  when `[llm].enabled = true`. The manual GitHub Actions report workflow does
+  not pass this secret to the pipeline.
 
-Optional briefing delivery secrets:
-
-- `ALLOIQ_TELEGRAM_BOT_TOKEN`: Telegram bot token from BotFather.
-- `ALLOIQ_TELEGRAM_CHAT_ID`: destination chat id after the user sends the bot
-  an initial message.
-
-Telegram delivery runs after the scheduled report if both secrets are present:
+Telegram chat delivery is disabled in GitHub Actions and disabled by default in
+`config/invest.example.toml`. The notifier remains available only for deliberate
+local/manual dry runs:
 
 ```bash
 python3 -m invest notify --session premarket --channel telegram --dry-run
-python3 -m invest notify --session midday --channel telegram
-python3 -m invest notify --session postmarket --channel telegram
-python3 -m invest notify --session weekly --channel telegram
-python3 -m invest notify --session intraday --channel telegram --urgent-only --compare-to web/data/latest.json
 ```
 
-The message is generated from the latest private report JSON and includes only
-weights, add/trim deltas, expected-return estimates, catalysts, constraints,
-data health, and an AlloIQ link. It does not publish quantities, account values,
-broker names, cost basis, raw account ids, or tokens.
-
-Regular Telegram briefings are sent for premarket, midday, postmarket, and
-weekly runs. Market-open, hourly intraday, and market-close runs update the
-website but only send Telegram when a new urgent trigger appears, such as a
-high-confidence add/trim above the urgent sizing threshold or a material risk
-move in a large holding.
+Do not add `ALLOIQ_TELEGRAM_BOT_TOKEN` or `ALLOIQ_TELEGRAM_CHAT_ID` to the
+report workflow environment unless chat delivery is intentionally restored.
 
 The workflow never commits `.env`, `config/invest.toml`, `data/`, or `reports/`.
 It runs tests, builds the public site, scans for private fields, and commits only
